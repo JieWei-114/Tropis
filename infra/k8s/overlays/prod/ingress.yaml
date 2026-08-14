@@ -1,0 +1,46 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  namespace: tropis
+  annotations:
+    # cert-manager issues a Let's Encrypt TLS certificate automatically
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # NGINX-specific — remove if using a different ingress controller
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # Upgrade WebSocket connections (Socket.io)
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+spec:
+  ingressClassName: nginx   # change to alb / traefik if using a different controller
+  tls:
+    - hosts:
+        - yourdomain.com          # ← replace
+        - api.yourdomain.com      # ← replace
+      secretName: app-tls-cert    # cert-manager writes the certificate here
+  rules:
+    # Frontend
+    - host: yourdomain.com        # ← replace
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-svc
+                port:
+                  number: 80
+    # Backend API + WebSocket
+    - host: api.yourdomain.com    # ← replace
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend-svc
+                port:
+                  number: 3100

@@ -1,0 +1,18 @@
+{
+  "name": "@tropis/desktop",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Tauri v2 desktop shell wrapping the built frontend (frontend/helm/dist)",
+  "scripts": {
+    "tauri": "tauri",
+    "build": "tauri build",
+    "build:debug": "tauri build --debug",
+    "check": "cd src-tauri && cargo check"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

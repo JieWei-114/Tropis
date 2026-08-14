@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Tropis</string>
+    <string name="title_activity_main">Tropis</string>
+    <string name="package_name">dev.tropis.app</string>
+    <string name="custom_url_scheme">dev.tropis.app</string>
+</resources>

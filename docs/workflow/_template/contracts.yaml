@@ -1,0 +1,24 @@
+# Contracts agreed BEFORE implementation. Frozen once approved;
+# changes after freeze follow docs/api-versioning.md add-only rules.
+
+grpc:
+  # - service: app.<domain>.v1.<Service>
+  #   rpc: <Name>
+  #   request: { field: type }
+  #   response: { field: type }
+
+rest:
+  # - method: POST
+  #   path: /api/v1/<...>
+  #   auth: jwt | signature | public
+  #   request: { field: type }
+  #   response: { field: type }
+
+events:
+  # - name: <domain>.<entity>.<action>
+  #   topic: persistent://public/default/<topic>
+  #   payload: { field: type }
+
+storage:
+  # - store: mongo | postgres | clickhouse
+  #   change: <table/collection + delta>

@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - networkpolicy.yaml
+  - backend/deployment.yaml
+  - backend/service.yaml
+  - backend/configmap.yaml
+  # Placeholder Secret for dev clusters. For production, remove the line
+  # below and add backend/external-secret.yaml instead (requires External
+  # Secrets Operator + Vault — see header of backend/external-secret.yaml).
+  - backend/secret.yaml
+  # - backend/external-secret.yaml
+  - backend/pdb.yaml
+  - frontend/deployment.yaml
+  - frontend/service.yaml
+  - frontend/pdb.yaml
+  # Nightly DB backup CronJobs (template — needs PVC/S3 config first, see
+  # header of backup/cronjob.yaml, then uncomment):
+  # - backup/cronjob.yaml

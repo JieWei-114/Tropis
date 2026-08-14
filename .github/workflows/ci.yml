@@ -1,0 +1,657 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # ── Backend ────────────────────────────────────────────────────────
+  backend:
+    name: Backend — lint, test, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Architecture check (dependency-cruiser)
+        run: pnpm lint:arch
+
+      - name: Type check
+        run: pnpm exec tsc --noEmit
+
+      - name: Unit tests with coverage
+        run: pnpm test --coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: apps/backend/coverage/
+
+      - name: Dependency audit
+        run: pnpm audit --audit-level=high
+
+      - name: Build
+        run: pnpm build
+
+  # ── Backend integration tests ──────────────────────────────────────
+  # Testcontainers spins up real MongoDB (single-node replica set) and
+  # Redis containers per suite — Docker is available natively on
+  # ubuntu-latest runners, no compose stack needed.
+  integration:
+    name: Backend — integration tests (Testcontainers)
+    runs-on: ubuntu-latest
+    needs: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run integration tests
+        run: pnpm --filter @tropis/backend test:int
+        timeout-minutes: 20
+
+  # ── Frontend ───────────────────────────────────────────────────────
+  frontend:
+    name: Frontend — lint, type check, test, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/helm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      # Frontend imports constants from @tropis/shared, whose types resolve from dist/
+      - name: Build shared package
+        run: pnpm --filter @tropis/shared build
+        working-directory: .
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Architecture check (dependency-cruiser)
+        run: pnpm lint:arch
+
+      - name: Type check
+        run: pnpm exec tsc --noEmit
+
+      - name: Unit tests with coverage
+        run: pnpm test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-coverage
+          path: frontend/helm/coverage/
+
+      - name: Dependency audit
+        run: pnpm audit --audit-level=high
+
+      - name: Build
+        run: pnpm build
+
+  # ── Desktop shell (Tauri v2) ───────────────────────────────────────
+  # Compiles the Tauri shell at apps/desktop/src-tauri against the built
+  # frontend. `--no-bundle` skips installer packaging (dmg/deb/AppImage) —
+  # a full compile is enough to catch regressions and keeps the job fast.
+  # An Android scaffold-check job is deliberately NOT added: `cap sync`
+  # alone is near-trivial (asset copy) and a real Gradle build needs the
+  # Android SDK — poor signal per CI minute. See docs/multi-platform.md.
+  desktop:
+    name: Desktop — Tauri build (no bundle)
+    runs-on: ubuntu-latest
+    needs: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri v2 system dependencies (webkit2gtk etc.)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm --filter @tropis/shared build
+
+      # beforeBuildCommand runs `pnpm --filter @tropis/helm build` for us
+      - name: Tauri build (compile only)
+        run: pnpm --filter @tropis/desktop exec tauri build --no-bundle
+
+  # ── Rust services ──────────────────────────────────────────────────
+  # Polyglot services in the Cargo workspace at services/rust/ — currently the
+  # signing service. Includes the shared HMAC test vector that must stay
+  # in sync with the TS backend guard and SDK signing suites.
+  rust:
+    name: Rust — fmt, clippy, test (services/rust/ workspace)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/rust
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc (tonic-prost-build shells out to it)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        working-directory: .
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: services/rust
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace
+
+  # ── Docker images — build + vulnerability scan ─────────────────────
+  # Builds both production images (no push) and scans them with Trivy.
+  # Fails on CRITICAL/HIGH vulnerabilities that have an available fix.
+  docker:
+    name: Docker — build & Trivy scan
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/backend/Dockerfile
+          push: false
+          load: true
+          tags: ci-backend:${{ github.sha }}
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: frontend/helm/Dockerfile
+          push: false
+          load: true
+          tags: ci-frontend:${{ github.sha }}
+
+      - name: Scan backend image (Trivy)
+        uses: aquasecurity/trivy-action@v0.33.1
+        with:
+          image-ref: ci-backend:${{ github.sha }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Scan frontend image (Trivy)
+        uses: aquasecurity/trivy-action@v0.33.1
+        with:
+          image-ref: ci-frontend:${{ github.sha }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      # ── SBOM generation (supply-chain transparency) ──────────────────
+      # Syft generates an SPDX SBOM for each image; the action uploads
+      # them as workflow artifacts automatically.
+      - name: Generate backend SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ci-backend:${{ github.sha }}
+          format: spdx-json
+          output-file: backend-sbom.spdx.json
+          artifact-name: backend-sbom.spdx.json
+          upload-release-assets: false
+
+      - name: Generate frontend SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ci-frontend:${{ github.sha }}
+          format: spdx-json
+          output-file: frontend-sbom.spdx.json
+          artifact-name: frontend-sbom.spdx.json
+          upload-release-assets: false
+
+  # ── Dependency license compliance ──────────────────────────────────
+  # Fails if any (non-private) dependency ships under GPL-3.0/AGPL-3.0 —
+  # copyleft licenses incompatible with proprietary distribution.
+  licenses:
+    name: Dependency license check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check dependency licenses
+        run: npx license-checker-rseidelsohn --summary --excludePrivatePackages --failOn 'GPL-3.0;AGPL-3.0'
+
+  # ── Shared package ─────────────────────────────────────────────────
+  shared:
+    name: Shared — type check, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/shared
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      - name: Build
+        run: pnpm build
+
+  # ── Flink ──────────────────────────────────────────────────────────
+  flink:
+    name: Flink — compile
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: flink
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: 11
+          distribution: temurin
+          cache: maven
+
+      - name: Compile
+        run: mvn clean compile -q
+
+  # ── E2E tests ──────────────────────────────────────────────────────
+  # Spins up the full infrastructure via docker compose, waits for all
+  # services to be healthy, then runs the e2e suite against the live app.
+  e2e:
+    name: E2E — full stack integration
+    runs-on: ubuntu-latest
+    needs: [backend, frontend, shared]   # only run if all unit tests and builds pass
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Start everything the backend's /api/health indicators probe (mongo, redis,
+      # postgres, ES, clickhouse, pulsar, minio, temporal, opa, vault) plus envoy so
+      # the browser's gRPC-Web calls (login/users) reach the host backend on :50051
+      # via host.docker.internal (host-gateway extra_hosts in compose).
+      - name: Start infrastructure
+        run: docker compose -f infra/docker/docker-compose.yml up -d mongodb redis postgres elasticsearch clickhouse pulsar minio mailhog vault vault-init aerospike opa postgresql-temporal temporal envoy
+
+      - name: Wait for core services
+        run: |
+          echo "Waiting for MongoDB..."
+          until docker exec tropis_mongodb mongosh --eval "db.adminCommand('ping')" >/dev/null 2>&1; do sleep 2; done
+          echo "Waiting for Redis..."
+          until docker exec tropis_redis redis-cli ping >/dev/null 2>&1; do sleep 2; done
+          echo "Waiting for PostgreSQL..."
+          until docker exec tropis_postgres pg_isready -U tropis >/dev/null 2>&1; do sleep 2; done
+          echo "Waiting for Elasticsearch..."
+          until curl -sf http://localhost:9200/_cluster/health >/dev/null 2>&1; do sleep 3; done
+          echo "All core services ready."
+
+      - name: Copy env
+        run: cp apps/backend/.env.example apps/backend/.env
+
+      - name: Run E2E tests
+        working-directory: apps/backend
+        run: pnpm test:e2e
+        env:
+          NODE_ENV: test
+          MONGODB_URI: mongodb://localhost:27018/tropis_test?directConnection=true
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: tropis
+          POSTGRES_PASSWORD: tropis_dev_password
+          POSTGRES_DB: tropis
+          ELASTICSEARCH_NODE: http://localhost:9200
+          JWT_SECRET: ci-test-secret-32-chars-minimum!!
+          PULSAR_SERVICE_URL: pulsar://localhost:6650
+
+      # ── Playwright browser E2E ─────────────────────────────────────
+      # Assumptions:
+      #  - compose maps mongo to host port 27018; the replica set advertises
+      #    "mongodb:27017" which the host can't resolve, so we connect with
+      #    directConnection=true (single-node RS is fine for this).
+      #  - .env.example (copied above) covers everything else; we only
+      #    override values that differ in CI.
+      #  - frontend is served with `vite preview` on :5173 for determinism;
+      #    Playwright never starts servers itself (no webServer in config).
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: e2e
+
+      - name: Build backend
+        run: pnpm --filter @tropis/backend build
+
+      - name: Start backend (background)
+        run: |
+          nohup pnpm --filter @tropis/backend start > backend-e2e.log 2>&1 &
+          echo "backend started"
+        env:
+          NODE_ENV: production
+          PORT: 3100
+          GRPC_PORT: 50051
+          CORS_ORIGIN: http://localhost:5173
+          MONGODB_URI: mongodb://localhost:27018/tropis?directConnection=true
+          REDIS_HOST: localhost
+          POSTGRES_HOST: localhost
+          POSTGRES_USER: tropis
+          POSTGRES_PASSWORD: tropis_dev_password
+          POSTGRES_DB: tropis
+          ELASTICSEARCH_NODE: http://localhost:9200
+          CLICKHOUSE_HOST: http://localhost:8123
+          PULSAR_SERVICE_URL: pulsar://localhost:6650
+          JWT_SECRET: ci-test-secret-32-chars-minimum!!
+
+      - name: Wait for backend health
+        run: |
+          echo "Waiting for http://localhost:3100/api/health ..."
+          for i in $(seq 1 90); do
+            curl -sf http://localhost:3100/api/health >/dev/null 2>&1 && { echo "backend healthy"; exit 0; }
+            sleep 2
+          done
+          echo "backend never became healthy"; tail -100 backend-e2e.log; exit 1
+
+      - name: Build & serve frontend (preview on :5173)
+        run: |
+          pnpm --filter @tropis/helm build
+          nohup pnpm --filter @tropis/helm preview --port 5173 --strictPort > frontend-e2e.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:5173 >/dev/null 2>&1 && break; sleep 1; done
+        env:
+          VITE_GRPC_WEB_URL: http://localhost:8090   # Envoy gRPC-Web port from compose
+          VITE_API_BASE_URL: http://localhost:3100
+          VITE_WS_URL: http://localhost:3100
+
+      - name: Run Playwright E2E
+        run: pnpm --filter @tropis/e2e exec playwright test
+        env:
+          E2E_BASE_URL: http://localhost:5173
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: e2e/report/
+
+      - name: Dump server logs on failure
+        if: failure()
+        run: |
+          echo "── backend ──"; tail -200 backend-e2e.log || true
+          echo "── frontend ──"; tail -100 frontend-e2e.log || true
+
+      - name: Stop infrastructure
+        if: always()
+        run: docker compose -f infra/docker/docker-compose.yml down
+
+  # ── Secret scanning ────────────────────────────────────────────────
+  # Scans every commit in the PR for accidentally committed secrets
+  # (API keys, JWTs, DB passwords, private keys).
+  # Gitleaks is free and open-source — no external service needed.
+  secrets:
+    name: Secret scanning — Gitleaks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so Gitleaks can diff against base branch
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── SAST ───────────────────────────────────────────────────────────
+  # CodeQL analyses TypeScript source for security vulnerabilities —
+  # injection flaws, prototype pollution, insecure deserialization, etc.
+  # Free via GitHub. Findings appear in the Security tab and block the check.
+  codeql:
+    name: SAST — CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-and-quality
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Run CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+
+  # ── SonarCloud ─────────────────────────────────────────────────────
+  # Code quality: smells, duplication, coverage trend, security hotspots.
+  # Free for public repos. Requires SONAR_TOKEN secret in repo settings.
+  # Sign up at https://sonarcloud.io — link your GitHub org, grab the token.
+  sonarcloud:
+    name: Code quality — SonarCloud
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]   # wait for both coverage reports to be uploaded
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for accurate blame and new-code analysis
+
+      - name: Download backend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: apps/backend/coverage/
+
+      - name: Download frontend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/helm/coverage/
+
+      - name: SonarCloud scan
+        # sonarcloud-github-action is deprecated/archived; sonarqube-scan-action
+        # is the official replacement and works for both SonarCloud and SonarQube.
+        uses: SonarSource/sonarqube-scan-action@v8.2.1
+        with:
+          # Fail this job (and CI) when the SonarCloud quality gate fails.
+          args: >
+            -Dsonar.qualitygate.wait=true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          # Required by the generic scan action; the old SonarCloud-specific
+          # action defaulted this.
+          SONAR_HOST_URL: https://sonarcloud.io
+
+  # ── Proto contracts ────────────────────────────────────────────────
+  proto:
+    name: Proto — buf lint & breaking
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needed for buf breaking --against the base branch
+
+      - uses: bufbuild/buf-setup-action@v1
+
+      - name: Lint protos
+        run: buf lint
+
+      # Breaking-change detection only makes sense against an existing base;
+      # guard on pull_request so pushes to a fresh repo don't fail.
+      - name: Breaking change check
+        if: github.event_name == 'pull_request'
+        run: buf breaking --against '.git#branch=main'
+
+  # ── Lighthouse CI ──────────────────────────────────────────────────
+  # Scores all five audit categories (Performance, Accessibility, Best
+  # Practices, SEO, PWA) on the built frontend. Assertions are non-blocking
+  # ('warn') for now — see frontend/helm/.lighthouserc.json to enforce.
+  lighthouse:
+    name: Lighthouse CI — perf, a11y, best-practices, SEO
+    runs-on: ubuntu-latest
+    needs: [frontend]
+    defaults:
+      run:
+        working-directory: frontend/helm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      - name: Build shared package
+        run: pnpm --filter @tropis/shared build
+        working-directory: .
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Run Lighthouse CI
+        run: pnpm dlx @lhci/cli@0.14.x autorun --config=.lighthouserc.json

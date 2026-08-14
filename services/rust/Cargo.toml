@@ -1,0 +1,33 @@
+# Cargo workspace for the Rust services under services/rust/.
+# One member per deployable service; shared dependency versions are hoisted
+# into [workspace.dependencies] so every service builds against the same
+# tonic/prost/tokio stack. Single Cargo.lock + target/ live here.
+[workspace]
+members = ["signing"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+tonic = "0.14"
+tonic-prost = "0.14"
+tonic-health = "0.14"
+tonic-prost-build = "0.14"
+prost = "0.14"
+tokio = { version = "1.47", features = ["macros", "rt-multi-thread", "signal"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+subtle = "2.6"
+serde_json = "1.0"
+
+# Release profile applies workspace-wide (Cargo only honours profiles at the
+# workspace root).
+[profile.release]
+lto = true
+strip = true

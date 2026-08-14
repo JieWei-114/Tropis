@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "exclude": [
+    "node_modules",
+    "test",
+    "dist",
+    "**/*spec.ts",
+    // Dev scripts run via ts-node/tsx, never from dist — including them here
+    // would also shift the output layout to dist/src/ and break `node dist/main`.
+    "scripts"
+  ]
+}

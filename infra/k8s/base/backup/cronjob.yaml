@@ -1,0 +1,117 @@
+# ══════════════════════════════════════════════════════════════════════════
+# ⚠️  TEMPLATE — nightly database backup CronJobs (MongoDB + PostgreSQL)
+#
+# NOT registered in kustomization.yaml by default (same pattern as the ESO
+# external-secret.yaml) because it needs environment-specific storage config
+# before it is useful:
+#   1. Either create the `backup-pvc` PersistentVolumeClaim below (adjust
+#      storageClassName/size), OR delete the PVC + volume blocks and rely on
+#      the `mc` S3 upload step (fill in the `backup-s3` Secret).
+#   2. Point MONGO_URI / PG* at your real in-cluster services or managed DBs
+#      (values below assume services named `mongodb` and `postgres` in the
+#      `tropis` namespace).
+#   3. Uncomment `- backup/cronjob.yaml` in infra/k8s/base/kustomization.yaml.
+#
+# ClickHouse is intentionally omitted here: in K8s use the ClickHouse
+# operator's built-in `BACKUP ... TO S3(...)` or clickhouse-backup sidecar.
+# ══════════════════════════════════════════════════════════════════════════
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-pvc
+  namespace: tropis
+spec:
+  accessModes: [ReadWriteOnce]
+  # storageClassName: standard   # set for your cluster
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mongodb-backup
+  namespace: tropis
+spec:
+  schedule: '0 3 * * *'   # daily 03:00 (cluster TZ, usually UTC)
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: mongodump
+              image: mongo:7
+              command: ['/bin/sh', '-c']
+              args:
+                - |
+                  set -eu
+                  TS=$(date -u +%Y%m%d-%H%M%S)
+                  mongodump --uri="$MONGO_URI" --archive --gzip \
+                    > /backups/mongodb-$TS.archive.gz
+                  # Retention: keep 14 days locally
+                  find /backups -name 'mongodb-*.archive.gz' -mtime +14 -delete
+                  # Optional S3 upload (requires an mc-equipped image or initContainer):
+                  # mc alias set s3 "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY"
+                  # mc cp /backups/mongodb-$TS.archive.gz s3/backups/
+              env:
+                - name: MONGO_URI
+                  value: 'mongodb://mongodb.tropis.svc.cluster.local:27017/tropis'
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: backup-pvc
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: tropis
+spec:
+  schedule: '0 3 * * *'
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: pg-dump
+              image: postgres:16-alpine
+              command: ['/bin/sh', '-c']
+              args:
+                - |
+                  set -eu
+                  TS=$(date -u +%Y%m%d-%H%M%S)
+                  pg_dump -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -Fc \
+                    > /backups/postgres-$TS.dump
+                  find /backups -name 'postgres-*.dump' -mtime +14 -delete
+              env:
+                - name: PGHOST
+                  value: 'postgres.tropis.svc.cluster.local'
+                - name: PGUSER
+                  value: 'tropis'
+                - name: PGDATABASE
+                  value: 'tropis'
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: backend-secret   # or a dedicated backup credentials secret
+                      key: POSTGRES_PASSWORD
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: backup-pvc

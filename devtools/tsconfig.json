@@ -1,0 +1,16 @@
+{
+  // One config for all devtools. Bundler resolution because sdk-repl.ts
+  // imports the ESM @tropis/sdk TypeScript source, whose extensionless relative
+  // imports need it (tsx resolves the same way at runtime).
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "ES2023",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -1,0 +1,55 @@
+# Alertmanager configuration
+#
+# Default receiver is Slack (international default). Replace the placeholder
+# api_url below with your real webhook. Alertmanager does NOT expand
+# environment variables in this file — either template it at deploy time
+# (envsubst / CI) or paste the URL directly:
+#
+#   export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T000/B000/XXXX
+#   envsubst < alertmanager.yml.tpl > alertmanager.yml
+#
+# UI: http://localhost:9093 (compose `observability` profile).
+
+route:
+  receiver: slack
+  # Alerts with the same alertname are batched into one notification.
+  group_by: ['alertname']
+  group_wait: 30s        # wait for more alerts of the same group before first notify
+  group_interval: 5m     # min time between updates for an already-firing group
+  repeat_interval: 4h    # re-notify a still-firing alert every 4h (not every eval)
+
+receivers:
+  - name: slack
+    slack_configs:
+      # ── SLACK_WEBHOOK_URL placeholder — replace before use ──────────
+      - api_url: 'https://hooks.slack.com/services/REPLACE/WITH/SLACK_WEBHOOK_URL'
+        channel: '#alerts'
+        send_resolved: true
+        title: '{{ .Status | toUpper }} {{ .CommonLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}*{{ .Labels.severity | toUpper }}* {{ .Annotations.summary }}
+          {{ .Annotations.description }}
+          {{ end }}
+
+  # ── Generic webhook receiver (example, disabled) ────────────────────
+  # Works for PagerDuty (Events API proxy), Feishu/Lark, DingTalk, Opsgenie,
+  # or any HTTP endpoint — just swap the URL (most chat vendors provide an
+  # "incoming webhook" URL that accepts Alertmanager's JSON, or put a small
+  # adapter like prometheus-webhook-dingtalk / feishu-alert in front).
+  #
+  # - name: webhook
+  #   webhook_configs:
+  #     - url: 'https://your-endpoint.example.com/alertmanager'
+  #       send_resolved: true
+  #
+  # Then route selected alerts to it:
+  #   route:
+  #     routes:
+  #       - receiver: webhook
+  #         matchers: ['severity="critical"']
+
+inhibit_rules:
+  # A critical alert on an instance silences warnings for the same alertname.
+  - source_matchers: ['severity="critical"']
+    target_matchers: ['severity="warning"']
+    equal: ['alertname', 'instance']

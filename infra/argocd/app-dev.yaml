@@ -1,0 +1,30 @@
+# OPTIONAL — Argo CD Application for a dev cluster, pointing at the kustomize
+# base (infra/k8s). Only apply this if you run a separate dev cluster/context.
+# ⚠️ Replace the placeholder repo URL: https://github.com/tropis/tropis.git
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tropis-dev
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: tropis
+
+  source:
+    repoURL: https://github.com/tropis/tropis.git # ← placeholder — replace
+    targetRevision: main
+    path: infra/k8s # base — no prod overlay
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tropis
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+
+  revisionHistoryLimit: 10

@@ -1,0 +1,66 @@
+groups:
+  - name: availability
+    rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Instance {{ $labels.instance }} (job {{ $labels.job }}) is down'
+          description: 'Prometheus has been unable to scrape {{ $labels.instance }} for more than 2 minutes.'
+
+  - name: nodejs-runtime
+    rules:
+      - alert: HighEventLoopLag
+        expr: nodejs_eventloop_lag_p99_seconds{job="nestjs"} > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'High event-loop lag on {{ $labels.instance }}'
+          description: 'p99 event-loop lag is {{ $value | humanizeDuration }} (> 200ms) for 5 minutes. The Node.js process is likely CPU-bound or blocked.'
+
+      - alert: HighHeapUsage
+        expr: nodejs_heap_size_used_bytes{job="nestjs"} / nodejs_heap_size_total_bytes{job="nestjs"} > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Heap usage above 90% on {{ $labels.instance }}'
+          description: 'V8 heap used is {{ $value | humanizePercentage }} of total heap for 5 minutes — risk of GC thrash / OOM.'
+
+      - alert: HighResidentMemory
+        expr: process_resident_memory_bytes{job="nestjs"} > 1.5e9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'RSS above 1.5 GiB on {{ $labels.instance }}'
+          description: 'Resident memory is {{ $value | humanize1024 }}B for 10 minutes.'
+
+  - name: http
+    rules:
+      - alert: HighHttp5xxRate
+        expr: |
+          sum(rate(http_requests_total{job="nestjs", status_code=~"5.."}[5m]))
+            /
+          sum(rate(http_requests_total{job="nestjs"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'HTTP 5xx error rate above 5%'
+          description: '{{ $value | humanizePercentage }} of requests are failing with 5xx over the last 5 minutes.'
+
+      - alert: HighHttpLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{job="nestjs"}[5m]))
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'HTTP p95 latency above 1s'
+          description: 'p95 request duration is {{ $value | humanizeDuration }} over the last 5 minutes.'

@@ -1,0 +1,32 @@
+# Argo CD Application — production. Watches infra/k8s/overlays/prod and keeps
+# the cluster in sync with git (prune + self-heal). CI only has to commit the
+# new image tag (kustomize edit set image) — Argo does the rollout.
+# ⚠️ Replace the placeholder repo URL: https://github.com/tropis/tropis.git
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tropis-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io # cascade-delete managed resources
+spec:
+  project: tropis
+
+  source:
+    repoURL: https://github.com/tropis/tropis.git # ← placeholder — replace
+    targetRevision: main
+    path: infra/k8s/overlays/prod
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tropis
+
+  syncPolicy:
+    automated:
+      prune: true # delete resources removed from git
+      selfHeal: true # revert manual kubectl drift back to git
+    syncOptions:
+      - CreateNamespace=true
+
+  # Keep the last 10 synced revisions for one-click rollback in the UI
+  revisionHistoryLimit: 10

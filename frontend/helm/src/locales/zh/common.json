@@ -1,0 +1,167 @@
+{
+  "common": {
+    "loading": "加载中…",
+    "refresh": "↺ 刷新",
+    "checking": "检查中…",
+    "save": "保存",
+    "saving": "保存中…",
+    "create": "创建",
+    "cancel": "取消",
+    "confirm": "确认",
+    "edit": "编辑",
+    "delete": "删除",
+    "genericError": "出错了，请稍后重试"
+  },
+  "nav": {
+    "analytics": "📊 数据分析",
+    "users": "👤 用户",
+    "stack": "🛠 技术栈",
+    "state": "⚡ 状态管理",
+    "behavior": "🧭 用户行为",
+    "wsLive": "已连接",
+    "wsConnecting": "连接中…",
+    "language": "切换语言",
+    "skipToContent": "跳转到正文"
+  },
+  "theme": {
+    "light": "浅色主题",
+    "dark": "深色主题",
+    "system": "跟随系统",
+    "choose": "点击选择"
+  },
+  "toasts": {
+    "newUserTitle": "新用户",
+    "newUserJoined": "{{name}} 刚刚加入",
+    "someone": "有人",
+    "userUpdatedTitle": "用户已更新",
+    "userUpdatedBody": "{{name}} 的资料已修改",
+    "aUser": "某位用户",
+    "notification": "通知",
+    "dismiss": "关闭通知"
+  },
+  "analytics": {
+    "title": "分析仪表盘",
+    "subtitle": "端到端链路：MongoDB → Pulsar → Processor → ClickHouse → Redis 缓存 → gRPC → 前端",
+    "refreshStats": "↺ 刷新统计",
+    "fireEvents": "触发事件",
+    "userId": "用户 ID",
+    "userIdPlaceholder": "user_123",
+    "sending": "发送中…",
+    "sent": "已发送：",
+    "events": {
+      "pageView": "📄 页面浏览",
+      "buttonClick": "🖱️ 按钮点击",
+      "apiCall": "⚡ API 调用",
+      "error": "🔴 错误",
+      "purchase": "💳 购买"
+    },
+    "stats": {
+      "totalEvents": "事件总数（24 小时）",
+      "uniqueTypes": "事件类型数",
+      "lastEvent": "最近事件",
+      "redisCache": "Redis 缓存",
+      "hit": "✅ 命中",
+      "miss": "🔄 未命中",
+      "cachedAt": "缓存于 {{time}}"
+    },
+    "liveFeed": "实时事件流",
+    "waitingForEvents": "等待事件中…"
+  },
+  "auth": {
+    "signIn": "登录",
+    "register": "注册",
+    "name": "姓名",
+    "age": "年龄",
+    "email": "邮箱",
+    "password": "密码",
+    "signingIn": "登录中…",
+    "creatingAccount": "创建账号中…",
+    "createAccountAndSignIn": "创建账号并登录",
+    "validation": {
+      "nameRequired": "请输入姓名",
+      "emailInvalid": "请输入有效的邮箱地址",
+      "passwordMin6": "密码至少需要 6 个字符",
+      "ageRange": "年龄必须在 1 到 120 之间"
+    }
+  },
+  "users": {
+    "title": "用户",
+    "newUser": "+ 新建用户",
+    "logout": "退出登录",
+    "searchPlaceholder": "按姓名或邮箱搜索（Elasticsearch 模糊匹配）…",
+    "noUsers": "暂无用户。",
+    "showingSimilar": "正在显示相似用户",
+    "clearSimilar": "✕ 清除",
+    "similarFooter": "pgvector 余弦相似度 — 找到 {{total}} 个最近邻",
+    "actions": {
+      "created": "已创建 {{name}}",
+      "updated": "已更新 {{name}}",
+      "deleted": "已删除 {{name}}",
+      "avatarUploaded": "🖼 已为 {{name}} 上传头像",
+      "showingSimilarTo": "≈ 正在显示与 {{name}} 相似的用户"
+    },
+    "table": {
+      "avatar": "头像",
+      "name": "姓名",
+      "email": "邮箱",
+      "age": "年龄",
+      "status": "状态",
+      "logins": "登录次数",
+      "actions": "操作",
+      "similar": "≈ 相似",
+      "findSimilarTitle": "查找相似用户（pgvector）",
+      "changeAvatarTitle": "点击更换头像",
+      "uploadAvatarTitle": "上传头像（MinIO）",
+      "avatarAlt": "{{name}} 的头像"
+    },
+    "modal": {
+      "newTitle": "新建用户",
+      "editTitle": "编辑用户",
+      "putNote": "使用 <strong>PUT /api/users/{{id}}</strong> — 完整替换",
+      "name": "姓名 *",
+      "email": "邮箱 *",
+      "password": "密码 *",
+      "passwordKeep": "密码（留空则保持不变）",
+      "age": "年龄",
+      "status": "状态 *",
+      "savePut": "保存（PUT）",
+      "create": "创建"
+    },
+    "validation": {
+      "nameRequired": "请输入姓名",
+      "emailInvalid": "请输入有效的邮箱地址",
+      "passwordMin8": "密码至少需要 8 个字符",
+      "ageRange": "年龄必须在 1 到 120 之间"
+    }
+  },
+  "stack": {
+    "title": "技术栈",
+    "subtitle": "基础设施状态 + 可观测性链接",
+    "lastChecked": "上次检查于 {{time}}",
+    "allOperational": "✅ 所有系统运行正常",
+    "upDown": "⚠️ {{up}} 个正常 · {{down}} 个故障"
+  },
+  "behavior": {
+    "title": "用户行为",
+    "subtitle": "埋点 pipeline：SDK tracker → REST /api/v1/track → Pulsar → Processor → ClickHouse → gRPC GetInsights",
+    "loadFailed": "加载洞察数据失败 — 请确认已登录（GetInsights 需要认证）",
+    "topPages": "热门页面（7 天）",
+    "eventsByName": "按名称统计事件（7 天）",
+    "dailyUniques": "每日独立访客（uniq anonymous_id）",
+    "recentEvents": "最近事件",
+    "table": {
+      "page": "页面",
+      "views": "浏览量",
+      "day": "日期",
+      "uniques": "独立访客",
+      "event": "事件",
+      "user": "用户",
+      "session": "会话",
+      "when": "时间"
+    },
+    "noPageViews": "暂无页面浏览记录 — 先四处逛逛再回来看看。",
+    "noEvents": "暂无事件。",
+    "noData": "暂无数据。",
+    "noRecent": "暂无最近事件。"
+  }
+}

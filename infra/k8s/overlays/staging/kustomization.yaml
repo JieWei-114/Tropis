@@ -1,0 +1,85 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Staging environment — same shape as prod, scaled down.
+# Deploy flow: dev (base) → staging (this overlay) → prod.
+#   kubectl apply -k infra/k8s/overlays/staging
+
+# Namespace transformer: retargets every namespaced resource (and renames the
+# base Namespace object) from `tropis` to `tropis-staging`. Prod keeps the base's
+# hardcoded `tropis` namespace; staging isolates itself this way instead.
+namespace: tropis-staging
+
+resources:
+  - ../../base
+  - hpa.yaml
+  - ingress.yaml
+
+# Image tag is set by CI, same mechanism as prod:
+# kustomize edit set image ghcr.io/tropis/backend=ghcr.io/tropis/backend:<tag>
+images:
+  - name: ghcr.io/tropis/backend
+    newTag: latest
+  - name: ghcr.io/tropis/frontend
+    newTag: latest
+
+# Staging-specific config overrides (merged on top of base ConfigMap)
+configMapGenerator:
+  - name: backend-config
+    namespace: tropis # must match the base ConfigMap for the merge; the
+    # namespace transformer above then retargets it to tropis-staging
+    behavior: merge
+    literals:
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+      - CORS_ORIGIN=https://staging.yourdomain.com # ← replace with your domain
+
+patches:
+  # Single replica per service — staging is for verification, not capacity
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend
+        namespace: tropis
+      spec:
+        replicas: 1
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: frontend
+        namespace: tropis
+      spec:
+        replicas: 1
+  # Halve base resource requests (base backend: 100m/256Mi, frontend: 50m/64Mi)
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend
+        namespace: tropis
+      spec:
+        template:
+          spec:
+            containers:
+              - name: backend
+                resources:
+                  requests:
+                    cpu: "50m"
+                    memory: "128Mi"
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: frontend
+        namespace: tropis
+      spec:
+        template:
+          spec:
+            containers:
+              - name: frontend
+                resources:
+                  requests:
+                    cpu: "25m"
+                    memory: "32Mi"

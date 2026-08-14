@@ -1,0 +1,36 @@
+name: Feature request
+description: Propose a new capability or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this solve? Why does it matter now?
+      placeholder: As an operator I have no way to see which users triggered the most audit events...
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What you want to happen. Sketch the API/UX if relevant (gRPC-first — see docs/architecture.md).
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you considered and why they were rejected.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - frontend
+        - backend
+        - sdk
+        - infra
+        - docs
+    validations:
+      required: true

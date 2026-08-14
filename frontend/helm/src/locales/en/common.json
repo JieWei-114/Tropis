@@ -1,0 +1,167 @@
+{
+  "common": {
+    "loading": "Loading…",
+    "refresh": "↺ Refresh",
+    "checking": "Checking…",
+    "save": "Save",
+    "saving": "Saving…",
+    "create": "Create",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "edit": "Edit",
+    "delete": "Delete",
+    "genericError": "Something went wrong"
+  },
+  "nav": {
+    "analytics": "📊 Analytics",
+    "users": "👤 Users",
+    "stack": "🛠 Stack",
+    "state": "⚡ State",
+    "behavior": "🧭 Behavior",
+    "wsLive": "live",
+    "wsConnecting": "connecting…",
+    "language": "Change language",
+    "skipToContent": "Skip to content"
+  },
+  "theme": {
+    "light": "Light theme",
+    "dark": "Dark theme",
+    "system": "System theme",
+    "choose": "click to choose"
+  },
+  "toasts": {
+    "newUserTitle": "New user",
+    "newUserJoined": "{{name}} just joined",
+    "someone": "Someone",
+    "userUpdatedTitle": "User updated",
+    "userUpdatedBody": "{{name}}'s profile changed",
+    "aUser": "A user",
+    "notification": "Notification",
+    "dismiss": "Dismiss notification"
+  },
+  "analytics": {
+    "title": "Analytics Dashboard",
+    "subtitle": "End-to-end: MongoDB → Pulsar → Processor → ClickHouse → Redis Cache → gRPC → Frontend",
+    "refreshStats": "↺ Refresh Stats",
+    "fireEvents": "Fire Events",
+    "userId": "User ID",
+    "userIdPlaceholder": "user_123",
+    "sending": "Sending…",
+    "sent": "Sent:",
+    "events": {
+      "pageView": "📄 Page View",
+      "buttonClick": "🖱️ Button Click",
+      "apiCall": "⚡ API Call",
+      "error": "🔴 Error",
+      "purchase": "💳 Purchase"
+    },
+    "stats": {
+      "totalEvents": "Total Events (24h)",
+      "uniqueTypes": "Unique Event Types",
+      "lastEvent": "Last Event",
+      "redisCache": "Redis Cache",
+      "hit": "✅ HIT",
+      "miss": "🔄 MISS",
+      "cachedAt": "cached at {{time}}"
+    },
+    "liveFeed": "Live Feed",
+    "waitingForEvents": "Waiting for events…"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "register": "Register",
+    "name": "Name",
+    "age": "Age",
+    "email": "Email",
+    "password": "Password",
+    "signingIn": "Signing in…",
+    "creatingAccount": "Creating account…",
+    "createAccountAndSignIn": "Create account & sign in",
+    "validation": {
+      "nameRequired": "Name is required",
+      "emailInvalid": "Enter a valid email address",
+      "passwordMin6": "Password must be at least 6 characters",
+      "ageRange": "Age must be between 1 and 120"
+    }
+  },
+  "users": {
+    "title": "Users",
+    "newUser": "+ New User",
+    "logout": "Logout",
+    "searchPlaceholder": "Search by name or email (Elasticsearch fuzzy)…",
+    "noUsers": "No users found.",
+    "showingSimilar": "Showing similar users",
+    "clearSimilar": "✕ clear",
+    "similarFooter": "pgvector cosine similarity — {{total}} nearest neighbours found",
+    "actions": {
+      "created": "Created {{name}}",
+      "updated": "Updated {{name}}",
+      "deleted": "Deleted {{name}}",
+      "avatarUploaded": "🖼 Avatar uploaded for {{name}}",
+      "showingSimilarTo": "≈ Showing users similar to {{name}}"
+    },
+    "table": {
+      "avatar": "Avatar",
+      "name": "Name",
+      "email": "Email",
+      "age": "Age",
+      "status": "Status",
+      "logins": "Logins",
+      "actions": "Actions",
+      "similar": "≈ Similar",
+      "findSimilarTitle": "Find similar users (pgvector)",
+      "changeAvatarTitle": "Click to change avatar",
+      "uploadAvatarTitle": "Upload avatar (MinIO)",
+      "avatarAlt": "{{name}}'s avatar"
+    },
+    "modal": {
+      "newTitle": "New user",
+      "editTitle": "Edit user",
+      "putNote": "Uses <strong>PUT /api/users/{{id}}</strong> — full replacement",
+      "name": "Name *",
+      "email": "Email *",
+      "password": "Password *",
+      "passwordKeep": "Password (leave blank to keep)",
+      "age": "Age",
+      "status": "Status *",
+      "savePut": "Save (PUT)",
+      "create": "Create"
+    },
+    "validation": {
+      "nameRequired": "Name is required",
+      "emailInvalid": "Enter a valid email address",
+      "passwordMin8": "Password must be at least 8 characters",
+      "ageRange": "Age must be between 1 and 120"
+    }
+  },
+  "stack": {
+    "title": "Stack",
+    "subtitle": "Infrastructure status + observability links",
+    "lastChecked": "last checked {{time}}",
+    "allOperational": "✅ All systems operational",
+    "upDown": "⚠️ {{up}} up · {{down}} down"
+  },
+  "behavior": {
+    "title": "User Behavior",
+    "subtitle": "埋点 pipeline: SDK tracker → REST /api/v1/track → Pulsar → Processor → ClickHouse → gRPC GetInsights",
+    "loadFailed": "Failed to load insights — are you logged in? (GetInsights requires auth)",
+    "topPages": "Top Pages (7d)",
+    "eventsByName": "Events by Name (7d)",
+    "dailyUniques": "Daily Unique Visitors (uniq anonymous_id)",
+    "recentEvents": "Recent Events",
+    "table": {
+      "page": "Page",
+      "views": "Views",
+      "day": "Day",
+      "uniques": "Uniques",
+      "event": "Event",
+      "user": "User",
+      "session": "Session",
+      "when": "When"
+    },
+    "noPageViews": "No page views yet — browse around and come back.",
+    "noEvents": "No events yet.",
+    "noData": "No data yet.",
+    "noRecent": "No recent events."
+  }
+}

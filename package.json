@@ -1,0 +1,79 @@
+{
+  "name": "tropis",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "prepare": "husky",
+    "backend": "pnpm --filter @tropis/backend start:dev",
+    "frontend": "pnpm --filter @tropis/helm dev",
+    "worker": "pnpm --filter @tropis/temporal-worker start:dev",
+    "dev": "concurrently \"pnpm backend\" \"pnpm frontend\" \"pnpm worker\"",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "test:e2e": "pnpm --filter @tropis/e2e exec playwright test",
+    "test:e2e:ui": "pnpm --filter @tropis/e2e exec playwright test --ui",
+    "docker:up": "docker compose -f infra/docker/docker-compose.yml up -d",
+    "docker:down": "docker compose -f infra/docker/docker-compose.yml down",
+    "docker:logs": "docker compose -f infra/docker/docker-compose.yml logs -f",
+    "docker:ps": "docker compose -f infra/docker/docker-compose.yml ps"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.0",
+    "@commitlint/config-conventional": "^19.8.0",
+    "concurrently": "^9.0.0",
+    "husky": "^9.1.7",
+    "license-checker-rseidelsohn": "^5.0.1",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.4.2",
+    "prettier-plugin-tailwindcss": "^0.8.1"
+  },
+  "lint-staged": {
+    "apps/backend/**/*.ts": [
+      "pnpm --filter @tropis/backend lint",
+      "prettier --write"
+    ],
+    "frontend/helm/**/*.{ts,tsx}": [
+      "prettier --write"
+    ],
+    "**/*.{json,md}": [
+      "prettier --write"
+    ]
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@scarf/scarf",
+      "protobufjs",
+      "pulsar-client",
+      "unrs-resolver"
+    ],
+    "//overrides": [
+      "SECURITY REMEDIATIONS — each override forces a patched version of a",
+      "transitive dependency flagged by `pnpm audit`. All are same-major",
+      "(patch/minor) bumps, so they are safe to force; backend `tsc` + `nest",
+      "build` verified green after applying them. When Dependabot lands a direct",
+      "bump that already satisfies the range, drop the matching line here.",
+      "protobufjs>=7.6.1 / grpc-js>=1.14.4 are on the runtime gRPC decode path;",
+      "the rest (shell-quote, tar, js-yaml) are build-time only.",
+      "NOT covered (left to a reviewed Dependabot PR): nodemailer 6→9 and",
+      "@opentelemetry/* 0.x (major bumps); brace-expansion (a blanket range",
+      "override pulls a major that breaks minimatch@3's expand() API)."
+    ],
+    "overrides": {
+      "shell-quote@<1.8.4": ">=1.8.4",
+      "tar@<7.5.19": ">=7.5.19",
+      "protobufjs@<7.6.1": ">=7.6.1",
+      "@grpc/grpc-js@<1.14.4": ">=1.14.4",
+      "undici@<6.27.0": ">=6.27.0",
+      "ws@<8.21.0": ">=8.21.0",
+      "js-yaml@<4.3.0": ">=4.3.0",
+      "form-data@<4.0.6": ">=4.0.6",
+      "multer@<2.2.0": ">=2.2.0"
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
