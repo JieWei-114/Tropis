@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package tropis.signing.v1;
+
+// ── Signing (HMAC request-signature computation) ─────────────────────────────
+// gRPC facade over the HMAC-SHA256 request-signing scheme defined in
+// docs/api-conventions.md:
+//
+//   canonical = METHOD \n PATH \n timestamp \n nonce \n SHA256(body) hex
+//   signature = hex(HMAC-SHA256(secret, canonical))
+//
+// Implemented by the Rust service in services/signing/ (public tier, so it is
+// included in SDK codegen). The service is pure computation — nonce replay
+// dedup (Redis SET NX) stays with the gateway/backend caller.
+service SigningService {
+  rpc ComputeSignature (ComputeSignatureRequest) returns (ComputeSignatureResponse);
+  rpc VerifySignature  (VerifySignatureRequest)  returns (VerifySignatureResponse);
+}
+
+message ComputeSignatureRequest {
+  string method    = 1; // HTTP method, e.g. POST (case-insensitive)
+  string path      = 2; // full path incl. /api prefix + query string
+  int64  timestamp = 3; // unix seconds (the signing spec's deliberate exception to epoch-ms)
+  string nonce     = 4; // UUID, unique per request
+  bytes  body      = 5; // EXACT raw request bytes; empty for no body
+  string key_id    = 6; // API key id — resolves to a secret server-side
+}
+
+message ComputeSignatureResponse {
+  string signature = 1; // hex(HMAC-SHA256(secret, canonical)), lowercase
+}
+
+message VerifySignatureRequest {
+  string method    = 1;
+  string path      = 2;
+  int64  timestamp = 3; // unix seconds; must be within ±300 s of server time
+  string nonce     = 4;
+  bytes  body      = 5;
+  string key_id    = 6;
+  string signature = 7; // hex signature to verify (constant-time compare)
+}
+
+message VerifySignatureResponse {
+  bool   valid  = 1;
+  string reason = 2; // OK | SIGNATURE_EXPIRED | API_KEY_UNKNOWN | SIGNATURE_INVALID
+}

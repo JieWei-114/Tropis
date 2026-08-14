@@ -1,0 +1,29 @@
+# OPTIONAL — Argo CD Application for staging. Tracks infra/k8s/overlays/staging
+# into the tropis-staging namespace, mirroring app-prod.yaml. Uncomment and apply
+# once you want Argo to manage staging (deploy flow: dev → staging → prod).
+# ⚠️ Replace the placeholder repo URL first.
+#
+# apiVersion: argoproj.io/v1alpha1
+# kind: Application
+# metadata:
+#   name: tropis-staging
+#   namespace: argocd
+#   finalizers:
+#     - resources-finalizer.argocd.argoproj.io
+# spec:
+#   project: tropis # NOTE: project.yaml is scoped to the `tropis` namespace —
+#   #             add `tropis-staging` to its destinations before syncing.
+#   source:
+#     repoURL: https://github.com/tropis/tropis.git # ← placeholder — replace
+#     targetRevision: main
+#     path: infra/k8s/overlays/staging
+#   destination:
+#     server: https://kubernetes.default.svc
+#     namespace: tropis-staging
+#   syncPolicy:
+#     automated:
+#       prune: true
+#       selfHeal: true
+#     syncOptions:
+#       - CreateNamespace=true
+#   revisionHistoryLimit: 10

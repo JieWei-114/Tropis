@@ -1,0 +1,31 @@
+{
+  "extends": ["@commitlint/config-conventional"],
+  "rules": {
+    "scope-enum": [
+      1,
+      "always",
+      [
+        "auth",
+        "user",
+        "analytics",
+        "tracking",
+        "audit",
+        "notification",
+        "websocket",
+        "health",
+        "metrics",
+        "sdk",
+        "shared",
+        "frontend",
+        "backend",
+        "worker",
+        "infra",
+        "k8s",
+        "ci",
+        "docs",
+        "deps",
+        "release"
+      ]
+    ]
+  }
+}

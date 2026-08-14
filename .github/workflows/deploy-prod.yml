@@ -1,0 +1,135 @@
+name: Deploy — Production
+
+# Triggers on a semver tag push (e.g. v1.2.3)
+# Workflow: CI must pass first, then this job builds + pushes images and deploys to K8s
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+env:
+  REGISTRY: ghcr.io                          # GitHub Container Registry — free for public repos
+  IMAGE_BACKEND: ghcr.io/${{ github.repository }}/backend
+  IMAGE_FRONTEND: ghcr.io/${{ github.repository }}/frontend
+
+jobs:
+  deploy:
+    name: Build, push, deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write      # push to GHCR
+      id-token: write      # OIDC — used if you switch to cloud IAM auth
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Image tag from git tag (e.g. v1.2.3) ──────────────────────────
+      - name: Extract version tag
+        id: tag
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      # ── Log in to GitHub Container Registry ───────────────────────────
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Build + push backend ───────────────────────────────────────────
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_BACKEND }}:${{ steps.tag.outputs.version }}
+            ${{ env.IMAGE_BACKEND }}:latest
+
+      # ── Build + push frontend ──────────────────────────────────────────
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .                     # repo root — Dockerfile needs the pnpm workspace
+          file: frontend/helm/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_FRONTEND }}:${{ steps.tag.outputs.version }}
+            ${{ env.IMAGE_FRONTEND }}:latest
+          build-args: |
+            VITE_API_BASE_URL=${{ secrets.PROD_API_BASE_URL }}
+            VITE_WS_URL=${{ secrets.PROD_WS_URL }}
+
+      # ── Deploy to Kubernetes ───────────────────────────────────────────
+      # Requires a KUBE_CONFIG secret in repo settings:
+      #   Settings → Secrets → Actions → KUBE_CONFIG
+      #   Value: base64-encoded kubeconfig (kubectl config view --raw | base64)
+      - name: Set up kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Pin image tags in Kustomize overlay
+        working-directory: infra/k8s/overlays/prod
+        run: |
+          kustomize edit set image \
+            ghcr.io/tropis/backend=${{ env.IMAGE_BACKEND }}:${{ steps.tag.outputs.version }}
+          kustomize edit set image \
+            ghcr.io/tropis/frontend=${{ env.IMAGE_FRONTEND }}:${{ steps.tag.outputs.version }}
+
+      # ── GitOps alternative (Argo CD) ───────────────────────────────────
+      # For true GitOps, don't kubectl apply from CI. Instead COMMIT the
+      # kustomization image-tag change back to the repo and let Argo CD
+      # (infra/argocd/app-prod.yaml) detect + sync it. To switch:
+      #   1. Uncomment the step below.
+      #   2. Delete/comment the kubectl steps (Set up kubeconfig, Install
+      #      kubectl, Apply prod overlay, Wait for rollout, Rollback).
+      #   3. Change `contents: read` to `contents: write` in job permissions.
+      # - name: Commit image tag bump (GitOps — Argo CD syncs it)
+      #   run: |
+      #     git config user.name  "github-actions[bot]"
+      #     git config user.email "github-actions[bot]@users.noreply.github.com"
+      #     git fetch origin main
+      #     git checkout main
+      #     git add infra/k8s/overlays/prod/kustomization.yaml
+      #     git commit -m "chore(deploy): pin images to ${{ steps.tag.outputs.version }} [skip ci]"
+      #     git push origin main
+
+      # ── Fallback: direct kubectl deploy (non-GitOps path) ──────────────
+      - name: Apply prod overlay
+        run: kubectl apply -k infra/k8s/overlays/prod
+
+      - name: Wait for rollout
+        id: rollout
+        run: |
+          kubectl rollout status deployment/backend  -n app --timeout=120s
+          kubectl rollout status deployment/frontend -n app --timeout=60s
+
+      # If the rollout fails, revert both deployments to the previous
+      # revision and fail the job so the broken tag is flagged.
+      - name: Rollback on rollout failure
+        if: failure() && steps.rollout.outcome == 'failure'
+        run: |
+          echo "Rollout failed — rolling back to previous revision"
+          kubectl rollout undo deployment/backend  -n app
+          kubectl rollout undo deployment/frontend -n app
+          kubectl rollout status deployment/backend  -n app --timeout=120s
+          kubectl rollout status deployment/frontend -n app --timeout=60s
+          exit 1

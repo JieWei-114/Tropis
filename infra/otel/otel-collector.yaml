@@ -1,0 +1,53 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318   # NestJS tracing.ts sends here
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+exporters:
+  # Send traces to Jaeger for visualization
+  # View at http://localhost:16686 → select service "nestjs-app"
+  otlp/jaeger:
+    endpoint: jaeger:14250
+    tls:
+      insecure: true
+
+  # Expose metrics for Prometheus to scrape on :8889
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: otel
+
+  # Also log to stdout so you can see traces in collector logs
+  debug:
+    verbosity: normal
+
+service:
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+
+  pipelines:
+    traces:
+      receivers:  [otlp]
+      processors: [batch]
+      exporters:  [otlp/jaeger, debug]
+    metrics:
+      receivers:  [otlp]
+      processors: [batch]
+      exporters:  [prometheus, debug]
+    logs:
+      receivers:  [otlp]
+      processors: [batch]
+      exporters:  [debug]

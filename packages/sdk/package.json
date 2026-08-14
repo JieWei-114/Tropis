@@ -1,0 +1,61 @@
+{
+  "name": "@tropis/sdk",
+  "version": "0.0.1",
+  "//": [
+    "PUBLISHING: publish-ready but dormant. To publish:",
+    "  1. remove \"private\": true (the one-line change),",
+    "  2. align \"version\" with the repo release — release-please manages the",
+    "     root package.json version; mirror it here at publish time (manual, or",
+    "     switch release-please to a manifest/monorepo config later),",
+    "  3. `pnpm --filter @tropis/sdk build` then `pnpm publish` (or enable",
+    "     .github/workflows/publish.yml).",
+    "Workspace consumers (frontend/helm) resolve ./src/index.ts via the top-level",
+    "main/types/exports; published consumers get dist/ because pnpm applies",
+    "publishConfig overrides at pack/publish time — keeps the dev/Vite flow on",
+    "TS source with zero build step."
+  ],
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "generate": "buf generate",
+    "build": "tsup src/index.ts --format esm --dts --sourcemap --clean --out-dir dist",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc --noEmit && vitest run"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.10.1",
+    "@connectrpc/connect": "2.1.0",
+    "@connectrpc/connect-web": "2.1.0",
+    "socket.io-client": "4.8.3"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "1.61.0",
+    "@bufbuild/protoc-gen-es": "2.10.1",
+    "@types/node": "^20.19.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.3",
+    "vitest": "^1.6.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

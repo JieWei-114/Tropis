@@ -1,0 +1,3 @@
+# Default rustfmt settings — kept explicit so the file exists as the anchor
+# for `cargo fmt --check` in CI.
+edition = "2021"

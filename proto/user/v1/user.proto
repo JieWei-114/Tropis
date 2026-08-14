@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package tropis.user.v1;
+
+// ── User ──────────────────────────────────────────────────────────────────────
+service UserService {
+  rpc Create      (CreateUserRequest)   returns (UserResponse);
+  rpc FindAll     (FindAllRequest)      returns (UsersResponse);
+  rpc FindById    (FindByIdRequest)     returns (UserResponse);
+  rpc GetMe       (EmptyRequest)        returns (UserResponse);
+  rpc Update      (UpdateUserRequest)   returns (UserResponse);
+  rpc Replace     (ReplaceUserRequest)  returns (UserResponse);
+  rpc Delete      (DeleteUserRequest)   returns (DeleteResponse);
+  rpc Search      (SearchUsersRequest)  returns (UsersResponse);
+  rpc FindSimilar (FindSimilarRequest)  returns (UsersResponse);
+}
+
+message EmptyRequest {}
+
+message CreateUserRequest {
+  string name            = 1;
+  string email           = 2;
+  string password        = 3;
+  int32  age             = 4; // 0 means not set
+  string idempotency_key = 5; // optional — same key within 24 h returns cached response
+}
+
+message FindAllRequest {
+  int32 page  = 1;
+  int32 limit = 2;
+}
+
+message FindByIdRequest {
+  string id = 1;
+}
+
+// token = JWT for auth, id = target user id
+message UpdateUserRequest {
+  string id       = 1;
+  string name     = 2;
+  string email    = 3;
+  string password = 4;
+  int32  age      = 5;
+  string status   = 6;
+}
+
+message ReplaceUserRequest {
+  string id       = 1;
+  string name     = 2;
+  string email    = 3;
+  string status   = 4;
+  string password = 5;
+  int32  age      = 6;
+}
+
+message DeleteUserRequest {
+  string id = 1;
+}
+
+message DeleteResponse {
+  bool success = 1;
+}
+
+message UserResponse {
+  string id          = 1;
+  string name        = 2;
+  string email       = 3;
+  int32  age         = 4;
+  string status      = 5;
+  int32  login_count = 6;
+}
+
+message SearchUsersRequest {
+  string query = 1;
+  int32  size  = 2;
+}
+
+message FindSimilarRequest {
+  string user_id = 1;
+  int32  limit   = 2;
+}
+
+message UsersResponse {
+  repeated UserResponse users      = 1;
+  int32                 total      = 2;
+  int32                 page       = 3;
+  int32                 limit      = 4;
+  int32                 total_pages = 5;
+}

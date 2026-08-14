@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package tropis.auth.v1;
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+service AuthService {
+  rpc Login          (LoginRequest)  returns (LoginResponse);
+  rpc GetCurrentUser (EmptyRequest)  returns (CurrentUserResponse);
+}
+
+message LoginRequest {
+  string email    = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string access_token = 1;
+}
+
+message EmptyRequest {}
+
+// Protected calls use the standard gRPC Authorization metadata header:
+//   Authorization: Bearer <jwt>
+message TokenRequest {
+  string token = 1; // kept for backward compatibility with old clients
+}
+
+message CurrentUserResponse {
+  string user_id = 1;
+  string email   = 2;
+}

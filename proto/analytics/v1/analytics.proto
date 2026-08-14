@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package tropis.analytics.v1;
+
+// ── Analytics ─────────────────────────────────────────────────────────────────
+service AnalyticsService {
+  rpc CreateEvent      (CreateEventRequest)   returns (EventResponse);
+  rpc GetStats         (StatsRequest)         returns (StatsResponse);
+  rpc GetRecent        (RecentRequest)        returns (RecentResponse);
+  rpc GetMinutelyStats (MinutelyStatsRequest) returns (MinutelyStatsResponse);
+}
+
+message CreateEventRequest {
+  string event_type = 1;
+  string user_id    = 2;
+  string metadata   = 3; // JSON string
+}
+
+message EventResponse {
+  string event_id   = 1;
+  string event_type = 2;
+  string user_id    = 3;
+  string metadata   = 4; // JSON string
+  int64  timestamp  = 5;
+}
+
+message StatsRequest {}
+
+message StatsResponse {
+  int32              total_events = 1;
+  repeated EventStat by_type     = 2;
+  int64              cached_at   = 3;
+  bool               from_cache  = 4;
+}
+
+message EventStat {
+  string event_type = 1;
+  int32  count      = 2;
+  int64  last_seen  = 3;
+}
+
+message RecentRequest {}
+
+message RecentResponse {
+  repeated EventResponse events = 1;
+}
+
+message MinutelyStatsRequest {
+  int32 minutes = 1; // how many past minutes to return (default 60)
+}
+
+message MinutelyStat {
+  int64  window_ms  = 1;
+  string event_type = 2;
+  int32  count      = 3;
+}
+
+message MinutelyStatsResponse {
+  repeated MinutelyStat stats = 1;
+}

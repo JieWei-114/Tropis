@@ -1,0 +1,45 @@
+name: User story
+description: A planned unit of user-facing value with acceptance criteria
+labels: ["story"]
+body:
+  - type: input
+    id: as-a
+    attributes:
+      label: As a
+      description: The role or persona.
+      placeholder: registered user / admin / SDK consumer
+    validations:
+      required: true
+  - type: input
+    id: i-want
+    attributes:
+      label: I want
+      description: The capability.
+      placeholder: to receive a realtime notification when my export finishes
+    validations:
+      required: true
+  - type: input
+    id: so-that
+    attributes:
+      label: So that
+      description: The value / outcome.
+      placeholder: I don't have to poll the exports page
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Testable checklist — each item should map to at least one test.
+      placeholder: |
+        - [ ] Notification is delivered over WebSocket within 2s of export completion
+        - [ ] Notification persists in the notification center if the user is offline
+        - [ ] Audit log entry is written
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: Explicitly excluded from this story (goes in a follow-up).
+      placeholder: Email fallback delivery; notification preferences UI

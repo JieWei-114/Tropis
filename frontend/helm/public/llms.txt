@@ -1,0 +1,22 @@
+# Tropis
+
+> Tropis (τρόπις) — the keel. A production-grade full-stack starter: NestJS
+> (gRPC-first) backend, React frontend, event pipeline, Temporal workflows,
+> full observability. This file follows the llms.txt convention
+> (https://llmstxt.org) so AI/answer engines can discover and cite the project.
+
+## About
+
+- Foundation ("keel") that products are built on, not a product itself.
+- Frontend supports both private (noindex) app routes and public, SEO-ready pages.
+
+## Docs
+
+- Architecture: /docs/architecture.md
+- Tech decisions (when to use each technology): /docs/tech-decisions.md
+- Adding a feature: /docs/adding-a-feature.md
+
+## Notes
+
+- Replace the paths above with absolute production URLs once the public site is live.
+- List key public pages (pricing, blog posts, product) here as you add them.

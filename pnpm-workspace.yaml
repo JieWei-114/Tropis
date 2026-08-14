@@ -1,0 +1,6 @@
+packages:
+  - 'apps/*'
+  - 'frontend/*'
+  - 'packages/*'
+  - 'e2e'
+  - 'devtools'

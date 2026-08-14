@@ -1,0 +1,109 @@
+# Network policies for the "tropis" namespace — template, adjust labels to your
+# cluster. Assumes the ingress controller runs in a namespace labelled
+# kubernetes.io/metadata.name=ingress-nginx (standard for ingress-nginx).
+---
+# 1. Default-deny all ingress traffic to every pod in the namespace.
+#    Anything not explicitly allowed below is blocked.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: tropis
+spec:
+  podSelector: {}          # applies to all pods
+  policyTypes:
+    - Ingress
+---
+# 2. Allow the ingress controller to reach the frontend (port 80).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-from-ingress
+  namespace: tropis
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080   # nginx runs as non-root, listens on 8080
+---
+# 3. Allow the backend to be reached by the frontend pods and by the
+#    ingress controller (for direct /api routing) on its HTTP + gRPC ports.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend
+  namespace: tropis
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3100
+        - protocol: TCP
+          port: 50051
+---
+# 3b. Internal gRPC tier (port 50061) — reachable ONLY from pods within
+#     this namespace (peer services), never from the ingress controller
+#     or Envoy. Port-level tier separation: the public listener (50051)
+#     stays reachable from frontend/ingress above, while the internal
+#     listener is cluster-internal. Callers must still present a valid
+#     x-service-token (zero-trust — network posture is not identity).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-internal-grpc
+  namespace: tropis
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}   # any pod in the "tropis" namespace
+      ports:
+        - protocol: TCP
+          port: 50061
+---
+# 4. Allow DNS egress for all pods (kube-dns / CoreDNS on UDP+TCP 53).
+#    Note: egress is otherwise unrestricted — only Ingress is default-denied
+#    above. This policy keeps DNS working if you later add a default-deny
+#    egress policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: tropis
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}   # kube-dns can live in kube-system; allow cluster-wide DNS
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

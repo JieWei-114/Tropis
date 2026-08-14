@@ -1,0 +1,233 @@
+{
+  "uid": "tracking-analytics",
+  "title": "Tracking & Analytics (ClickHouse)",
+  "tags": ["tracking", "analytics", "clickhouse"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Events (selected range)",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "table",
+          "format": 1,
+          "rawSql": "SELECT count() AS events FROM logs.user_behavior WHERE $__timeFilter(timestamp)"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Unique Users",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "table",
+          "format": 1,
+          "rawSql": "SELECT uniqExact(if(user_id != '', user_id, anonymous_id)) AS unique_users FROM logs.user_behavior WHERE $__timeFilter(timestamp)"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Sessions",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "table",
+          "format": 1,
+          "rawSql": "SELECT uniqExact(session_id) AS sessions FROM logs.user_behavior WHERE $__timeFilter(timestamp)"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Analytics Events (pipeline)",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "table",
+          "format": 1,
+          "rawSql": "SELECT count() AS events FROM logs.analytics_events WHERE $__timeFilter(ingested_at)"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Tracking Events per Minute by Event Name",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "timeseries",
+          "format": 0,
+          "rawSql": "SELECT toStartOfMinute(timestamp) AS time, event_name, count() AS events FROM logs.user_behavior WHERE $__timeFilter(timestamp) GROUP BY time, event_name ORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10,
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal" }
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Analytics Events per Minute (Flink aggregate)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "timeseries",
+          "format": 0,
+          "rawSql": "SELECT window_start AS time, event_type, sum(event_count) AS events FROM logs.analytics_minutely_agg WHERE $__timeFilter(window_start) GROUP BY time, event_type ORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10,
+            "drawStyle": "bars",
+            "stacking": { "mode": "normal" }
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "bargauge",
+      "title": "Top 10 Events",
+      "gridPos": { "h": 9, "w": 8, "x": 0, "y": 14 },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "table",
+          "format": 1,
+          "rawSql": "SELECT event_name, count() AS events FROM logs.user_behavior WHERE $__timeFilter(timestamp) GROUP BY event_name ORDER BY events DESC LIMIT 10"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "color": { "mode": "continuous-BlPu" } },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/^events$/" }
+      }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Top Pages",
+      "gridPos": { "h": 9, "w": 8, "x": 8, "y": 14 },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "table",
+          "format": 1,
+          "rawSql": "SELECT page, count() AS views, uniqExact(session_id) AS sessions FROM logs.user_behavior WHERE $__timeFilter(timestamp) AND page != '' GROUP BY page ORDER BY views DESC LIMIT 20"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Events by Tenant",
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 14 },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "table",
+          "format": 1,
+          "rawSql": "SELECT tenant_id, count() AS events, uniqExact(if(user_id != '', user_id, anonymous_id)) AS users FROM logs.user_behavior WHERE $__timeFilter(timestamp) GROUP BY tenant_id ORDER BY events DESC LIMIT 20"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+# Argo CD AppProject — scopes what the apps below are allowed to do.
+# ⚠️ Replace the placeholder repo URL with your actual repo before applying:
+#    https://github.com/tropis/tropis.git
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: tropis
+  namespace: argocd
+  # Keep the project around if it still owns Applications
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Application stack (backend + frontend) deployed from infra/k8s
+
+  # Only this repo may be used as a manifest source
+  sourceRepos:
+    - https://github.com/tropis/tropis.git # ← placeholder — replace
+
+  # Only allow deploying into the tropis namespace of the local cluster
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: tropis
+
+  # The base includes a Namespace object, so allow that cluster-scoped kind
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+
+  # Everything namespaced is fine
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

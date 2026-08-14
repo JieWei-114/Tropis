@@ -1,0 +1,26 @@
+{
+  "name": "@tropis/devtools",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "ws-listen": "tsx src/ws-listen.ts",
+    "outbox-status": "tsx src/outbox-status.ts",
+    "sdk-repl": "tsx src/sdk-repl.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@tropis/sdk": "workspace:*",
+    "@grpc/grpc-js": "^1.14.3",
+    "@grpc/proto-loader": "^0.8.0",
+    "@types/node": "^24.0.0",
+    "dotenv": "^16.4.7",
+    "mongoose": "^9.4.1",
+    "socket.io-client": "^4.8.3",
+    "tsx": "^4.23.12",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

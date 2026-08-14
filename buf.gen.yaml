@@ -1,0 +1,16 @@
+version: v2
+clean: true
+plugins:
+  # Generates TypeScript message/service schemas for @bufbuild/protobuf v2 +
+  # @connectrpc/connect v2 (see packages/sdk).
+  - local: packages/sdk/node_modules/.bin/protoc-gen-es
+    out: packages/sdk/src/gen
+    opt:
+      - target=ts
+inputs:
+  # Public tier only: internal protos (proto/**/internal/**) are deliberately
+  # excluded from the public SDK — internal service clients generate their own
+  # types from the proto files directly (docs/api-conventions.md).
+  - directory: .
+    exclude_paths:
+      - proto/user/internal

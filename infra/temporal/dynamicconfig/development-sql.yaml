@@ -1,0 +1,11 @@
+# Temporal dynamic config for local development with SQL (PostgreSQL) persistence.
+# Values here override server defaults without requiring a restart.
+limit.maxIDLength:
+  - value: 255
+    constraints: {}
+frontend.enableClientVersionCheck:
+  - value: false
+    constraints: {}
+system.forceSearchAttributesCacheRefreshOnRead:
+  - value: true
+    constraints: {}

@@ -1,0 +1,99 @@
+# compiled output
+dist
+dist-ssr
+build
+
+# dependencies
+node_modules
+.pnpm-store
+
+# logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# env files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# test coverage
+coverage
+.nyc_output
+
+# temp
+.temp
+.tmp
+*.local
+pids
+*.pid
+*.seed
+*.pid.lock
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Java / Flink
+flink/target
+*.class
+
+# Rust (Cargo workspace at services/rust/ — single shared target dir)
+services/rust/target/
+
+# Tauri desktop shell (its own crate at apps/desktop/src-tauri, not in services/rust)
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# Capacitor — the android/ (and ios/) platform projects ARE committed;
+# only generated/build outputs are ignored (Capacitor's recommended entries).
+frontend/helm/android/app/build/
+frontend/helm/android/build/
+frontend/helm/android/.gradle/
+frontend/helm/android/.idea/
+frontend/helm/android/local.properties
+frontend/helm/android/app/src/main/assets/public/
+frontend/helm/android/app/src/main/assets/capacitor.config.json
+frontend/helm/android/app/src/main/assets/capacitor.plugins.json
+frontend/helm/android/capacitor-cordova-android-plugins/
+frontend/helm/ios/App/Pods/
+frontend/helm/ios/App/public/
+frontend/helm/ios/App/App/capacitor.config.json
+frontend/helm/ios/App/App/config.xml
+frontend/helm/ios/DerivedData/
+frontend/helm/ios/capacitor-cordova-ios-plugins/
+
+# TypeScript incremental build
+*.tsbuildinfo
+
+# Playwright E2E artifacts
+e2e/report/
+e2e/test-results/
+
+# Claude Code local settings/memory
+.claude/

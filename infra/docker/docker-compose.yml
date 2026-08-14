@@ -1,0 +1,536 @@
+services:
+  # ── MongoDB ────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7
+    container_name: tropis_mongodb
+    ports:
+      - '27018:27017'
+    command: mongod --replSet rs0 --bind_ip_all
+    volumes:
+      - mongo_data:/data/db
+      - ./mongo-rs-init.js:/docker-entrypoint-initdb.d/rs-init.js:ro
+    environment:
+      MONGO_INITDB_DATABASE: tropis
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "rs.status().ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ── Mongo Express (MongoDB web UI) ────────────────────────────────
+  mongo-express:
+    profiles: ['tools']
+    image: mongo-express:latest
+    container_name: tropis_mongo_express
+    depends_on:
+      - mongodb
+    ports:
+      - '8085:8081'   # Web UI → http://localhost:8085
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017
+      ME_CONFIG_BASICAUTH: 'false'
+    restart: unless-stopped
+
+  # ── Redis ──────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: tropis_redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+
+  # ── CH-UI (ClickHouse web UI) ──────────────────────────────────────
+  clickhouse-ui:
+    profiles: ['tools']
+    image: ghcr.io/caioricciuti/ch-ui:latest
+    container_name: tropis_clickhouse_ui
+    depends_on:
+      - clickhouse
+    ports:
+      - '8124:3488'   # Web UI → http://localhost:8124
+
+  # ── ClickHouse ─────────────────────────────────────────────────────
+  clickhouse:
+    image: clickhouse/clickhouse-server:24
+    container_name: tropis_clickhouse
+    ports:
+      - '8123:8123'   # HTTP interface (used by @clickhouse/client and JDBC)
+      - '9000:9000'   # Native binary protocol
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ../clickhouse/init-analytics.sql:/docker-entrypoint-initdb.d/01-analytics.sql:ro
+      - ../clickhouse/init-user-events.sql:/docker-entrypoint-initdb.d/02-user-events.sql:ro
+      - ../clickhouse/init-tracking.sql:/docker-entrypoint-initdb.d/03-tracking.sql:ro
+      - ../clickhouse/init-audit.sql:/docker-entrypoint-initdb.d/04-audit.sql:ro
+    environment:
+      CLICKHOUSE_DB: logs
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+
+  # ── Aerospike ──────────────────────────────────────────────────────
+  aerospike:
+    image: aerospike/aerospike-server:latest
+    container_name: tropis_aerospike
+    ports:
+      - '3000:3000'   # Client service port
+      - '3001:3001'   # Fabric (intra-cluster)
+      - '3003:3003'   # Info (telnet admin)
+
+  # ── Apache Pulsar ──────────────────────────────────────────────────
+  pulsar:
+    image: apachepulsar/pulsar:3.3.0
+    container_name: tropis_pulsar
+    ports:
+      - '6650:6650'   # Pulsar binary protocol (clients connect here)
+      - '8080:8080'   # HTTP admin API + Flink Pulsar connector
+    command: bin/pulsar standalone
+    environment:
+      PULSAR_MEM: "-Xms512m -Xmx1g -XX:MaxDirectMemorySize=512m"
+    volumes:
+      - pulsar_data:/pulsar/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/admin/v2/brokers/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Pulsar Manager (Pulsar web UI) ────────────────────────────────
+  pulsar-manager:
+    profiles: ['tools']
+    image: apachepulsar/pulsar-manager:v0.4.0
+    container_name: tropis_pulsar_manager
+    depends_on:
+      - pulsar
+    ports:
+      - '9527:9527'   # Web UI → http://localhost:9527
+      - '7750:7750'   # Backend API
+    environment:
+      SPRING_CONFIGURATION_FILE: /pulsar-manager/pulsar-manager/application.properties
+    restart: unless-stopped
+
+  # ── Flink JobManager ───────────────────────────────────────────────
+  flink-jobmanager:
+    profiles: ['analytics']
+    image: flink:1.18-scala_2.12-java11
+    container_name: tropis_flink_jm
+    ports:
+      - '8081:8081'   # Flink Web UI → http://localhost:8081
+    command: jobmanager
+    environment:
+      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
+    volumes:
+      - flink_data:/opt/flink/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/overview || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Flink TaskManager ──────────────────────────────────────────────
+  flink-taskmanager:
+    profiles: ['analytics']
+    image: flink:1.18-scala_2.12-java11
+    container_name: tropis_flink_tm
+    depends_on:
+      - flink-jobmanager
+    command: taskmanager
+    environment:
+      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
+      TASK_MANAGER_NUMBER_OF_TASK_SLOTS: 4
+    volumes:
+      - flink_data:/opt/flink/data
+
+  # ── Envoy gRPC-Web proxy ───────────────────────────────────────────
+  # Browsers can't speak raw gRPC (requires HTTP/2 framing not exposed by fetch).
+  # Envoy transcodes gRPC-Web (HTTP/1.1 from browser) → gRPC (HTTP/2 to backend).
+  # Frontend → http://localhost:8090  →  Envoy  →  host:50051 (NestJS gRPC)
+  envoy:
+    image: envoyproxy/envoy:v1.31-latest
+    container_name: tropis_envoy
+    ports:
+      - '8090:8090'   # gRPC-Web endpoint (frontend connects here)
+      - '9901:9901'   # Envoy admin UI → http://localhost:9901
+    volumes:
+      - ../envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Linux compat; no-op on Mac
+
+  # ── grpcui (gRPC web UI) ───────────────────────────────────────────
+  # Point-and-click gRPC client — discovers services via server reflection,
+  # so no proto files needed. Requires the BACKEND running on the host
+  # (`make dev`) with reflection on (default outside production); it exits
+  # if the target is unreachable — just restart it once the backend is up.
+  grpcui:
+    profiles: ['tools']
+    image: fullstorydev/grpcui:latest
+    container_name: tropis_grpcui
+    command: -plaintext -bind 0.0.0.0 -port 8080 host.docker.internal:50051
+    ports:
+      - '8083:8080'   # Web UI → http://localhost:8083
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Linux compat; no-op on Mac
+    restart: unless-stopped
+
+  # ── Jaeger (distributed tracing UI) ───────────────────────────────
+  # Receives traces from OTel Collector and provides a search UI.
+  # Open http://localhost:16686 to see every request traced through the app.
+  #
+  # How it connects:
+  #   NestJS → OTel SDK → OTel Collector → Jaeger
+  #
+  # In the UI: search by service "nestjs-app", click any trace to see
+  # exactly which MongoDB/Redis/Pulsar calls were made and how long each took.
+  jaeger:
+    profiles: ['observability']
+    image: jaegertracing/all-in-one:1.56
+    container_name: tropis_jaeger
+    ports:
+      - '16686:16686'  # Jaeger UI
+      - '14250:14250'  # gRPC (OTel Collector sends traces here)
+    environment:
+      COLLECTOR_OTLP_ENABLED: 'true'
+
+  # ── OpenTelemetry Collector ────────────────────────────────────────
+  # Receives traces from NestJS (OTLP/HTTP :4318) and forwards to Jaeger.
+  # Acts as a buffer/router — you can add more exporters (Prometheus, Datadog)
+  # without changing the app code.
+  otel-collector:
+    profiles: ['observability']
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: tropis_otel
+    depends_on:
+      - jaeger
+    ports:
+      - '4317:4317'   # OTLP gRPC receiver
+      - '4318:4318'   # OTLP HTTP receiver (NestJS sends here)
+      - '8888:8888'   # Prometheus metrics (self) — scraped by Prometheus
+      - '8889:8889'   # Prometheus exporter — NestJS metrics forwarded here
+    volumes:
+      - ../otel/otel-collector.yaml:/etc/otelcol-contrib/config.yaml
+
+  # ── PostgreSQL + pgvector ──────────────────────────────────────────
+  # PostgreSQL with the pgvector extension for semantic / similarity search.
+  # Use-case: store embedding vectors alongside relational data, run
+  # cosine/L2 similarity queries (ANN search) without a separate vector DB.
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: tropis_postgres
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      POSTGRES_USER: tropis
+      POSTGRES_PASSWORD: tropis_dev_password
+      POSTGRES_DB: tropis
+
+  # ── pgAdmin (PostgreSQL web UI) ────────────────────────────────────
+  pgadmin:
+    profiles: ['tools']
+    image: dpage/pgadmin4:latest
+    container_name: tropis_pgadmin
+    depends_on:
+      - postgres
+    ports:
+      - '5050:80'     # Web UI → http://localhost:5050
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@local.dev
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+  # ── Elasticsearch ──────────────────────────────────────────────────
+  # Full-text search + structured queries. Use-case: power search bars,
+  # faceted filters, log/event search (complementary to ClickHouse aggregates).
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: tropis_elasticsearch
+    ports:
+      - '9200:9200'
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: 'false'
+      ES_JAVA_OPTS: '-Xms512m -Xmx512m'
+
+  # ── Kibana (Elasticsearch web UI) ─────────────────────────────────
+  kibana:
+    profiles: ['tools']
+    image: docker.elastic.co/kibana/kibana:8.13.4
+    container_name: tropis_kibana
+    depends_on:
+      - elasticsearch
+    ports:
+      - '5601:5601'   # Web UI → http://localhost:5601
+    environment:
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+      XPACK_SECURITY_ENABLED: 'false'
+      TELEMETRY_ENABLED: 'false'
+
+  # ── MinIO (S3-compatible object storage) ──────────────────────────
+  # Store file uploads, images, exports. API is 100% compatible with AWS S3
+  # SDK, so swapping to real S3 in production requires zero code changes.
+  minio:
+    image: minio/minio:latest
+    container_name: tropis_minio
+    ports:
+      - '9900:9000'   # S3 API (avoid conflict with Pulsar's 9000)
+      - '9902:9902'   # MinIO Console UI → http://localhost:9902
+    volumes:
+      - minio_data:/data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9902"
+
+  # ── MailHog (dev SMTP trap) ────────────────────────────────────────
+  # Catches all outbound email in dev — no real emails are sent.
+  # Open http://localhost:8025 to browse received messages.
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: tropis_mailhog
+    ports:
+      - '1025:1025'   # SMTP (NestJS/Nodemailer sends here)
+      - '8025:8025'   # Web UI → http://localhost:8025
+
+  # ── HashiCorp Vault ────────────────────────────────────────────────
+  # Secret management — stores all app credentials (DB passwords, API keys, JWT secrets).
+  # Dev mode: auto-unsealed, root token = "dev-root-token", data is in-memory (wiped on restart).
+  # Web UI → http://localhost:8200  (token: dev-root-token)
+  #
+  # On first start the entrypoint script seeds all secrets into the KV store at:
+  #   secret/tropis  — all application secrets
+  #   secret/tropis/db, secret/tropis/messaging, etc. — grouped paths
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: tropis_vault
+    ports:
+      - '8200:8200'   # Vault API + Web UI → http://localhost:8200
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: dev-root-token
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      VAULT_ADDR: http://127.0.0.1:8200
+    cap_add:
+      - IPC_LOCK   # Vault needs this to prevent secrets being swapped to disk
+    command: vault server -dev -dev-root-token-id=dev-root-token
+    healthcheck:
+      test: ["CMD-SHELL", "vault status -address=http://127.0.0.1:8200 | grep -q 'Sealed.*false'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ── Vault Init (seeds secrets on first run) ────────────────────────
+  # One-shot container that runs the init script then exits.
+  # Waits for Vault to be healthy before writing secrets.
+  vault-init:
+    image: hashicorp/vault:1.17
+    container_name: tropis_vault_init
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: dev-root-token
+    volumes:
+      - ../vault:/vault-init:ro
+    command: sh /vault-init/init.sh
+    restart: on-failure
+
+  # ── RedisInsight (Redis web UI) ────────────────────────────────────
+  redisinsight:
+    profiles: ['tools']
+    image: redis/redisinsight:latest
+    container_name: tropis_redisinsight
+    depends_on:
+      - redis
+    ports:
+      - '5540:5540'   # Web UI → http://localhost:5540
+
+  # ── Dozzle (Docker container log viewer) ───────────────────────────
+  # Live tail + search across all local containers, zero config.
+  dozzle:
+    profiles: ['tools']
+    image: amir20/dozzle:latest
+    container_name: tropis_dozzle
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - '9999:8080'   # Web UI → http://localhost:9999 (8888 taken by otel)
+
+  # ── Prometheus ─────────────────────────────────────────────────────
+  # Scrapes metrics from OTel Collector (8889) and NestJS /metrics (3100).
+  # Source of truth for all numeric time-series data fed into Grafana.
+  prometheus:
+    profiles: ['observability']
+    image: prom/prometheus:v2.51.2
+    container_name: tropis_prometheus
+    ports:
+      - '9090:9090'   # Prometheus UI + query API
+    volumes:
+      - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=7d'
+
+  # ── Alertmanager ───────────────────────────────────────────────────
+  # Receives alerts from Prometheus (see `alerting:` in prometheus.yml)
+  # and routes them to Slack / webhooks — config in ../prometheus/alertmanager.yml.
+  alertmanager:
+    profiles: ['observability']
+    image: prom/alertmanager:v0.27.0
+    container_name: tropis_alertmanager
+    ports:
+      - '9093:9093'   # Alertmanager UI + API
+    volumes:
+      - ../prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+    restart: unless-stopped
+
+  # ── OPA (Open Policy Agent) ───────────────────────────────────────
+  # Centralised policy engine — NestJS asks OPA "can role X do action Y?"
+  # instead of hardcoding rules in application code.
+  # REST API → http://localhost:8181
+  opa:
+    image: openpolicyagent/opa:latest
+    container_name: tropis_opa
+    ports:
+      - '8181:8181'   # OPA REST API
+    volumes:
+      - ../opa:/policies:ro
+    command: run --server --addr 0.0.0.0:8181 --log-format=json --log-level=info /policies
+    restart: unless-stopped
+
+  # ── Temporal (workflow orchestration) ────────────────────────────
+  # Durable workflow engine — handles retries, timeouts, signals, and
+  # long-running multi-step processes that BullMQ cannot model easily.
+  # Web UI → http://localhost:8233
+  temporal:
+    image: temporalio/auto-setup:1.24
+    container_name: tropis_temporal
+    depends_on:
+      - postgresql-temporal
+    ports:
+      - '7233:7233'   # Temporal gRPC frontend (clients + workers connect here)
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: postgresql-temporal
+      DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/config/dynamicconfig/development-sql.yaml
+    volumes:
+      - ../temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
+    restart: unless-stopped
+
+  temporal-ui:
+    profiles: ['tools']
+    image: temporalio/ui:2.26.2
+    container_name: tropis_temporal_ui
+    depends_on:
+      - temporal
+    ports:
+      - '8233:8080'   # Web UI → http://localhost:8233
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: 'http://localhost:3000'
+    restart: unless-stopped
+
+  # Dedicated PostgreSQL for Temporal (keeps it isolated from app DB)
+  postgresql-temporal:
+    image: postgres:16-alpine
+    container_name: tropis_temporal_postgres
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    volumes:
+      - temporal_postgres_data:/var/lib/postgresql/data
+
+  # ── Grafana ────────────────────────────────────────────────────────
+  # Visualizes Prometheus metrics and Jaeger traces in dashboards.
+  # Default login: admin / admin  →  http://localhost:3000
+  # Note: host port 3000 — ensure NestJS runs on 3100 (default in .env).
+  grafana:
+    profiles: ['observability']
+    image: grafana/grafana:10.4.2
+    container_name: tropis_grafana
+    depends_on:
+      - prometheus
+    ports:
+      - '3101:3000'   # Grafana UI → http://localhost:3101  (3000 taken by Aerospike, 3001 by Aerospike fabric)
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/etc/grafana/dashboards:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+
+  # ── Metabase (BI / self-serve analytics UI) ────────────────────────
+  # Dashboards + ad-hoc questions over ClickHouse tracking data.
+  # First-run setup (one-time, via the UI at http://localhost:3200):
+  #   Admin → Databases → Add database → ClickHouse
+  #     host: clickhouse, port: 8123, database: logs, user: default (no password)
+  #   (Metabase bundles a native ClickHouse driver in recent versions —
+  #   official since v0.50; no plugin jar needed.)
+  # Reference queries to recreate as questions: infra/clickhouse/queries/.
+  # App state (dashboards, users) persists in the H2 file on metabase_data.
+  metabase:
+    profiles: ['tools']
+    image: metabase/metabase:latest
+    container_name: tropis_metabase
+    depends_on:
+      - clickhouse
+    ports:
+      - '3200:3000'   # Web UI → http://localhost:3200 (host 3000 taken by Aerospike)
+    environment:
+      MB_DB_TYPE: h2                      # embedded app DB — fine for local dev
+      MB_DB_FILE: /metabase-data/metabase.db
+    volumes:
+      - metabase_data:/metabase-data
+    restart: unless-stopped
+
+  # ── Signing (Rust gRPC — HMAC request signatures) ──────────────────
+  # Stateless polyglot example service (services/rust/signing/). Contract:
+  # proto/signing/v1/signing.proto; scheme: docs/api-conventions.md.
+  signing:
+    profiles: ['rust']
+    build:
+      context: ../..                        # repo root — build needs proto/
+      dockerfile: services/rust/signing/Dockerfile
+    container_name: tropis_signing
+    ports:
+      - '50052:50052'
+    environment:
+      GRPC_PORT: 50052
+      API_KEYS: '${API_KEYS:-{}}'           # JSON map {keyId: secret}, same as backend
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  redis_data:
+  clickhouse_data:
+  pulsar_data:
+  flink_data:
+  postgres_data:
+  pgadmin_data:
+  es_data:
+  minio_data:
+  prometheus_data:
+  grafana_data:
+  temporal_postgres_data:
+  metabase_data:

@@ -1,0 +1,45 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Base manifests shared across all environments
+resources:
+  - ../../base
+  - hpa.yaml
+  - ingress.yaml
+
+# Image tag is set by CI to the git tag (e.g. v1.2.3)
+# Run: kustomize edit set image ghcr.io/tropis/backend=ghcr.io/tropis/backend:$(git describe --tags)
+images:
+  - name: ghcr.io/tropis/backend
+    newTag: latest   # overwritten by CI: kustomize edit set image ...
+  - name: ghcr.io/tropis/frontend
+    newTag: latest   # overwritten by CI: kustomize edit set image ...
+
+# Prod-specific config overrides (merged on top of base ConfigMap)
+configMapGenerator:
+  - name: backend-config
+    namespace: tropis
+    behavior: merge
+    literals:
+      - NODE_ENV=production
+      - LOG_LEVEL=warn
+      - CORS_ORIGIN=https://yourdomain.com   # ← replace with your domain
+
+# Scale up for prod
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend
+        namespace: tropis
+      spec:
+        replicas: 3
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: frontend
+        namespace: tropis
+      spec:
+        replicas: 2

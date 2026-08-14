@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package tropis.user.internal.v1;
+
+// ── Internal tier (docs/api-conventions.md) ──────────────────────────────────
+// Service-to-service only. NOT exposed through Envoy / gRPC-Web and NOT part
+// of the public SDK (excluded from buf.gen.yaml codegen). Callers hit
+// backend:50051 directly, restricted by NetworkPolicy, and must present a
+// service identity (x-service-token metadata; production = mTLS/SPIFFE).
+//
+// Message shapes are defined locally (not imported from tropis.user.v1) so the
+// internal surface can evolve independently. Same compatibility rules as the
+// public protos: add-only fields, never renumber, never change types.
+service UserInternalService {
+  // Trusted lookup by email for other backend services (e.g. a billing or
+  // notification service resolving a user without a user JWT).
+  rpc GetUserByEmail (GetUserByEmailRequest) returns (InternalUserResponse);
+}
+
+message GetUserByEmailRequest {
+  string email = 1;
+}
+
+message InternalUserResponse {
+  string id          = 1;
+  string name        = 2;
+  string email       = 3;
+  int32  age         = 4; // 0 means not set
+  string status      = 5;
+  int32  login_count = 6;
+}

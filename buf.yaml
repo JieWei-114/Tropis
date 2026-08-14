@@ -1,0 +1,22 @@
+version: v2
+modules:
+  - path: proto
+    # PLACEHOLDER — adjust org to your BSR org before
+    # running `buf push`. Harmless until then; only used as the module identity
+    # on the BSR (see docs/api-versioning.md → "Distributing contracts").
+    name: buf.build/tropis/tropis
+lint:
+  use:
+    - STANDARD
+  except:
+    # Legacy naming carried over from the pre-versioned app.proto —
+    # revisit when generating SDKs.
+    - RPC_REQUEST_RESPONSE_UNIQUE
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_RESPONSE_STANDARD_NAME
+    # docs/api-versioning.md mandates proto/<domain>/v1/<domain>.proto with
+    # package app.<domain>.v1 (no leading "app/" directory).
+    - PACKAGE_DIRECTORY_MATCH
+breaking:
+  use:
+    - WIRE_JSON

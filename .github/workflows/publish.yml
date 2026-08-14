@@ -1,0 +1,102 @@
+# Publish @tropis/sdk to npm + push the proto module to the Buf Schema Registry.
+#
+# DORMANT BY DESIGN — enabling this is purely additive, no YAML edits needed:
+#   1. npm publish:  add the NPM_TOKEN secret (npm org / GitHub Packages token)
+#                    and remove "private": true from packages/sdk/package.json.
+#   2. buf push:     add the BUF_TOKEN secret and set the module name
+#                    placeholder in buf.yaml (modules[].name) with your real
+#                    BSR org.
+# Each job is guarded by a secrets-existence check and skips cleanly when the
+# secret is absent, so this workflow is safe to keep on main today.
+#
+# Versioning: release-please manages the root package.json version (see
+# release-please.yml). Before publishing, set packages/sdk "version" to match
+# the repo release — or wire this workflow to run on release tags once you
+# adopt a release-please manifest config for per-package versions.
+
+name: Publish SDK & Protos
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_npm:
+        description: "Publish @tropis/sdk to npm"
+        type: boolean
+        default: true
+      push_bsr:
+        description: "Push proto module to the Buf Schema Registry"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write # npm --provenance (Sigstore attestation)
+
+jobs:
+  publish-npm:
+    if: ${{ inputs.publish_npm }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Guard: skip everything if the npm token isn't configured yet.
+      - name: Check NPM_TOKEN
+        id: npm-token
+        run: |
+          if [ -n "${{ secrets.NPM_TOKEN }}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::NPM_TOKEN secret not set — skipping npm publish. Add the secret (and remove 'private: true' from packages/sdk/package.json) to enable."
+          fi
+
+      - uses: pnpm/action-setup@v4
+        if: steps.npm-token.outputs.present == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.npm-token.outputs.present == 'true'
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org" # or https://npm.pkg.github.com for GitHub Packages
+
+      - name: Install
+        if: steps.npm-token.outputs.present == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SDK (dist/)
+        if: steps.npm-token.outputs.present == 'true'
+        run: pnpm --filter @tropis/sdk build
+
+      - name: Publish @tropis/sdk with provenance
+        if: steps.npm-token.outputs.present == 'true'
+        working-directory: packages/sdk
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # --no-git-checks: workflow_dispatch runs from main, not a release tag.
+        run: pnpm publish --provenance --no-git-checks
+
+  push-bsr:
+    if: ${{ inputs.push_bsr }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Guard: skip if the BSR token isn't configured yet.
+      - name: Check BUF_TOKEN
+        id: buf-token
+        run: |
+          if [ -n "${{ secrets.BUF_TOKEN }}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::BUF_TOKEN secret not set — skipping buf push. Add the secret and confirm the module name in buf.yaml (buf.build/tropis/tropis — adjust to your org) to enable."
+          fi
+
+      - uses: bufbuild/buf-action@v1
+        if: steps.buf-token.outputs.present == 'true'
+        with:
+          token: ${{ secrets.BUF_TOKEN }}
+          # Only push; lint/breaking already run in the CI workflow.
+          lint: false
+          format: false
+          breaking: false
+          push: true

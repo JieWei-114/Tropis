@@ -1,0 +1,39 @@
+# Release automation — release-please
+#
+# The flow:
+#   1. Conventional commits land on main (squash-merged PRs whose titles are
+#      valid conventional commits — enforced by commitlint + PR process).
+#   2. release-please maintains a "release PR" that accumulates those commits:
+#      it bumps the version in the root package.json and updates CHANGELOG.md.
+#   3. Merging the release PR creates a vX.Y.Z tag + GitHub release.
+#   4. That tag matches deploy-prod.yml's trigger (`v[0-9]+.[0-9]+.[0-9]+`),
+#      so merging the release PR IS the production deploy button.
+#
+# Release type: `node` against the root package.json.
+# Rationale: this pnpm monorepo is versioned as a whole — one root version,
+# one tag, one deploy of all images. `node` (vs `simple`) reuses the existing
+# root package.json "version" field as the single source of truth, so no extra
+# version.txt file is needed and release-please's default tag format is
+# v<version>, matching deploy-prod.yml. If per-package versioning is ever
+# needed, switch to a manifest config.
+
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write # create tags, releases, and the release branch
+  pull-requests: write # open/update the release PR
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: node
+          # include-component-in-tag defaults to false for single-package
+          # setups → tags are plain vX.Y.Z, which deploy-prod.yml expects.

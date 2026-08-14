@@ -1,0 +1,80 @@
+version: 2
+
+updates:
+  # ── pnpm workspaces (backend + frontend + shared) ──────────────────
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 10
+    groups:
+      nestjs:
+        patterns: ["@nestjs/*"]
+      opentelemetry:
+        patterns: ["@opentelemetry/*"]
+      devtools:
+        patterns: ["eslint*", "prettier*", "typescript*", "ts-jest", "jest*"]
+    ignore:
+      # Major version bumps require manual review
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # ── Flink / Java (Maven) ───────────────────────────────────────────
+  - package-ecosystem: maven
+    directory: /flink
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 5
+
+  # ── GitHub Actions ─────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 5
+
+  # ── Rust — signing service workspace ───────────────────────────────
+  - package-ecosystem: cargo
+    directory: /services/rust
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # ── Rust — Tauri desktop shell ─────────────────────────────────────
+  - package-ecosystem: cargo
+    directory: /apps/desktop/src-tauri
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # ── Docker base images (backend + frontend) ────────────────────────
+  - package-ecosystem: docker
+    directory: /apps/backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 3
+  - package-ecosystem: docker
+    directory: /frontend/helm
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+    open-pull-requests-limit: 3

@@ -1,0 +1,156 @@
+@import 'tailwindcss';
+
+/*
+ * Dark mode uses the `.dark` class strategy (set on <html> by ThemeProvider)
+ * so shadcn/ui can plug in later. Default look = the original dark palette.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── Design tokens ─────────────────────────────────────────────────── */
+:root {
+  /* light theme (derived from the dark palette) */
+  --background: #f4f4fb;
+  --foreground: #2b2b45;
+  --card: #ffffff;
+  --surface: #ececf5;
+  --raised: #e2e2f0;
+  --input: #ffffff;
+  --border: #d9d9e8;
+  --border-soft: #e7e7f1;
+  --muted: #6b6b95;
+  --faint: #9a9ab8;
+  --body: #3d3d5c;
+  --heading: #15152b;
+  --edge: #b9b9d6;
+  --soft: #55557a;
+  --primary: #6366f1;
+  --primary-soft: #4f46e5;
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+}
+
+.dark {
+  /* the original palette from App.css — the app's default look */
+  --background: #0f0f1a;
+  --foreground: #e0e0f0;
+  --card: #1a1a2e;
+  --surface: #13131f;
+  --raised: #1e1e3a;
+  --input: #0f0f1a;
+  --border: #2a2a3a;
+  --border-soft: #1e1e2e;
+  --muted: #6060a0;
+  --faint: #4a4a7a;
+  --body: #c0c0e0;
+  --heading: #ffffff;
+  --edge: #3a3a6a;
+  --soft: #a0a0d0;
+  --primary: #6366f1;
+  --primary-soft: #a5b4fc;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-border-soft: var(--border-soft);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-body: var(--body);
+  --color-heading: var(--heading);
+  --color-edge: var(--edge);
+  --color-soft: var(--soft);
+  --color-primary: var(--primary);
+  --color-primary-soft: var(--primary-soft);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  /*
+   * ── shadcn/ui bridge ──────────────────────────────────────────────
+   * shadcn components expect --background/--foreground/--primary/… CSS
+   * variables. Rather than restructuring our tokens to shadcn's naming,
+   * we keep the existing palette above as the single source of truth and
+   * alias the handful of shadcn names that don't already exist onto it.
+   * Note: our `--muted` is a muted *text* color (used app-wide as
+   * `text-muted`), so shadcn's `muted-foreground` maps to it, while
+   * shadcn's `muted`/`accent` *background* roles map to surface/raised.
+   */
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--card);
+  --color-popover-foreground: var(--foreground);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--raised);
+  --color-secondary-foreground: var(--soft);
+  --color-muted-foreground: var(--muted);
+  --color-accent: var(--raised);
+  --color-accent-foreground: var(--heading);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: #ffffff;
+  --color-ring: var(--primary);
+}
+
+@theme {
+  --font-sans: 'Inter', system-ui, sans-serif;
+
+  --animate-fade-in: fade-in 0.3s ease;
+  --animate-blink: blink 1.5s infinite;
+  --animate-blink-fast: blink 1s infinite;
+  --animate-toast-in: toast-in 0.25s ease;
+  --animate-spinner: spin 0.8s linear infinite;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes blink {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.3;
+    }
+  }
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateX(24px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+}
+
+/* Hide scrollbar but stay swipeable (mobile nav tabs) */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer base {
+  body {
+    @apply min-h-screen bg-background font-sans text-sm text-foreground antialiased;
+  }
+  button {
+    font-family: inherit;
+  }
+}

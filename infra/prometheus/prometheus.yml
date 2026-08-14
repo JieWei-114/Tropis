@@ -1,0 +1,28 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - alerts.yml   # resolved relative to this file (/etc/prometheus in the container)
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']   # compose service (observability profile)
+
+scrape_configs:
+  # NestJS app metrics (prom-client via @willsoto/nestjs-prometheus)
+  - job_name: nestjs
+    static_configs:
+      - targets: ['host.docker.internal:3100']
+    metrics_path: /api/metrics   # global prefix 'api' + module path '/metrics'
+
+  # OTel Collector self-metrics
+  - job_name: otel-collector
+    static_configs:
+      - targets: ['otel-collector:8888']
+
+  # OTel Collector Prometheus exporter (forwarded app metrics)
+  - job_name: otel-app-metrics
+    static_configs:
+      - targets: ['otel-collector:8889']

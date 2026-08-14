@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package tropis.tracking.v1;
+
+// ── Tracking (user-behavior analytics reads) ─────────────────────────────────
+// Ingest is REST (POST /api/v1/track) because navigator.sendBeacon cannot
+// speak gRPC-Web; reads stay gRPC-first per docs/architecture.md.
+service TrackingService {
+  rpc GetInsights (InsightsRequest) returns (InsightsResponse);
+}
+
+message InsightsRequest {
+  int32 days = 1; // lookback window in days (default 7)
+}
+
+message PageCount {
+  string page  = 1;
+  int32  count = 2;
+}
+
+message EventCount {
+  string event_name = 1;
+  int32  count      = 2;
+}
+
+message DailyUnique {
+  string day     = 1; // YYYY-MM-DD
+  int32  uniques = 2; // uniq(anonymous_id)
+}
+
+message RecentTrackEvent {
+  string event_id     = 1;
+  string event_name   = 2;
+  string anonymous_id = 3;
+  string user_id      = 4;
+  string session_id   = 5;
+  string page         = 6;
+  string props        = 7; // JSON string
+  int64  timestamp    = 8; // epoch ms
+}
+
+message InsightsResponse {
+  repeated PageCount        top_pages      = 1;
+  repeated EventCount       events_by_name = 2;
+  repeated DailyUnique      daily_uniques  = 3;
+  repeated RecentTrackEvent recent         = 4;
+}

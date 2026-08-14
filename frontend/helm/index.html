@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Static theme-color matches the default dark surface (#13131f); kept in
+         sync manually with --surface in src/index.css and the PWA manifest. -->
+    <meta name="theme-color" content="#13131f" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Default SEO / social tags. Per-page overrides come from the <Seo>
+         component (react-helmet-async); these are the fallback that raw-HTML
+         scrapers and the first paint see. Keep in sync with src/components/Seo.tsx. -->
+    <title>Tropis</title>
+    <meta
+      name="description"
+      content="Tropis — the keel. The foundation every product is built on."
+    />
+    <link rel="canonical" href="/" />
+    <meta property="og:site_name" content="Tropis" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Tropis" />
+    <meta
+      property="og:description"
+      content="Tropis — the keel. The foundation every product is built on."
+    />
+    <meta property="og:image" content="/og-default.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // Apply the persisted theme before first paint to avoid a flash.
+      // Default = dark (the app's original look); 'system' follows the OS.
+      (function () {
+        var t = localStorage.getItem('theme');
+        var dark =
+          t === 'light'
+            ? false
+            : t === 'system'
+              ? window.matchMedia('(prefers-color-scheme: dark)').matches
+              : true;
+        document.documentElement.classList.toggle('dark', dark);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
