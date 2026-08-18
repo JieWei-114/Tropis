@@ -1,5 +1,5 @@
 # ── Stage 1: build ────────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
@@ -27,7 +27,7 @@ RUN pnpm --filter @tropis/shared build
 RUN pnpm --filter @tropis/backend build
 
 # ── Stage 2: production image ──────────────────────────────────────────────────
-FROM node:22-alpine AS runner
+FROM node:26-alpine AS runner
 
 WORKDIR /app
 
