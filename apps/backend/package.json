@@ -27,7 +27,7 @@
     "lint:arch": "depcruise src --config .dependency-cruiser.cjs"
   },
   "dependencies": {
-    "@bull-board/api": "^7.0.0",
+    "@bull-board/api": "^7.2.1",
     "@bull-board/express": "^7.0.0",
     "@bull-board/nestjs": "^7.0.0",
     "@clickhouse/client": "^1.18.2",
