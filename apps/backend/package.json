@@ -64,7 +64,7 @@
     "@tropis/shared": "workspace:*",
     "@types/jsonwebtoken": "^9.0.10",
     "@willsoto/nestjs-prometheus": "^6.0.0",
-    "aerospike": "^6.6.1",
+    "aerospike": "^6.7.1",
     "bcrypt": "^6.0.0",
     "bullmq": "^5.76.6",
     "class-transformer": "^0.5.1",
