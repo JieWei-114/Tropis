@@ -12,7 +12,7 @@
   "devDependencies": {
     "@tropis/sdk": "workspace:*",
     "@grpc/grpc-js": "^1.14.3",
-    "@grpc/proto-loader": "^0.8.0",
+    "@grpc/proto-loader": "^0.8.1",
     "@types/node": "^24.0.0",
     "dotenv": "^16.4.7",
     "mongoose": "^9.4.1",

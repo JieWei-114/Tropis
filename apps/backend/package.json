@@ -33,7 +33,7 @@
     "@clickhouse/client": "^1.18.2",
     "@elastic/elasticsearch": "^8.13.1",
     "@grpc/grpc-js": "^1.14.3",
-    "@grpc/proto-loader": "^0.8.0",
+    "@grpc/proto-loader": "^0.8.1",
     "@grpc/reflection": "1.0.4",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",
