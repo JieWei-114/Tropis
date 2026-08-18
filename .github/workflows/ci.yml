@@ -612,13 +612,13 @@ jobs:
           fetch-depth: 0   # full history for accurate blame and new-code analysis
 
       - name: Download backend coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: backend-coverage
           path: apps/backend/coverage/
 
       - name: Download frontend coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: frontend-coverage
           path: apps/frontend/helm/coverage/
