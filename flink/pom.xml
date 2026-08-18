@@ -17,7 +17,7 @@
     <flink.connector.pulsar.version>4.1.0-1.18</flink.connector.pulsar.version>
     <flink.connector.jdbc.version>3.1.2-1.18</flink.connector.jdbc.version>
     <clickhouse.jdbc.version>0.6.3</clickhouse.jdbc.version>
-    <jackson.version>2.15.4</jackson.version>
+    <jackson.version>2.22.1</jackson.version>
   </properties>
 
   <dependencies>
