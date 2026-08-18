@@ -84,7 +84,7 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
 
       - name: Install kubectl
-        uses: azure/setup-kubectl@v3
+        uses: azure/setup-kubectl@v5
 
       - name: Pin image tags in Kustomize overlay
         working-directory: infra/k8s/overlays/prod
