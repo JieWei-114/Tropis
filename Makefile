@@ -8,7 +8,7 @@ COMPOSE := docker compose -f infra/docker/docker-compose.yml
 ALL_PROFILES := --profile analytics --profile observability --profile tools
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev up up-all up-obs up-analytics up-tools down logs test test-int test-e2e load-test lint build seed migrate proto backup restore rust-build rust-test android desktop pulsar-tail pulsar-send ws-listen outbox-status sdk-repl
+.PHONY: help install dev up up-all up-obs up-analytics up-tools down logs test test-int test-e2e load-test lint build seed migrate proto backup restore rust-build rust-test android desktop pulsar-tail pulsar-send ws-listen outbox-status sdk-repl k8s k8s-ui
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -16,7 +16,7 @@ help: ## Show this help
 install: ## Install dependencies + create local .env files from the examples
 	pnpm install
 	@test -f apps/backend/.env || (cp apps/backend/.env.example apps/backend/.env && echo "created apps/backend/.env from example")
-	@test -f frontend/helm/.env || (cp frontend/helm/.env.example frontend/helm/.env && echo "created frontend/helm/.env from example")
+	@test -f apps/frontend/helm/.env || (cp apps/frontend/helm/.env.example apps/frontend/helm/.env && echo "created apps/frontend/helm/.env from example")
 
 dev: ## Run backend + frontend + temporal worker in watch mode
 	pnpm dev
@@ -104,6 +104,21 @@ sdk-repl: ## Node REPL with the @tropis/sdk facade preloaded + logged in (needs 
 	@curl -sf http://localhost:3100/api/health >/dev/null 2>&1 || { echo "Backend not healthy at http://localhost:3100/api/health — start it first: make up && make dev"; exit 1; }
 	pnpm --filter @tropis/devtools sdk-repl
 
+# ── Local Kubernetes (kind) — visualise the cluster ──────────────────────────
+K8S_CTX ?= kind-tropis
+K8S_NS  ?= tropis
+
+k8s: ## k9s — terminal UI for the local kind cluster (auto-installs via brew)
+	@kubectl config get-contexts $(K8S_CTX) >/dev/null 2>&1 || { echo "No '$(K8S_CTX)' context — create it first: kind create cluster --name tropis"; exit 1; }
+	@command -v k9s >/dev/null 2>&1 || { echo "Installing k9s…"; brew install k9s; }
+	k9s --context $(K8S_CTX) -n $(K8S_NS)
+
+k8s-ui: ## Headlamp — browser/desktop UI for the kind cluster (auto-installs via brew cask)
+	@kubectl config get-contexts $(K8S_CTX) >/dev/null 2>&1 || { echo "No '$(K8S_CTX)' context — create it first: kind create cluster --name tropis"; exit 1; }
+	@ls -d /Applications/Headlamp.app >/dev/null 2>&1 || { echo "Installing Headlamp…"; brew install --cask headlamp; }
+	@echo "Opening Headlamp — pick the '$(K8S_CTX)' context in the app (namespace: $(K8S_NS))."
+	@open -a Headlamp
+
 proto: ## Regenerate SDK types from the v1 protos (buf → packages/sdk/src/gen)
 	npx @bufbuild/buf generate
 
@@ -119,9 +134,9 @@ android: ## Build web app + sync into the Capacitor Android project (then open i
 	pnpm --filter @tropis/helm build
 	pnpm --filter @tropis/helm cap:sync android
 	@echo ""
-	@echo "Android project synced (frontend/helm/android/)."
+	@echo "Android project synced (apps/frontend/helm/android/)."
 	@echo "Compile/run needs Android Studio + SDK: pnpm --filter @tropis/helm cap:android"
-	@echo "Device builds: point VITE_* in frontend/helm/.env at your LAN IP first — see docs/multi-platform.md"
+	@echo "Device builds: point VITE_* in apps/frontend/helm/.env at your LAN IP first — see docs/multi-platform.md"
 
 desktop: ## Build the Tauri desktop app (.app/.dmg/.exe/.deb under apps/desktop/src-tauri/target/)
 	@command -v cargo >/dev/null 2>&1 || { echo "cargo not found — install the Rust toolchain via https://rustup.rs (then: . \$$HOME/.cargo/env)"; exit 1; }

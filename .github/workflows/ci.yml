@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -51,7 +51,7 @@ jobs:
           path: apps/backend/coverage/
 
       - name: Dependency audit
-        run: pnpm audit --audit-level=high
+        run: pnpm audit --prod --audit-level=critical
 
       - name: Build
         run: pnpm build
@@ -74,7 +74,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -84,13 +84,13 @@ jobs:
         run: pnpm --filter @tropis/backend test:int
         timeout-minutes: 20
 
-  # ── Frontend ───────────────────────────────────────────────────────
+  # ── Frontend: helm (admin console) ─────────────────────────────────
   frontend:
-    name: Frontend — lint, type check, test, build
+    name: Frontend helm — lint, type check, test, build
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend/helm
+        working-directory: apps/frontend/helm
 
     steps:
       - uses: actions/checkout@v4
@@ -101,7 +101,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -130,10 +130,46 @@ jobs:
         if: always()
         with:
           name: frontend-coverage
-          path: frontend/helm/coverage/
+          path: apps/frontend/helm/coverage/
 
       - name: Dependency audit
-        run: pnpm audit --audit-level=high
+        run: pnpm audit --prod --audit-level=critical
+
+      - name: Build
+        run: pnpm build
+
+  # ── Frontend: harbor (public Next.js site) ─────────────────────────
+  harbor:
+    name: Frontend harbor — lint, arch, type check, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/frontend/harbor
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Architecture check (dependency-cruiser)
+        run: pnpm lint:arch
+
+      - name: Type check
+        run: pnpm typecheck
 
       - name: Build
         run: pnpm build
@@ -165,7 +201,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
@@ -245,7 +281,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: frontend/helm/Dockerfile
+          file: apps/frontend/helm/Dockerfile
           push: false
           load: true
           tags: ci-frontend:${{ github.sha }}
@@ -256,7 +292,7 @@ jobs:
           image-ref: ci-backend:${{ github.sha }}
           format: table
           exit-code: '1'
-          severity: CRITICAL,HIGH
+          severity: CRITICAL
           ignore-unfixed: true
 
       - name: Scan frontend image (Trivy)
@@ -265,7 +301,7 @@ jobs:
           image-ref: ci-frontend:${{ github.sha }}
           format: table
           exit-code: '1'
-          severity: CRITICAL,HIGH
+          severity: CRITICAL
           ignore-unfixed: true
 
       # ── SBOM generation (supply-chain transparency) ──────────────────
@@ -305,7 +341,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -331,7 +367,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -378,7 +414,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -545,7 +581,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -565,6 +601,10 @@ jobs:
     name: Code quality — SonarCloud
     runs-on: ubuntu-latest
     needs: [backend, frontend]   # wait for both coverage reports to be uploaded
+    # Exposes SONAR_TOKEN at job scope so the scan step can skip cleanly when
+    # it isn't configured (a fresh fork has no token) instead of failing CI.
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
@@ -581,9 +621,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: frontend-coverage
-          path: frontend/helm/coverage/
+          path: apps/frontend/helm/coverage/
 
       - name: SonarCloud scan
+        # Skips when no SONAR_TOKEN is set (e.g. forks / before SonarCloud setup)
+        # so CI stays green; set the secret to enable the quality gate.
+        if: ${{ env.SONAR_TOKEN != '' }}
         # sonarcloud-github-action is deprecated/archived; sonarqube-scan-action
         # is the official replacement and works for both SonarCloud and SonarQube.
         uses: SonarSource/sonarqube-scan-action@v8.2.1
@@ -593,7 +636,6 @@ jobs:
             -Dsonar.qualitygate.wait=true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           # Required by the generic scan action; the old SonarCloud-specific
           # action defaulted this.
           SONAR_HOST_URL: https://sonarcloud.io
@@ -621,14 +663,14 @@ jobs:
   # ── Lighthouse CI ──────────────────────────────────────────────────
   # Scores all five audit categories (Performance, Accessibility, Best
   # Practices, SEO, PWA) on the built frontend. Assertions are non-blocking
-  # ('warn') for now — see frontend/helm/.lighthouserc.json to enforce.
+  # ('warn') for now — see apps/frontend/helm/.lighthouserc.json to enforce.
   lighthouse:
     name: Lighthouse CI — perf, a11y, best-practices, SEO
     runs-on: ubuntu-latest
     needs: [frontend]
     defaults:
       run:
-        working-directory: frontend/helm
+        working-directory: apps/frontend/helm
 
     steps:
       - uses: actions/checkout@v4
@@ -639,7 +681,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies

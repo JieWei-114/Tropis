@@ -103,20 +103,9 @@ export class SignatureGuard implements CanActivate {
       throw this.unauthorized(ERROR_CODES.API_KEY_UNKNOWN, 'Unknown API key');
     }
 
-    // 4. Nonce dedup — atomic SET NX EX; a second request with the same
-    //    nonce inside the window fails.
-    const stored = await this.redis.set(
-      `${NONCE_KEY_PREFIX}${keyId}:${nonce}`,
-      '1',
-      'EX',
-      NONCE_TTL_SECONDS,
-      'NX',
-    );
-    if (stored !== 'OK') {
-      throw this.unauthorized(ERROR_CODES.NONCE_REUSED, 'Nonce already used');
-    }
-
-    // 5. Signature — recompute over the raw bytes and compare constant-time.
+    // 4. Signature — recompute over the raw bytes and compare constant-time.
+    //    Verified BEFORE the nonce is consumed, so a bad-signature request can't
+    //    burn a legitimate nonce (which would fail the real caller's retry).
     const canonical = buildCanonicalString(
       request.method,
       request.originalUrl ?? request.url,
@@ -132,6 +121,20 @@ export class SignatureGuard implements CanActivate {
         ERROR_CODES.SIGNATURE_INVALID,
         'Signature verification failed',
       );
+    }
+
+    // 5. Nonce dedup — atomic SET NX EX, only after the signature is proven
+    //    valid. A second VALID request with the same nonce inside the window
+    //    fails (replay protection); invalid requests never reach here.
+    const stored = await this.redis.set(
+      `${NONCE_KEY_PREFIX}${keyId}:${nonce}`,
+      '1',
+      'EX',
+      NONCE_TTL_SECONDS,
+      'NX',
+    );
+    if (stored !== 'OK') {
+      throw this.unauthorized(ERROR_CODES.NONCE_REUSED, 'Nonce already used');
     }
 
     return true;

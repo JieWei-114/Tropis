@@ -53,7 +53,10 @@ export class OutboxRelay {
     for (const row of batch) {
       try {
         await this.broker.publish(row.topic, {
-          eventId: randomUUID(),
+          // STABLE id = the outbox row id, so a redelivery (e.g. lock expiry
+          // mid-batch) carries the SAME eventId and consumers can dedup.
+          // A fresh randomUUID() here would defeat idempotency.
+          eventId: row._id.toString(),
           eventType: row.eventType,
           aggregateId: row.aggregateId,
           payload: row.payload,

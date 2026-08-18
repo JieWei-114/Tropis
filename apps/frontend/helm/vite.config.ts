@@ -65,7 +65,7 @@ export default defineConfig({
       // Consume @tropis/shared from TypeScript source — its published entry is CJS
       // (__exportStar re-exports) which Rollup can't statically analyse.
       '@tropis/shared': fileURLToPath(
-        new URL('../../packages/shared/src/index.ts', import.meta.url),
+        new URL('../../../packages/shared/src/index.ts', import.meta.url),
       ),
     },
   },

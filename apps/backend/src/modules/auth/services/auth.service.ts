@@ -1,7 +1,8 @@
 import { Injectable, UnauthorizedException, Inject } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHmac, createHash, timingSafeEqual } from 'crypto';
 import type Redis from 'ioredis';
 import { UserService } from '../../user/services/user.service';
 import { LoginDto } from '../dto/login.dto';
@@ -24,13 +25,31 @@ export interface AuthTokens {
 
 @Injectable()
 export class AuthService {
+  private readonly refreshSecret: string;
+
   constructor(
     private readonly userService: UserService,
     private readonly jwtService: JwtService,
+    config: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly lockout: LoginLockoutService,
     private readonly sessions: SessionService,
-  ) {}
+  ) {
+    this.refreshSecret = config.getOrThrow<string>('JWT_SECRET');
+  }
+
+  /** Redis key stores a HASH of the tokenId, so a Redis read can't yield a
+   *  usable refresh token (the client holds the raw tokenId + signature). */
+  private refreshKey(userId: string, tokenId: string): string {
+    const h = createHash('sha256').update(tokenId).digest('hex');
+    return `${RT_PREFIX}${userId}:${h}`;
+  }
+
+  private signRefresh(userId: string, tokenId: string): string {
+    return createHmac('sha256', this.refreshSecret)
+      .update(`${userId}:${tokenId}`)
+      .digest('hex');
+  }
 
   async login(dto: LoginDto, ip = 'unknown'): Promise<AuthTokens> {
     // Lockout check FIRST — 5 failed attempts per email+IP within 15 min
@@ -84,7 +103,7 @@ export class AuthService {
     if (refreshToken) {
       const parsed = this.decodeRefreshToken(refreshToken);
       if (parsed) {
-        await this.redis.del(`${RT_PREFIX}${parsed.userId}:${parsed.tokenId}`);
+        await this.redis.del(this.refreshKey(parsed.userId, parsed.tokenId));
         // Fire-and-forget Aerospike session invalidation (no-op when client is null)
         void this.sessions.invalidate(parsed.userId);
       }
@@ -104,7 +123,7 @@ export class AuthService {
     const parsed = this.decodeRefreshToken(refreshToken);
     if (!parsed) throw new UnauthorizedException('Invalid refresh token');
 
-    const key = `${RT_PREFIX}${parsed.userId}:${parsed.tokenId}`;
+    const key = this.refreshKey(parsed.userId, parsed.tokenId);
     const exists = await this.redis.exists(key);
     if (!exists)
       throw new UnauthorizedException('Refresh token expired or revoked');
@@ -138,12 +157,13 @@ export class AuthService {
     const userId = '_id' in user ? user._id.toString() : user.id;
     const tokenId = randomUUID();
     await this.redis.set(
-      `${RT_PREFIX}${userId}:${tokenId}`,
+      this.refreshKey(userId, tokenId),
       '1',
       'PX',
       REFRESH_TTL_MS,
     );
-    return Buffer.from(JSON.stringify({ userId, tokenId })).toString(
+    const sig = this.signRefresh(userId, tokenId);
+    return Buffer.from(JSON.stringify({ userId, tokenId, sig })).toString(
       'base64url',
     );
   }
@@ -153,18 +173,22 @@ export class AuthService {
   ): { userId: string; tokenId: string } | null {
     try {
       const raw = Buffer.from(token, 'base64url').toString('utf8');
-      const parsed = JSON.parse(raw) as unknown;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const { userId, tokenId, sig } = parsed;
       if (
-        typeof parsed === 'object' &&
-        parsed !== null &&
-        'userId' in parsed &&
-        'tokenId' in parsed &&
-        typeof (parsed as Record<string, unknown>).userId === 'string' &&
-        typeof (parsed as Record<string, unknown>).tokenId === 'string'
+        typeof userId !== 'string' ||
+        typeof tokenId !== 'string' ||
+        typeof sig !== 'string'
       ) {
-        return parsed as { userId: string; tokenId: string };
+        return null;
       }
-      return null;
+      // Verify HMAC integrity (constant-time) — a tampered/forged structure
+      // is rejected before any Redis lookup.
+      const expected = this.signRefresh(userId, tokenId);
+      const a = Buffer.from(sig, 'utf8');
+      const b = Buffer.from(expected, 'utf8');
+      if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+      return { userId, tokenId };
     } catch {
       return null;
     }

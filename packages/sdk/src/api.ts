@@ -6,7 +6,8 @@
 
 import { createSdk, type Sdk } from './client/index';
 import { createRestClient, type RestClient } from './rest/index';
-import { setToken } from './auth/token';
+import { setToken, setRefreshToken } from './auth/token';
+import { createRefresher } from './auth/refresh';
 import type { UserResponse } from './gen/user/v1/user_pb';
 import type { EventResponse } from './gen/analytics/v1/analytics_pb';
 
@@ -184,14 +185,18 @@ export interface Api {
 }
 
 export function createApi(options: ApiOptions): Api {
+  // Shared single-flight refresher — both transports refresh-on-401 through it.
+  const refresh = createRefresher(options.restBaseUrl);
   const clients = createSdk({
     baseUrl: options.grpcBaseUrl,
     getToken: options.getToken,
     timeoutMs: options.timeoutMs,
+    refresh,
   });
   const rest = createRestClient({
     baseUrl: options.restBaseUrl,
     getToken: options.getToken,
+    refresh,
   });
 
   const fetchRecent = async (): Promise<AnalyticsEvent[]> => {
@@ -204,9 +209,13 @@ export function createApi(options: ApiOptions): Api {
     rest,
 
     async login(email, password) {
-      const res = await clients.auth.login({ email, password });
-      if (!res.accessToken) throw new Error('Login failed: no token in response');
-      setToken(res.accessToken);
+      // Login over REST (not gRPC): the REST endpoint runs the full AuthService
+      // (lockout + a rotating REFRESH token), where gRPC Login only returns an
+      // access token. Storing the refresh token is what enables refresh-on-401.
+      const { accessToken, refreshToken } = await rest.login(email, password);
+      if (!accessToken) throw new Error('Login failed: no token in response');
+      setToken(accessToken);
+      if (refreshToken) setRefreshToken(refreshToken);
     },
 
     async fetchUsers(page = 1, limit = 20) {

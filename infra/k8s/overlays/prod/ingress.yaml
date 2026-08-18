@@ -18,12 +18,36 @@ spec:
   ingressClassName: nginx   # change to alb / traefik if using a different controller
   tls:
     - hosts:
-        - yourdomain.com          # ← replace
+        - yourdomain.com          # ← replace (public site — harbor)
+        - www.yourdomain.com      # ← replace (public site — harbor)
+        - app.yourdomain.com      # ← replace (admin console — helm)
         - api.yourdomain.com      # ← replace
+        - grpc.yourdomain.com     # ← replace (browser gRPC-Web endpoint)
       secretName: app-tls-cert    # cert-manager writes the certificate here
   rules:
-    # Frontend
+    # Public site (harbor — Next.js SSR/SSG). Apex + www.
     - host: yourdomain.com        # ← replace
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: harbor-svc
+                port:
+                  number: 80
+    - host: www.yourdomain.com    # ← replace
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: harbor-svc
+                port:
+                  number: 80
+    # Admin console (helm — React SPA). Its own subdomain.
+    - host: app.yourdomain.com    # ← replace
       http:
         paths:
           - path: /
@@ -33,7 +57,7 @@ spec:
                 name: frontend-svc
                 port:
                   number: 80
-    # Backend API + WebSocket
+    # Backend REST API + WebSocket (Socket.io)
     - host: api.yourdomain.com    # ← replace
       http:
         paths:
@@ -44,3 +68,16 @@ spec:
                 name: backend-svc
                 port:
                   number: 3100
+    # Browser gRPC-Web → Envoy → backend gRPC (:50051). The frontend's
+    # VITE_GRPC_WEB_URL points here (https://grpc.yourdomain.com). Envoy does
+    # the gRPC-Web↔gRPC translation, so the ingress just forwards HTTP/1.1.
+    - host: grpc.yourdomain.com   # ← replace
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: envoy-svc
+                port:
+                  number: 8090

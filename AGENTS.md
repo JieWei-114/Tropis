@@ -6,8 +6,8 @@ working in this repository. Human contributors: see [CONTRIBUTING.md](CONTRIBUTI
 ## What this repo is
 
 A production-grade full-stack starter template (pnpm monorepo): NestJS backend
-(gRPC-first), a frontend split by audience — `frontend/helm` (logged-in admin
-console, React + Vite SPA, consumes `@tropis/sdk`) and `frontend/harbor` (public
+(gRPC-first), a frontend split by audience — `apps/frontend/helm` (logged-in admin
+console, React + Vite SPA, consumes `@tropis/sdk`) and `apps/frontend/harbor` (public
 site, Next.js SSR/SSG, full SEO) — event pipeline (MongoDB outbox → Pulsar →
 Flink → ClickHouse), Temporal workflows, full observability stack. Architecture
 overview: [docs/architecture.md](docs/architecture.md); frontend split &
@@ -43,15 +43,15 @@ SEO/rendering: [docs/web-quality.md](docs/web-quality.md).
 
 ## Verify before claiming done
 
-Requires Node ≥ 20 (`.nvmrc`).
+Requires Node ≥ 22 (`.nvmrc`).
 
 ```bash
 # Backend
 cd apps/backend && npx tsc --noEmit && npx jest && pnpm lint:arch
 # Frontend — helm (admin SPA)
-cd frontend/helm && npx tsc -p tsconfig.app.json --noEmit && npx vitest run && pnpm lint:arch && pnpm build
+cd apps/frontend/helm && npx tsc -p tsconfig.app.json --noEmit && npx vitest run && pnpm lint:arch && pnpm build
 # Frontend — harbor (public Next.js site)
-cd frontend/harbor && pnpm typecheck && pnpm lint && pnpm build
+cd apps/frontend/harbor && pnpm typecheck && pnpm lint && pnpm lint:arch && pnpm build
 # Contracts
 npx @bufbuild/buf lint
 # Rust services (when touched)

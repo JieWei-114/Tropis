@@ -1,12 +1,15 @@
-import { Injectable, NestMiddleware } from '@nestjs/common';
+import { Injectable, NestMiddleware, Inject } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import * as jwt from 'jsonwebtoken';
 import { ConfigService } from '@nestjs/config';
+import type Redis from 'ioredis';
 import { TenantContext } from './tenant.context';
+import { REDIS_CLIENT } from '../../infrastructure/redis/redis.module';
 import { DEFAULT_TENANT } from '../../modules/user/schemas/user.schema';
 
 interface JwtPayloadWithTenant {
   tenantId?: string;
+  jti?: string;
 }
 
 /**
@@ -25,11 +28,12 @@ export class TenantMiddleware implements NestMiddleware {
   constructor(
     private readonly tenantCtx: TenantContext,
     config: ConfigService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.jwtSecret = config.getOrThrow<string>('JWT_SECRET');
   }
 
-  use(req: Request, _res: Response, next: NextFunction): void {
+  async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
     let tenantId = DEFAULT_TENANT;
     let jwtTenantResolved = false;
 
@@ -40,7 +44,12 @@ export class TenantMiddleware implements NestMiddleware {
           authHeader.slice(7),
           this.jwtSecret,
         ) as JwtPayloadWithTenant;
-        if (payload.tenantId) {
+        // Don't resolve tenant from a revoked (logged-out) token — mirrors the
+        // JwtStrategy blacklist check so tenant context can't outlive a logout.
+        const revoked =
+          payload.jti &&
+          (await this.redis.exists(`bl:${payload.jti}`).catch(() => 0)) === 1;
+        if (payload.tenantId && !revoked) {
           tenantId = payload.tenantId;
           jwtTenantResolved = true;
         }

@@ -2,5 +2,5 @@
   "singleQuote": true,
   "trailingComma": "all",
   "plugins": ["prettier-plugin-tailwindcss"],
-  "tailwindStylesheet": "./frontend/helm/src/index.css"
+  "tailwindStylesheet": "./apps/frontend/helm/src/index.css"
 }

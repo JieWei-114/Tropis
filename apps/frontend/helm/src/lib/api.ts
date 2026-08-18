@@ -16,7 +16,7 @@ export const api = createApi({
 });
 
 // Token store (localStorage + JWT exp validation, lives in the SDK)
-export { getToken, setToken, clearToken } from '@tropis/sdk';
+export { getToken, setToken, clearToken, clearTokens } from '@tropis/sdk';
 
 // Domain types
 export type {

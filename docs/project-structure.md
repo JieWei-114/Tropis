@@ -6,8 +6,8 @@ Where everything goes, and why. This describes both the **current code** and the
 
 ```
 apps/backend/          NestJS API (gRPC + REST + WS)
-frontend/helm/         Admin console — React + Vite SPA (后台, CSR, noindex)
-frontend/harbor/       Public site — Next.js App Router (前台, SSR/SSG, full SEO)
+apps/frontend/helm/         Admin console — React + Vite SPA (后台, CSR, noindex)
+apps/frontend/harbor/       Public site — Next.js App Router (前台, SSR/SSG, full SEO)
 apps/temporal-worker/  Temporal workflows + activities
 packages/shared/       Cross-app types, DTOs, event contracts
 packages/sdk/          TypeScript client SDK (gRPC-Web client, REST, realtime, tracking, request signing; generated types in src/gen/)
@@ -225,16 +225,16 @@ Each external system gets exactly one NestJS module that owns its client/driver,
 
 Typed config namespaces (`app.config.ts`) + Joi env validation on startup (`env.validation.ts`). New env vars must be added to the Joi schema and `.env.example`.
 
-## Frontend layout (`frontend/helm/src/`)
+## Frontend layout (`apps/frontend/helm/src/`)
 
 > The frontend is split by audience: **helm** (this section) is the logged-in
 > admin console (React + Vite SPA, no SEO — mark public-looking routes
-> `noindex`); **harbor** (`frontend/harbor/`) is the public marketing/content
-> site (Next.js App Router, SSR/SSG, full SEO) and follows standard Next
-> `app/` conventions, not the feature-first layout below. SEO/rendering split:
-> [web-quality.md](web-quality.md).
+> `noindex`); **harbor** (`apps/frontend/harbor/`) is the public marketing/content
+> site (Next.js App Router, SSR/SSG, full SEO) with its own layered convention —
+> see [**Harbor layout**](#harbor-layout-appsfrontendharbor) below. SEO/rendering
+> split: [web-quality.md](web-quality.md).
 
-Feature-first — the frontend mirror of the backend's module anatomy. **CI-enforced** by dependency-cruiser (`frontend/helm/.dependency-cruiser.cjs`, `pnpm lint:arch`, runs in the frontend CI job right after Lint).
+Feature-first — the frontend mirror of the backend's module anatomy. **CI-enforced** by dependency-cruiser (`apps/frontend/helm/.dependency-cruiser.cjs`, `pnpm lint:arch`, runs in the frontend CI job right after Lint).
 
 ```
 main.tsx           # entrypoint — the only file allowed to import app/
@@ -302,10 +302,44 @@ cell.
 
 State placement: server data → TanStack Query; global client state → Zustand; component-local → `useState`. Never mirror server data into Zustand.
 
+## Harbor layout (`apps/frontend/harbor/`)
+
+The public site — Next.js App Router. Same layering philosophy as helm/backend,
+adapted for Next. **CI-enforced** by dependency-cruiser
+(`apps/frontend/harbor/.dependency-cruiser.cjs`, `pnpm lint:arch`).
+
+```
+app/           # ROUTES ONLY — pages, layouts, route handlers, metadata,
+               #   robots.ts / sitemap.ts. The composition root Next loads.
+  layout.tsx   #   site-wide <html>/<body> + default SEO metadata
+  page.tsx     #   a route (React Server Component); exports its own `metadata`
+  <route>/     #   nested route (e.g. pricing/page.tsx)
+features/      # one folder per domain feature (pricing/, blog/, …); public
+               #   surface via index.ts barrel; route-specific UI + data
+components/    # shared PRESENTATIONAL components (props only); ui/ for primitives
+lib/           # leaf: site config, @tropis/sdk data wiring, utils
+```
+
+**One-way dependency rules** (dependency-cruiser, `error` severity — mirror of helm):
+
+- `nothing-imports-routes` / `features-not-into-app` — `app/` is the root; nothing
+  outside it imports it, and features never import `app/`. (Colocating components
+  inside a route folder is fine.)
+- `no-cross-feature-imports` — features are independent verticals. Shared UI →
+  `components/`; shared logic/config → `lib/`.
+- `feature-internals-are-private` — import a feature only through its `index.ts`.
+- `shared-components-are-presentational` — `components/` imports nothing from
+  `app/`/`features/`/`lib/` (except `lib/utils.ts`).
+- `lib-is-a-leaf` — `lib/` depends only on `packages/`.
+
+**SEO is server-native** (Next Metadata API, `app/robots.ts`, `app/sitemap.ts`) —
+no `<Seo>` component here; see [web-quality.md](web-quality.md). Rendering: SSG by
+default per route, SSR/`dynamic` only where a page must be personalised.
+
 ## Desktop shell (`apps/desktop/`) and mobile shells
 
 The native shells are **not apps — they are shells**. All features live in
-`frontend/helm` (rendered identically in browser, mobile, and desktop); the
+`apps/frontend/helm` (rendered identically in browser, mobile, and desktop); the
 shells only package that build and expose native capabilities.
 
 ```
@@ -318,9 +352,9 @@ apps/desktop/                 # Tauri v2 (see apps/desktop/README.md for full ru
     │                         #   (extract to src/commands/ beyond ~2 commands)
     └── icons/                # generated set (`pnpm tauri icon <1024px.png>`)
 
-frontend/helm/android/        # Capacitor Gradle project (committed; build outputs ignored)
-frontend/helm/ios/            # Capacitor Xcode project (committed; Pods ignored)
-frontend/helm/capacitor.config.ts
+apps/frontend/helm/android/        # Capacitor Gradle project (committed; build outputs ignored)
+apps/frontend/helm/ios/            # Capacitor Xcode project (committed; Pods ignored)
+apps/frontend/helm/capacitor.config.ts
 ```
 
 Hard rules:

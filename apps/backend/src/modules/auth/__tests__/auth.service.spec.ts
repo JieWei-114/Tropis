@@ -1,12 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import { createHmac } from 'crypto';
 import { AuthService } from '../services/auth.service';
 import { UserService } from '../../user/services/user.service';
 import { REDIS_CLIENT } from '../../../infrastructure/redis/redis.module';
 import { LoginLockoutService } from '../services/login-lockout.service';
 import { SessionService } from '../../../infrastructure/aerospike/session.service';
+
+const TEST_SECRET = 'test-jwt-secret-at-least-32-characters!!';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -31,8 +35,15 @@ describe('AuthService', () => {
     passwordHash: '', // set per test via bcrypt.hash
   };
 
-  const encodeRefreshToken = (userId: string, tokenId: string) =>
-    Buffer.from(JSON.stringify({ userId, tokenId })).toString('base64url');
+  // Mirror AuthService: HMAC-sign the token so decodeRefreshToken accepts it.
+  const encodeRefreshToken = (userId: string, tokenId: string) => {
+    const sig = createHmac('sha256', TEST_SECRET)
+      .update(`${userId}:${tokenId}`)
+      .digest('hex');
+    return Buffer.from(JSON.stringify({ userId, tokenId, sig })).toString(
+      'base64url',
+    );
+  };
 
   beforeEach(async () => {
     userService = {
@@ -66,6 +77,7 @@ describe('AuthService', () => {
         AuthService,
         { provide: UserService, useValue: userService },
         { provide: JwtService, useValue: jwtService },
+        { provide: ConfigService, useValue: { getOrThrow: () => TEST_SECRET } },
         { provide: REDIS_CLIENT, useValue: redis },
         { provide: LoginLockoutService, useValue: lockout },
         { provide: SessionService, useValue: sessions },
@@ -248,7 +260,10 @@ describe('AuthService', () => {
         encodeRefreshToken('user-123', 'tok-1'),
       );
 
-      expect(redis.del).toHaveBeenCalledWith('rt:user-123:tok-1');
+      // key stores a hash of the tokenId, not the raw id
+      expect(redis.del).toHaveBeenCalledWith(
+        expect.stringMatching(/^rt:user-123:[0-9a-f]{64}$/),
+      );
     });
 
     it('invalidates the Aerospike session on logout', async () => {
@@ -291,6 +306,19 @@ describe('AuthService', () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
+    it('rejects a forged/tampered refresh token before any Redis lookup', async () => {
+      redis.exists.mockResolvedValue(1); // Redis would say "valid" if reached
+      // Attacker fabricates {userId, tokenId} with a bogus signature.
+      const forged = Buffer.from(
+        JSON.stringify({ userId: 'victim', tokenId: 'guess', sig: 'deadbeef' }),
+      ).toString('base64url');
+
+      await expect(service.refresh(forged)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(redis.exists).not.toHaveBeenCalled(); // rejected on signature, pre-lookup
+    });
+
     it('rotates the token and issues a new pair', async () => {
       redis.exists.mockResolvedValue(1);
       userService.findByIdForAuth.mockResolvedValue({
@@ -303,7 +331,9 @@ describe('AuthService', () => {
         encodeRefreshToken('user-123', 'tok-1'),
       );
 
-      expect(redis.del).toHaveBeenCalledWith('rt:user-123:tok-1');
+      expect(redis.del).toHaveBeenCalledWith(
+        expect.stringMatching(/^rt:user-123:[0-9a-f]{64}$/),
+      );
       expect(result.accessToken).toBe('signed.jwt.token');
       expect(typeof result.refreshToken).toBe('string');
     });

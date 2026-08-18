@@ -1,5 +1,5 @@
 /**
- * Architecture rules for frontend/helm — enforces the feature-first layering
+ * Architecture rules for apps/frontend/helm — enforces the feature-first layering
  * documented in docs/project-structure.md. Run locally with `pnpm lint:arch`.
  *
  * Layering (one-way):

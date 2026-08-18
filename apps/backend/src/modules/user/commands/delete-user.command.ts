@@ -1,12 +1,10 @@
 import { ICommand, CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { NotFoundException, Inject } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectConnection } from '@nestjs/mongoose';
 import type { Connection } from 'mongoose';
 import type Redis from 'ioredis';
 import { UserRepository } from '../repositories/user.repository';
 import { USER_ERROR_CODES, USER_EVENTS } from '../constants/user.constants';
-import { UserDeletedEvent } from '../events/user.events';
 import { UserEventStoreService } from '../event-store/user-event-store.service';
 import { OutboxService } from '../../../infrastructure/outbox/outbox.service';
 import { REDIS_CLIENT } from '../../../infrastructure/redis/redis.module';
@@ -26,7 +24,6 @@ export class DeleteUserHandler implements ICommandHandler<
     private readonly userRepo: UserRepository,
     private readonly eventStore: UserEventStoreService,
     private readonly outboxService: OutboxService,
-    private readonly eventEmitter: EventEmitter2,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     @InjectConnection() private readonly connection: Connection,
   ) {}
@@ -59,11 +56,9 @@ export class DeleteUserHandler implements ICommandHandler<
 
     const userEmail = user!.email;
 
+    // Cache purge + counter + ES/vector delete are all driven durably by the
+    // Pulsar consumer (UserProcessor) off the outbox row written above.
     await this.redis.del(`user:${cmd.id}`);
-    this.eventEmitter.emit(
-      UserDeletedEvent.EVENT,
-      new UserDeletedEvent(cmd.id, userEmail),
-    );
 
     return userEmail;
   }

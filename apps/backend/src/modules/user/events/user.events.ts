@@ -23,11 +23,6 @@ export class UserUpdatedEvent {
   ) {}
 }
 
-export class UserDeletedEvent {
-  static readonly EVENT = USER_EVENTS.DELETED;
-  readonly eventId = randomUUID();
-  constructor(
-    public readonly userId: string,
-    public readonly email: string,
-  ) {}
-}
+// UserDeletedEvent removed: user deletion has no in-process (WebSocket) side
+// effect; its durable side-effects (cache/counter/ES/vector purge) run in the
+// Pulsar consumer (UserProcessor) off the outbox — not the EventEmitter.

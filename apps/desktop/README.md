@@ -1,6 +1,6 @@
 # Desktop Shell (Tauri v2)
 
-Wraps the web frontend (`frontend/helm`) into native desktop installers
+Wraps the web frontend (`apps/frontend/helm`) into native desktop installers
 (.app/.dmg/.exe/.deb). It is a **shell, not an app**: it contains zero business
 logic and renders the exact same build the browser gets.
 
@@ -14,7 +14,7 @@ apps/desktop/
 └── src-tauri/               # the Rust shell crate
     ├── tauri.conf.json      # ⭐ the config: window size/title, productName,
     │                        #   identifier (dev.tropis.app — replace before release),
-    │                        #   frontendDist → ../../frontend/dist,
+    │                        #   frontendDist → ../../../apps/frontend/helm/dist,
     │                        #   beforeBuildCommand builds the frontend first
     ├── capabilities/        # ⭐ permission grants per window (deny-by-default).
     │   └── default.json     #   Only core:default now. Every new permission is a
@@ -31,7 +31,7 @@ apps/desktop/
 ## Rules (mirror of the platform's layering discipline)
 
 1. **No business logic in the shell.** Features live in the web app
-   (`frontend/helm` → `@tropis/sdk`). If a feature works in the browser, it works
+   (`apps/frontend/helm` → `@tropis/sdk`). If a feature works in the browser, it works
    here for free — that's the entire point.
 2. **Native (Rust) commands only for what the web platform cannot do**: file
    system dialogs, tray, global shortcuts, OS notifications beyond web push,
@@ -43,7 +43,7 @@ apps/desktop/
    backend's OPA policies: the narrowest permission, reviewed in PR.
 4. **API endpoints are baked at web build time** (`VITE_*`): a desktop build
    talks to whatever backend the frontend build was pointed at — set
-   `frontend/helm/.env` before `make desktop` (see docs/multi-platform.md).
+   `apps/frontend/helm/.env` before `make desktop` (see docs/multi-platform.md).
 5. **Before release**: replace `identifier` (bundle ID), `productName`, and the
    icon set; set up signing/notarization per OS (pointers in
    docs/multi-platform.md).

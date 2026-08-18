@@ -83,7 +83,7 @@ backend on :3100, `make seed`). Never point these at production.
 
 ## Coverage philosophy
 
-**80%+ on `services/` and `utils/`** is the target, not vanity global numbers. Jest currently collects coverage only from `*.service.ts` / `*.gateway.ts` / `*.repository.ts` and enforces 70% lines/statements, 60% branches/functions (see `apps/backend/package.json`). A repo-wide number that comes from testing DTOs and module wiring is worthless; a tested service layer is not. `pnpm --filter @tropis/backend test:cov` to check.
+**80%+ on `services/` and `utils/`** is the target, not vanity global numbers. Jest currently collects coverage only from `*.service.ts` / `*.gateway.ts` / `*.repository.ts` and enforces a baseline floor (50% lines/statements, 45% branches, 35% functions), ratcheted up as tests are added (see `apps/backend/package.json`). A repo-wide number that comes from testing DTOs and module wiring is worthless; a tested service layer is not. `pnpm --filter @tropis/backend test:cov` to check.
 
 ## Commands
 

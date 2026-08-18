@@ -34,7 +34,7 @@
       "pnpm --filter @tropis/backend lint",
       "prettier --write"
     ],
-    "frontend/helm/**/*.{ts,tsx}": [
+    "apps/frontend/helm/**/*.{ts,tsx}": [
       "prettier --write"
     ],
     "**/*.{json,md}": [
@@ -74,6 +74,6 @@
     }
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   }
 }

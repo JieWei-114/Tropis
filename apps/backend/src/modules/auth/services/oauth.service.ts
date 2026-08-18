@@ -34,8 +34,10 @@ export class OAuthService {
       tenantId,
     );
 
-    // 2. Email match — link provider to an existing password-based account
-    if (!user) {
+    // 2. Email match — link provider to an existing password-based account.
+    //    ONLY when the provider verified the email, else an attacker with an
+    //    unverified provider email could take over an existing account.
+    if (!user && profile.emailVerified) {
       user = await this.userRepo.findByEmail(profile.email, tenantId);
       if (user) {
         user = await this.userRepo.update(

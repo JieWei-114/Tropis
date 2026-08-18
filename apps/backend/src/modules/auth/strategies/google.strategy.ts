@@ -47,15 +47,27 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     profile: Profile,
     done: VerifyCallback,
   ): void {
-    const email = profile.emails?.[0]?.value;
-    if (!email)
-      return done(new Error('Google account has no email address'), undefined);
+    // Only accept a VERIFIED primary email. passport-google-oauth20 exposes
+    // per-email `verified` ('true'/true); an unverified email must not be
+    // allowed to link to an existing account (account-takeover vector).
+    const primary = profile.emails?.find(
+      (e) =>
+        (e as { verified?: boolean | string }).verified === true ||
+        (e as { verified?: boolean | string }).verified === 'true',
+    );
+    if (!primary?.value) {
+      return done(
+        new Error('Google account has no verified email address'),
+        undefined,
+      );
+    }
 
     const user: OAuthUserProfile = {
       provider: 'google',
       providerId: profile.id,
-      email,
-      name: profile.displayName ?? email.split('@')[0],
+      email: primary.value,
+      name: profile.displayName ?? primary.value.split('@')[0],
+      emailVerified: true,
     };
 
     done(null, user);

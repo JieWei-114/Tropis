@@ -2,7 +2,7 @@
   "name": "@tropis/desktop",
   "private": true,
   "version": "0.0.0",
-  "description": "Tauri v2 desktop shell wrapping the built frontend (frontend/helm/dist)",
+  "description": "Tauri v2 desktop shell wrapping the built frontend (apps/frontend/helm/dist)",
   "scripts": {
     "tauri": "tauri",
     "build": "tauri build",
@@ -13,6 +13,6 @@
     "@tauri-apps/cli": "^2.11.4"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   }
 }
