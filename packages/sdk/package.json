@@ -43,7 +43,7 @@
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.10.1",
-    "@connectrpc/connect": "2.1.0",
+    "@connectrpc/connect": "2.1.2",
     "@connectrpc/connect-web": "2.1.0",
     "socket.io-client": "4.8.3"
   },
