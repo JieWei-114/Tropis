@@ -3,8 +3,8 @@
 ## Prerequisites
 
 - Docker + Docker Compose, `kubectl`, `kustomize` (bundled in kubectl), access to the target cluster
-- GHCR access (images are public-repo GHCR: `ghcr.io/<org>/<repo>/{backend,frontend}`)
-- `pnpm@10`, Node 20 (matching CI)
+- GHCR access (images are public-repo GHCR: `ghcr.io/<org>/<repo>/{backend,frontend,harbor}`)
+- `pnpm@10`, Node 22 (matching CI)
 - Production only: cert-manager, ingress controller (nginx), External Secrets Operator, Vault reachable from the cluster
 
 ## From local to production — the ladder
@@ -39,14 +39,21 @@ kind create cluster --name tropis
 kubectl get nodes                                    # wait for Ready
 
 # Build the app image and load it INTO the cluster (kind has its own image
-# store, separate from host Docker — images must be loaded explicitly):
-docker build -f frontend/helm/Dockerfile -t tropis/frontend:local .
+# store, separate from host Docker — images must be loaded explicitly).
+# There are TWO frontends: helm (admin SPA, static/nginx) + harbor (public
+# Next.js SSR). Build/load whichever you need:
+docker build -f apps/frontend/helm/Dockerfile   -t tropis/frontend:local .
+docker build -f apps/frontend/harbor/Dockerfile -t tropis/harbor:local .
 kind load docker-image tropis/frontend:local --name tropis
+kind load docker-image tropis/harbor:local   --name tropis
 
 kubectl create namespace tropis
-kubectl apply -f infra/k8s/base/frontend/deployment.yaml -f infra/k8s/base/frontend/service.yaml
+# Whole base (backend + helm + harbor + envoy + policies) in one shot:
+kubectl apply -k infra/k8s/base
 kubectl set image deployment/frontend frontend=tropis/frontend:local -n tropis
-kubectl port-forward svc/frontend-svc -n tropis 8088:80   # → http://localhost:8088
+kubectl set image deployment/harbor   harbor=tropis/harbor:local     -n tropis
+kubectl port-forward svc/frontend-svc -n tropis 8088:80   # helm  → http://localhost:8088
+kubectl port-forward svc/harbor-svc   -n tropis 8089:80   # harbor → http://localhost:8089
 ```
 
 **The gotcha you WILL hit — `ImagePullBackOff`.** The base manifest image is
@@ -67,6 +74,11 @@ kubectl rollout status deployment/frontend -n tropis
 datastores exist — `kubectl logs <pod>` shows why). Install Argo CD into the
 kind cluster and apply `infra/argocd/project.yaml` + `infra/argocd/app-dev.yaml`
 to rehearse GitOps locally. Cleanup: `kind delete cluster --name tropis`.
+
+**See the cluster visually** instead of `kubectl get pods` loops: `make k8s`
+opens **k9s** (terminal UI — pods/logs/events/exec, real-time) and `make k8s-ui`
+opens **Headlamp** (browser/desktop UI). Both auto-install via brew and target
+the `kind-tropis` context / `tropis` namespace.
 
 ### Rung 3 — Production tiers (pick by traction; you do NOT need full GitOps day one)
 

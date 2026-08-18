@@ -1,24 +1,24 @@
 # Multi-platform distribution guide
 
-One web codebase (`frontend/helm/`), four channels. The PWA is the default;
+The helm web app (`apps/frontend/helm/`) — one of two frontends (harbor is the public Next.js site) — ships to four channels. The PWA is the default;
 the native shells (Capacitor for Android/iOS, Tauri for desktop) are
-pre-wired and simply wrap the **built** web app from `frontend/helm/dist/`.
+pre-wired and simply wrap the **built** web app from `apps/frontend/helm/dist/`.
 Decision record: [tech-decisions.md](tech-decisions.md) → "Multi-platform
 distribution".
 
 ## How each channel works
 
-| Channel   | Shell                                                                                | What ships                    | Updates               |
-| --------- | ------------------------------------------------------------------------------------ | ----------------------------- | --------------------- |
-| Web / PWA | none (vite-plugin-pwa)                                                               | `dist/` on any static host    | instant               |
-| Android   | Capacitor (`frontend/helm/android/`, committed Gradle project)                       | APK/AAB embedding `dist/`     | store review          |
-| iOS       | Capacitor (`frontend/helm/ios/`, scaffolded — needs Xcode for `pod install` + build) | IPA embedding `dist/`         | store review          |
-| Desktop   | Tauri v2 (`apps/desktop/`, own Rust crate in `src-tauri/`)                           | .app/.dmg/.exe/.deb, ~5–15 MB | installer per release |
+| Channel   | Shell                                                                                     | What ships                    | Updates               |
+| --------- | ----------------------------------------------------------------------------------------- | ----------------------------- | --------------------- |
+| Web / PWA | none (vite-plugin-pwa)                                                                    | `dist/` on any static host    | instant               |
+| Android   | Capacitor (`apps/frontend/helm/android/`, committed Gradle project)                       | APK/AAB embedding `dist/`     | store review          |
+| iOS       | Capacitor (`apps/frontend/helm/ios/`, scaffolded — needs Xcode for `pod install` + build) | IPA embedding `dist/`         | store review          |
+| Desktop   | Tauri v2 (`apps/desktop/`, own Rust crate in `src-tauri/`)                                | .app/.dmg/.exe/.deb, ~5–15 MB | installer per release |
 
 ## Env / endpoints for device builds (read this first)
 
 The shells load the **built** web app, so API endpoints are baked in at
-`pnpm build` time from Vite env vars (`frontend/helm/.env`, consumed by
+`pnpm build` time from Vite env vars (`apps/frontend/helm/.env`, consumed by
 `src/lib/env.ts`):
 
 ```
@@ -42,7 +42,7 @@ then rebuild (`pnpm --filter @tropis/helm build`) and re-sync/re-bundle.
 
 | Platform | Needs                                                                                                                                                               |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PWA      | Node 20+, pnpm (already required)                                                                                                                                   |
+| PWA      | Node 22+, pnpm (already required)                                                                                                                                   |
 | Android  | Android Studio + Android SDK (SDK 35+), JDK 21                                                                                                                      |
 | iOS      | macOS + full Xcode (not just CommandLineTools) + CocoaPods (`brew install cocoapods`)                                                                               |
 | Desktop  | Rust toolchain (rustup); Linux additionally: `libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev` |
@@ -59,7 +59,7 @@ pnpm --filter @tropis/helm build     # dist/ incl. manifest + service worker
 
 ```bash
 pnpm --filter @tropis/helm build
-cd frontend/helm
+cd apps/frontend/helm
 pnpm cap:sync                  # copies dist/ into android/app/src/main/assets/public
 pnpm cap:android               # opens Android Studio → Run / Build > Generate Signed Bundle
 # or headless (needs SDK): cd android && ./gradlew assembleDebug
@@ -69,7 +69,7 @@ Or from the repo root: `make android` (build + sync).
 
 ### iOS (Capacitor) — scaffolded; only Xcode missing
 
-The `ios/` platform IS generated and committed (`frontend/helm/ios/`:
+The `ios/` platform IS generated and committed (`apps/frontend/helm/ios/`:
 xcodeproj, xcworkspace, Podfile, plugin specs) and CocoaPods is installed.
 The only step that couldn't run on the setup machine is `pod install`,
 which requires full Xcode (xcodebuild). To finish:
@@ -79,7 +79,7 @@ which requires full Xcode (xcodebuild). To finish:
 sudo xcode-select --switch /Applications/Xcode.app    # point away from CommandLineTools
 sudo xcodebuild -license accept
 # 2. Finish the pods + sync
-cd frontend/helm
+cd apps/frontend/helm
 pnpm --filter @tropis/helm build
 cd ios/App && pod install && cd ../..
 npx cap sync ios
@@ -109,8 +109,8 @@ Dev mode against the Vite dev server: `pnpm tauri dev` (add
 
 ## Icon / branding replacement checklist
 
-- [ ] Replace `frontend/helm/public/pwa-192x192.png`, `pwa-512x512.png`, `apple-touch-icon.png`, `vite.svg`; update names/colors in the PWA manifest (`vite.config.ts`) and `index.html` `theme-color`
+- [ ] Replace `apps/frontend/helm/public/pwa-192x192.png`, `pwa-512x512.png`, `apple-touch-icon.png`, `vite.svg`; update names/colors in the PWA manifest (`vite.config.ts`) and `index.html` `theme-color`
 - [ ] Regenerate all Tauri + Android/iOS icons from one 1024px source: `cd apps/desktop && npx tauri icon path/to/icon.png` (writes `src-tauri/icons/` **and** Android mipmaps/iOS sets when platforms exist)
-- [ ] Replace `frontend/helm/android/app/src/main/res/mipmap-*` launcher icons (Android Studio: Image Asset Studio) and splash if added
-- [ ] Change the placeholder ids: `appId` in `frontend/helm/capacitor.config.ts`, `identifier` in `apps/desktop/src-tauri/tauri.conf.json`, `applicationId`/`namespace` in `frontend/helm/android/app/build.gradle`
+- [ ] Replace `apps/frontend/helm/android/app/src/main/res/mipmap-*` launcher icons (Android Studio: Image Asset Studio) and splash if added
+- [ ] Change the placeholder ids: `appId` in `apps/frontend/helm/capacitor.config.ts`, `identifier` in `apps/desktop/src-tauri/tauri.conf.json`, `applicationId`/`namespace` in `apps/frontend/helm/android/app/build.gradle`
 - [ ] `appName` (capacitor.config.ts), `productName` + window `title` (tauri.conf.json), `app_name` in `android/app/src/main/res/values/strings.xml`

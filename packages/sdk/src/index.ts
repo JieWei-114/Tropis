@@ -41,7 +41,15 @@ export { parseApiError, type ApiError } from './errors/index';
 export { Code, ConnectError } from '@connectrpc/connect';
 
 // Token store
-export { getToken, setToken, clearToken } from './auth/token';
+export {
+  getToken,
+  setToken,
+  clearToken,
+  getRefreshToken,
+  setRefreshToken,
+  clearRefreshToken,
+  clearTokens,
+} from './auth/token';
 
 // Tracking (user-behavior 埋点 tracker)
 export {

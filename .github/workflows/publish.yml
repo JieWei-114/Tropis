@@ -55,7 +55,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.npm-token.outputs.present == 'true'
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           registry-url: "https://registry.npmjs.org" # or https://npm.pkg.github.com for GitHub Packages
 

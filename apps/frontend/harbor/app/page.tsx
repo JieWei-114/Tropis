@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { SITE_URL } from '@/lib/site';
+import { SITE_URL, CONSOLE_URL } from '@/lib/site';
 
 // Page-level SEO override (SSR-rendered into the HTML).
 export const metadata: Metadata = {
@@ -25,8 +25,8 @@ export default function HomePage() {
           <Link className="btn btn-primary" href="/pricing">
             See pricing
           </Link>
-          {/* External link to the helm console — a plain anchor is correct here. */}
-          <a className="btn" href="http://localhost:8088">
+          {/* External link to the helm console (per-env) — plain anchor is correct. */}
+          <a className="btn" href={CONSOLE_URL}>
             Open the console
           </a>
         </div>

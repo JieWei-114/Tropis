@@ -45,6 +45,18 @@ docker compose -f infra/docker/docker-compose.yml exec mongodb \
 
 If the volume got into a bad state: `docker compose ... down -v` (wipes data) and start again. Ensure your `MONGODB_URI` includes `replicaSet=rs0` (match `.env.example`) and points at host port **27018** (compose maps `27018:27017`).
 
+## Redis keys "missing" — a local Redis is shadowing the container
+
+Symptom: the backend clearly works (auth/dedup/counters behave), but `docker exec tropis_redis redis-cli ...` shows an empty Redis and keys like `users:total` or `user-processor:seen:*` are nowhere to be found.
+
+Cause: a **local (Homebrew) redis** listening on `127.0.0.1:6379` shadows the docker `tropis_redis` for **host** processes (e.g. `make dev`). macOS resolves `localhost:6379` to `127.0.0.1` first, so the host backend hits the local redis, not the container — while your `docker exec` queries the (empty) container.
+
+```bash
+lsof -iTCP:6379 -sTCP:LISTEN -n -P   # shows BOTH a local redis-server and com.docker
+redis-cli -h 127.0.0.1 -p 6379 dbsize   # this is where the host backend's keys actually are
+brew services stop redis                 # make the docker tropis_redis authoritative, then restart `make dev`
+```
+
 ## Envoy gRPC-Web CORS errors
 
 Symptom: browser console `CORS policy` / `grpc-status` missing on calls to `localhost:8090`.

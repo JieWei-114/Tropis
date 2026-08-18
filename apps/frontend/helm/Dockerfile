@@ -1,5 +1,5 @@
 # Build from the repo root (pnpm workspace):
-#   docker build -f frontend/helm/Dockerfile .
+#   docker build -f apps/frontend/helm/Dockerfile .
 
 # ── Stage 1: build ────────────────────────────────────────────────────────────
 FROM node:22-alpine AS builder
@@ -12,7 +12,7 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 # Copy workspace manifests first — Docker layer cache skips install
 # when only source files change
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY frontend/helm/package.json ./frontend/helm/
+COPY apps/frontend/helm/package.json ./apps/frontend/helm/
 COPY apps/backend/package.json ./apps/backend/
 COPY apps/temporal-worker/package.json ./apps/temporal-worker/
 COPY packages/shared/package.json ./packages/shared/
@@ -22,7 +22,7 @@ COPY e2e/package.json ./e2e/
 RUN pnpm install --frozen-lockfile --filter @tropis/helm...
 
 # Copy source (frontend + the workspace packages it consumes as raw TS)
-COPY frontend/helm/ ./frontend/helm/
+COPY apps/frontend/helm/ ./apps/frontend/helm/
 COPY packages/sdk/ ./packages/sdk/
 COPY packages/shared/ ./packages/shared/
 
@@ -38,9 +38,9 @@ RUN pnpm --filter @tropis/helm build
 FROM nginx:alpine AS runner
 
 # SPA-aware nginx config (fallback to index.html, gzip)
-COPY frontend/helm/nginx.conf /etc/nginx/conf.d/default.conf
+COPY apps/frontend/helm/nginx.conf /etc/nginx/conf.d/default.conf
 
-COPY --from=builder /app/frontend/helm/dist /usr/share/nginx/html
+COPY --from=builder /app/apps/frontend/helm/dist /usr/share/nginx/html
 
 # Runs fine as the non-root "nginx" user (uid 101): listens on 8080 and the
 # K8s deployment mounts emptyDir volumes over /var/cache/nginx and /var/run.

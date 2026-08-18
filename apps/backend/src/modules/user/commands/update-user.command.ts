@@ -76,10 +76,18 @@ export class UpdateUserHandler implements ICommandHandler<
           eventPayload,
           session,
         );
+        // Outbox carries the FULL current fields (not just the patch) so the
+        // downstream consumer can do a complete re-index / vector upsert.
         await this.outboxService.write(
           cmd.id,
           USER_EVENTS.UPDATED,
-          { userId: cmd.id, ...eventPayload },
+          {
+            userId: cmd.id,
+            name: user.name,
+            email: user.email,
+            age: user.age,
+            loginCount: user.loginCount,
+          },
           session,
         );
       });

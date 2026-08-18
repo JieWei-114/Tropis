@@ -17,7 +17,7 @@ Work through every item before exposing an environment to real users. "Done" mea
 - [ ] TLS on all public endpoints (cert-manager + ingress; HSTS enabled)
 - [ ] CORS locked to explicit production origins (`src/config/cors.constants.ts` + Envoy config) — no `*`
 - [ ] Rate limiting enabled on auth and public endpoints (throttler guard) and verified with a load test
-  - ✅ **Automated**: login lockout — 5 failed password attempts per email+IP within 15 min → 429 before password check (`modules/auth/services/login-lockout.service.ts`, Redis-backed, resets on success)
+  - ✅ **Automated**: login lockout — dual counter: 5 failed attempts per email+IP AND 30 per-email (blunts IP rotation) within 15 min → 429 before password check. Atomic Lua `INCR`+`EXPIRE` (no TTL-less permanent lock). `modules/auth/services/login-lockout.service.ts`, Redis-backed, resets on success
 - [ ] Kubernetes **NetworkPolicies**: default-deny in the namespace; backend → datastores only; nothing else reaches Mongo/PG/Redis directly
 - [ ] Internal admin UIs (mongo-express, pgAdmin, Kibana, Bull Board, Temporal UI, RedisInsight) NOT exposed publicly
 
@@ -42,10 +42,15 @@ Work through every item before exposing an environment to real users. "Done" mea
 
 - [ ] **JWT storage is XSS-exposed by design**: the browser token store keeps the
       JWT in `localStorage` (`packages/sdk/src/auth/token.ts`), so any XSS can exfiltrate
-      it — `httpOnly` cannot protect it. Mitigate with a strict CSP, short access-token
-      TTL + refresh rotation, and dependency/SAST hygiene. If moving to `httpOnly` +
-      `Secure` + `SameSite` cookies, revisit CSRF protection for the REST/upload routes.
-      The client-side `exp` check in `getToken()` is UX-only — real validation is server-side.
+      it — `httpOnly` cannot protect it. If moving to `httpOnly` + `Secure` + `SameSite`
+      cookies, revisit CSRF protection for the REST/upload routes. The client-side `exp`
+      check in `getToken()` is UX-only — real validation is server-side.
+  - ✅ **Short access-token TTL + refresh rotation (implemented)**: access token is
+    `JWT_EXPIRES_IN=15m` (was 7d), so a stolen access token expires fast. The SDK
+    stores a **rotating** refresh token and refreshes-on-401 (single-flight, gRPC-Web
+    - REST) — `packages/sdk/src/auth/refresh.ts`. Refresh tokens are HMAC-signed and
+      stored **hashed** server-side (`auth.service.ts`); reuse of a rotated token is
+      rejected. Remaining hardening: strict CSP (below) and, ideally, httpOnly cookies.
 - [x] **HMAC request signing verified end-to-end**: SDK signer
       (`packages/sdk/src/signing/`) and backend `SignatureGuard`
       (`common/guards/signature.guard.ts`) share one canonical string; the guard enforces

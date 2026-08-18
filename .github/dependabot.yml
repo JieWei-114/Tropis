@@ -72,7 +72,7 @@ updates:
       time: "09:00"
     open-pull-requests-limit: 3
   - package-ecosystem: docker
-    directory: /frontend/helm
+    directory: /apps/frontend/helm
     schedule:
       interval: weekly
       day: monday

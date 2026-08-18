@@ -10,7 +10,7 @@ Create `proto/order/v1/order.proto`:
 
 ```proto
 syntax = "proto3";
-package app.order.v1;
+package tropis.order.v1;
 
 service OrderService {
   rpc Create (CreateOrderRequest) returns (OrderResponse);
@@ -52,7 +52,7 @@ All business logic. Injects the repository, `OutboxService`, queue service — n
 
 ## 7. Controllers — `controllers/`
 
-- `order.grpc.controller.ts` — implements `app.order.v1.OrderService`. Thin: validate → service → transformer.
+- `order.grpc.controller.ts` — implements `tropis.order.v1.OrderService`. Thin: validate → service → transformer.
 - REST controller **only if** the feature hits a REST-only case (upload / OAuth callback / webhook / SSE — see `docs/architecture.md`). Otherwise skip it.
 
 ## 8. Transformer — `transformers/order.transformer.ts`
@@ -85,7 +85,7 @@ In the service, after the domain write, insert an outbox document with `eventTyp
 ## 12. Processor / subscriber — `processors/`
 
 - BullMQ worker for background work (`@Processor(...)`, queue name from `constants/`; see `src/infrastructure/queue/notification.processor.ts`).
-- Pulsar/EventBus subscriber if this module reacts to other modules' events. Thin — delegate to the service. Dedup replays with Redis `SET NX` (see `modules/user/events/`).
+- Pulsar/EventBus subscriber if this module reacts to other modules' events. Thin — delegate to the service. Dedup replays with Redis `SET NX` (see `modules/user/processors/`).
 
 ## 13. Tests
 

@@ -86,6 +86,7 @@ export class GithubStrategy extends PassportStrategy(Strategy, 'github') {
         email: primary.email,
         name:
           githubUser.name ?? githubUser.login ?? primary.email.split('@')[0],
+        emailVerified: true, // guaranteed by the `primary && verified` filter above
       };
 
       done(null, profile);

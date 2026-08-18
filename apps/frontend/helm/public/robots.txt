@@ -1,0 +1,5 @@
+# helm is the logged-in ADMIN CONSOLE — it sits behind auth and carries no SEO
+# value, so it must NOT be crawled or indexed. Public, crawlable pages live in
+# the separate `harbor` app (Next.js), which has its own robots.ts / sitemap.ts.
+User-agent: *
+Disallow: /

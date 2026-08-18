@@ -2,7 +2,7 @@
 # changes after freeze follow docs/api-versioning.md add-only rules.
 
 grpc:
-  # - service: app.<domain>.v1.<Service>
+  # - service: tropis.<domain>.v1.<Service>
   #   rpc: <Name>
   #   request: { field: type }
   #   response: { field: type }

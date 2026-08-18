@@ -9,7 +9,7 @@
     "     switch release-please to a manifest/monorepo config later),",
     "  3. `pnpm --filter @tropis/sdk build` then `pnpm publish` (or enable",
     "     .github/workflows/publish.yml).",
-    "Workspace consumers (frontend/helm) resolve ./src/index.ts via the top-level",
+    "Workspace consumers (apps/frontend/helm) resolve ./src/index.ts via the top-level",
     "main/types/exports; published consumers get dist/ because pnpm applies",
     "publishConfig overrides at pack/publish time — keeps the dev/Vite flow on",
     "TS source with zero build step."
@@ -56,6 +56,6 @@
     "vitest": "^1.6.1"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   }
 }

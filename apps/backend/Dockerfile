@@ -10,7 +10,7 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 # when only source files change
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/backend/package.json ./apps/backend/
-COPY frontend/helm/package.json ./frontend/helm/
+COPY apps/frontend/helm/package.json ./apps/frontend/helm/
 COPY apps/temporal-worker/package.json ./apps/temporal-worker/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/sdk/package.json ./packages/sdk/
@@ -36,7 +36,7 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 # Copy workspace manifests
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/backend/package.json ./apps/backend/
-COPY frontend/helm/package.json ./frontend/helm/
+COPY apps/frontend/helm/package.json ./apps/frontend/helm/
 COPY apps/temporal-worker/package.json ./apps/temporal-worker/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/sdk/package.json ./packages/sdk/

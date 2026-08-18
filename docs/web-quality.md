@@ -5,9 +5,9 @@ five **Lighthouse** categories.
 
 > **The frontend is split by audience** (see [architecture.md](architecture.md)):
 >
-> - **harbor** (`frontend/harbor/`) — the **public** site. Next.js App Router,
+> - **harbor** (`apps/frontend/harbor/`) — the **public** site. Next.js App Router,
 >   **SSR/SSG**, full SEO. This is where discoverability lives.
-> - **helm** (`frontend/helm/`) — the **logged-in admin console**. React + Vite
+> - **helm** (`apps/frontend/helm/`) — the **logged-in admin console**. React + Vite
 >   **CSR SPA**, `noindex`. Behind auth, so it carries no SEO value by design;
 >   it still owns Performance / a11y / Best Practices / PWA (below).
 >
@@ -22,21 +22,21 @@ crawlers and non-JS social scrapers see real tags without executing JS:
 
 - **Per-page metadata** via the Next **Metadata API** — a `metadata` export (or
   `generateMetadata()`) per route sets `<title>`, description, canonical, Open
-  Graph and Twitter Card tags (`frontend/harbor/app/layout.tsx` holds the
+  Graph and Twitter Card tags (`apps/frontend/harbor/app/layout.tsx` holds the
   site-wide defaults + title template).
 - **`app/robots.ts`** and **`app/sitemap.ts`** — native, code-generated
   `robots.txt` and `sitemap.xml`; list every public URL in the sitemap.
 - Absolute canonical/OG URLs come from `NEXT_PUBLIC_SITE_URL` (per environment).
-- **TODO:** add a 1200×630 `og-default.png` for default social previews.
+- Default social-preview image `og-default.png` (1200×630) lives in `apps/frontend/harbor/public/`.
 
-Adding a public page = a folder under `frontend/harbor/app/` with its own
+Adding a public page = a folder under `apps/frontend/harbor/app/` with its own
 `metadata` export, then add the URL to `app/sitemap.ts`.
 
 ## SEO — helm (admin console)
 
 helm is CSR and lives behind auth, so it is deliberately **`noindex`**. Per-page
 metadata is still set with the `<Seo>` component
-(`frontend/helm/src/features/seo/Seo.tsx`, via `react-helmet-async`) — mainly to
+(`apps/frontend/helm/src/features/seo/Seo.tsx`, via `react-helmet-async`) — mainly to
 mark routes `noindex` and to give correct titles/social previews when an admin
 shares a link:
 
@@ -107,7 +107,7 @@ Rule of thumb: **needs SEO or must render without JS → harbor. Behind login �
 
 ## Best Practices
 
-- Security headers on the static server (`frontend/helm/nginx.conf`):
+- Security headers on the static server (`apps/frontend/helm/nginx.conf`):
   `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
   `Permissions-Policy`, plus a **starter CSP** (commented — `connect-src` is
   per-environment, so tighten it per deploy).
@@ -127,11 +127,11 @@ public-page list current.
 
 ## Adding a public page — checklist (harbor)
 
-1. Create `frontend/harbor/app/<route>/page.tsx` (a React Server Component).
+1. Create `apps/frontend/harbor/app/<route>/page.tsx` (a React Server Component).
 2. Export `metadata` (or `generateMetadata()`) with title + description (+
    `alternates.canonical`). Site-wide defaults come from `app/layout.tsx`.
 3. Add the URL to `app/sitemap.ts`.
 4. It's SSR/SSG by default — tags land in the raw HTML, no extra step.
 
-For an admin (helm) route instead: add it under `frontend/helm/src/pages/`, mark
+For an admin (helm) route instead: add it under `apps/frontend/helm/src/pages/`, mark
 it `<Seo … noindex />`, and keep it out of the sitemap.

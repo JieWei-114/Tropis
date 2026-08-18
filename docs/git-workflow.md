@@ -39,6 +39,8 @@ Examples: `feat/123-notification-digest`, `fix/456-ws-auth-race`.
 
 ## 3. Commits — Conventional Commits with scopes
 
+Two husky hooks run on every commit: a **`pre-commit`** hook runs `lint-staged` (format + lint on staged files — may reformat/block), and a **`commit-msg`** hook runs commitlint on the message.
+
 Format (enforced by commitlint via the husky `commit-msg` hook, config in `.commitlintrc.json`):
 
 ```

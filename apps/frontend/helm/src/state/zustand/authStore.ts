@@ -12,7 +12,7 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { getToken, setToken, clearToken } from '../../lib/api';
+import { getToken, setToken, clearTokens } from '../../lib/api';
 
 interface AuthState {
   // ── State ──────────────────────────────────────────
@@ -36,7 +36,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
-        clearToken();
+        clearTokens();
         set({ token: null, authed: false }, false, 'auth/logout');
       },
     }),

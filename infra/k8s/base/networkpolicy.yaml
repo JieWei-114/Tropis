@@ -35,7 +35,28 @@ spec:
         - protocol: TCP
           port: 8080   # nginx runs as non-root, listens on 8080
 ---
-# 3. Allow the backend to be reached by the frontend pods and by the
+# 2b. Allow the ingress controller to reach harbor (the public Next.js site).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-harbor-from-ingress
+  namespace: tropis
+spec:
+  podSelector:
+    matchLabels:
+      app: harbor
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 4000   # Next.js standalone server
+---
+# 3. Allow the backend to be reached by the frontend + harbor pods and by the
 #    ingress controller (for direct /api routing) on its HTTP + gRPC ports.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -53,6 +74,11 @@ spec:
         - podSelector:
             matchLabels:
               app: frontend
+        # harbor does server-side rendering — its Node server calls the backend
+        # REST API in-cluster, so it needs the same access as frontend.
+        - podSelector:
+            matchLabels:
+              app: harbor
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: ingress-nginx

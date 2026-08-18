@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "dev.tropis.app",
   "build": {
-    "frontendDist": "../../../frontend/helm/dist",
+    "frontendDist": "../../../apps/frontend/helm/dist",
     "beforeBuildCommand": "pnpm --filter @tropis/helm build",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "pnpm --filter @tropis/helm dev"

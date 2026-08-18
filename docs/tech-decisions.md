@@ -8,12 +8,12 @@ Golden rule: **pick the tool by access pattern, not by familiarity.** If two too
 
 ## Redis vs Aerospike
 
-|               | Redis                                                                                                                                                 | Aerospike                                                                                               |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| What          | In-memory data structure store                                                                                                                        | Distributed, flash-optimized KV store                                                                   |
-| Use for       | General caching, BullMQ job queues, token/JWT blacklists, rate-limit counters, event dedup (SET NX), pub/sub glue                                     | Ultra-low-latency, high-concurrency KV at scale: session store, per-user hot state, millions of ops/sec |
-| Don't use for | Datasets larger than RAM, strict sub-ms p99 at very high concurrency → Aerospike                                                                      | Rich data structures (lists/sorted sets), queues, Lua-style ops → Redis                                 |
-| In code       | `src/infrastructure/redis/redis.module.ts`; consumed by `src/infrastructure/queue/` (BullMQ), user query cache, event dedup in `modules/user/events/` | `src/infrastructure/aerospike/` — `session.service.ts` stores auth sessions                             |
+|               | Redis                                                                                                                                                     | Aerospike                                                                                               |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| What          | In-memory data structure store                                                                                                                            | Distributed, flash-optimized KV store                                                                   |
+| Use for       | General caching, BullMQ job queues, token/JWT blacklists, rate-limit counters, event dedup (SET NX), pub/sub glue                                         | Ultra-low-latency, high-concurrency KV at scale: session store, per-user hot state, millions of ops/sec |
+| Don't use for | Datasets larger than RAM, strict sub-ms p99 at very high concurrency → Aerospike                                                                          | Rich data structures (lists/sorted sets), queues, Lua-style ops → Redis                                 |
+| In code       | `src/infrastructure/redis/redis.module.ts`; consumed by `src/infrastructure/queue/` (BullMQ), user query cache, event dedup in `modules/user/processors/` | `src/infrastructure/aerospike/` — `session.service.ts` stores auth sessions                             |
 
 Decision: **default to Redis.** Reach for Aerospike only when the workload is pure KV, latency-critical, and expected to outgrow a single Redis node's memory (sessions are the canonical example here).
 
@@ -106,7 +106,7 @@ The monorepo is proto-first, so services are language-agnostic at the contract l
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Use for       | ALL business logic, CRUD, orchestration, IO-bound work (DB/broker/HTTP calls dominate latency) — one language, shared types (`@tropis/shared`, `@tropis/sdk`), maximum team velocity | A **profiled** hot path that is CPU-bound: crypto, compression, image/video processing, parsing at line-rate; sustained low-latency requirements (p99 in single-digit ms under load); WASM targets |
 | Don't use for | A CPU-bound inner loop that profiling shows dominates a service and cannot be fixed in Node                                                                                          | Anything with business rules, evolving schemas, or lots of I/O — you pay the toolchain tax for zero benefit                                                                                        |
-| In code       | `apps/backend`, `frontend/helm`, `apps/temporal-worker`, `packages/*`                                                                                                                | `services/rust/signing/` — the live example (HMAC-SHA256 request signatures, pure computation, stateless)                                                                                          |
+| In code       | `apps/backend`, `apps/frontend/helm`, `apps/temporal-worker`, `packages/*`                                                                                                           | `services/rust/signing/` — the live example (HMAC-SHA256 request signatures, pure computation, stateless)                                                                                          |
 
 **Trigger conditions — ALL must hold before writing Rust:**
 
@@ -201,7 +201,7 @@ what determines the cost of swapping vendors:
 ## shadcn/ui (frontend UI primitives)
 
 Copy-in component library, not an npm dependency: the primitives under
-`frontend/helm/src/components/ui/` are owned source we can restyle and edit
+`apps/frontend/helm/src/components/ui/` are owned source we can restyle and edit
 freely, built on Radix primitives (keyboard/focus/ARIA handled for dialogs,
 menus, selects) and styled with the same Tailwind v4 design tokens the rest of
 the app uses (`src/index.css` exposes shadcn-compatible aliases —
@@ -271,12 +271,12 @@ PWA stays the **default** distribution channel. All shells are cheap because
 the business logic lives in `@tropis/sdk` + `state/` (platform-agnostic); each
 one reuses the web build and swaps only the shell:
 
-| Need                                                     | Tool                | How it works                                                                                                 | Status                                                                                                                                                      |
-| -------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Both app stores + native APIs (camera, push, biometrics) | Capacitor           | native shell around the existing web build, JS bridge for native APIs                                        | **Included** — `frontend/helm/capacitor.config.ts` + committed `android/` project; iOS needs Xcode + CocoaPods (see [multi-platform.md](multi-platform.md)) |
-| Desktop installers (.dmg/.exe/.deb)                      | Tauri v2            | Rust-based shell (same toolchain as `services/rust/`, but its own crate), ~5MB binaries vs Electron's ~100MB | **Included** — `apps/desktop/`                                                                                                                              |
-| Play Store listing without native APIs                   | TWA (Bubblewrap)    | packages the existing PWA as an APK/AAB, zero code changes                                                   | When needed — superseded by the included Capacitor shell for most cases                                                                                     |
-| Fully native UI (last resort)                            | React Native / Expo | rewrite the UI layer; `@tropis/sdk` + stores carry over unchanged                                            | When needed — weeks of effort                                                                                                                               |
+| Need                                                     | Tool                | How it works                                                                                                 | Status                                                                                                                                                           |
+| -------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Both app stores + native APIs (camera, push, biometrics) | Capacitor           | native shell around the existing web build, JS bridge for native APIs                                        | **Included** — `apps/frontend/helm/capacitor.config.ts` + committed `android/` project; iOS needs Xcode + CocoaPods (see [multi-platform.md](multi-platform.md)) |
+| Desktop installers (.dmg/.exe/.deb)                      | Tauri v2            | Rust-based shell (same toolchain as `services/rust/`, but its own crate), ~5MB binaries vs Electron's ~100MB | **Included** — `apps/desktop/`                                                                                                                                   |
+| Play Store listing without native APIs                   | TWA (Bubblewrap)    | packages the existing PWA as an APK/AAB, zero code changes                                                   | When needed — superseded by the included Capacitor shell for most cases                                                                                          |
+| Fully native UI (last resort)                            | React Native / Expo | rewrite the UI layer; `@tropis/sdk` + stores carry over unchanged                                            | When needed — weeks of effort                                                                                                                                    |
 
 Decision record: shells INCLUDED in the template (owner decision 2026-08-13:
 batteries-included foundation; supersedes the earlier PWA-only record). The

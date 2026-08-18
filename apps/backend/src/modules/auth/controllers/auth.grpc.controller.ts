@@ -51,7 +51,7 @@ export class GrpcAuthService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.jwtSecret = this.config.getOrThrow<string>('JWT_SECRET');
-    this.jwtExpiresIn = this.config.get<string>('JWT_EXPIRES_IN', '7d');
+    this.jwtExpiresIn = this.config.get<string>('JWT_EXPIRES_IN', '15m');
   }
 
   private async checkRateLimit(email: string): Promise<void> {

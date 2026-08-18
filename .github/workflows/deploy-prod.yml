@@ -10,11 +10,42 @@ on:
 env:
   REGISTRY: ghcr.io                          # GitHub Container Registry — free for public repos
   IMAGE_BACKEND: ghcr.io/${{ github.repository }}/backend
-  IMAGE_FRONTEND: ghcr.io/${{ github.repository }}/frontend
+  IMAGE_FRONTEND: ghcr.io/${{ github.repository }}/frontend   # helm — admin console
+  IMAGE_HARBOR: ghcr.io/${{ github.repository }}/harbor       # public Next.js site
 
 jobs:
+  # ── Gate: the tagged commit must pass the core checks before we build/deploy.
+  # Prevents a `v*` tag on broken code from shipping to prod (the header's
+  # "CI must pass first" is now actually enforced, not just documented).
+  verify:
+    name: Verify (lint · type · test · build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build shared package
+        run: pnpm --filter @tropis/shared build
+      - name: Lint
+        run: pnpm -r lint
+      - name: Type check (backend)
+        run: pnpm exec tsc --noEmit
+        working-directory: apps/backend
+      - name: Unit tests (backend)
+        run: pnpm --filter @tropis/backend test
+      - name: Build all
+        run: pnpm -r build
+
   deploy:
     name: Build, push, deploy
+    needs: verify          # ← deploy only runs if verify (CI gate) passed
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,7 +75,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -65,7 +96,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .                     # repo root — Dockerfile needs the pnpm workspace
-          file: frontend/helm/Dockerfile
+          file: apps/frontend/helm/Dockerfile
           push: true
           tags: |
             ${{ env.IMAGE_FRONTEND }}:${{ steps.tag.outputs.version }}
@@ -73,6 +104,17 @@ jobs:
           build-args: |
             VITE_API_BASE_URL=${{ secrets.PROD_API_BASE_URL }}
             VITE_WS_URL=${{ secrets.PROD_WS_URL }}
+
+      # ── Build + push harbor (public Next.js SSR site) ──────────────────
+      - name: Build and push harbor image
+        uses: docker/build-push-action@v5
+        with:
+          context: .                     # repo root — Dockerfile needs the pnpm workspace
+          file: apps/frontend/harbor/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_HARBOR }}:${{ steps.tag.outputs.version }}
+            ${{ env.IMAGE_HARBOR }}:latest
 
       # ── Deploy to Kubernetes ───────────────────────────────────────────
       # Requires a KUBE_CONFIG secret in repo settings:
@@ -93,6 +135,8 @@ jobs:
             ghcr.io/tropis/backend=${{ env.IMAGE_BACKEND }}:${{ steps.tag.outputs.version }}
           kustomize edit set image \
             ghcr.io/tropis/frontend=${{ env.IMAGE_FRONTEND }}:${{ steps.tag.outputs.version }}
+          kustomize edit set image \
+            ghcr.io/tropis/harbor=${{ env.IMAGE_HARBOR }}:${{ steps.tag.outputs.version }}
 
       # ── GitOps alternative (Argo CD) ───────────────────────────────────
       # For true GitOps, don't kubectl apply from CI. Instead COMMIT the
@@ -119,8 +163,9 @@ jobs:
       - name: Wait for rollout
         id: rollout
         run: |
-          kubectl rollout status deployment/backend  -n app --timeout=120s
-          kubectl rollout status deployment/frontend -n app --timeout=60s
+          kubectl rollout status deployment/backend  -n tropis --timeout=120s
+          kubectl rollout status deployment/frontend -n tropis --timeout=60s
+          kubectl rollout status deployment/harbor   -n tropis --timeout=90s
 
       # If the rollout fails, revert both deployments to the previous
       # revision and fail the job so the broken tag is flagged.
@@ -128,8 +173,10 @@ jobs:
         if: failure() && steps.rollout.outcome == 'failure'
         run: |
           echo "Rollout failed — rolling back to previous revision"
-          kubectl rollout undo deployment/backend  -n app
-          kubectl rollout undo deployment/frontend -n app
-          kubectl rollout status deployment/backend  -n app --timeout=120s
-          kubectl rollout status deployment/frontend -n app --timeout=60s
+          kubectl rollout undo deployment/backend  -n tropis
+          kubectl rollout undo deployment/frontend -n tropis
+          kubectl rollout undo deployment/harbor   -n tropis
+          kubectl rollout status deployment/backend  -n tropis --timeout=120s
+          kubectl rollout status deployment/frontend -n tropis --timeout=60s
+          kubectl rollout status deployment/harbor   -n tropis --timeout=90s
           exit 1

@@ -25,7 +25,7 @@ export const envValidationSchema = Joi.object({
 
   // Auth — no default for JWT_SECRET: forces an explicit value in every environment
   JWT_SECRET: Joi.string().min(32).required(),
-  JWT_EXPIRES_IN: Joi.string().default('7d'),
+  JWT_EXPIRES_IN: Joi.string().default('15m'),
 
   // Request signing (docs/api-conventions.md) — JSON map { keyId: secret }.
   // Default '{}' disables the signed tier; keys may also come from Vault

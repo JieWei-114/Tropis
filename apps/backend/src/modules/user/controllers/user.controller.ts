@@ -5,16 +5,38 @@ import {
   Query,
   UploadedFile,
   UseInterceptors,
+  UseGuards,
+  ForbiddenException,
   BadRequestException,
   Get,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiConsumes, ApiOperation } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiConsumes,
+  ApiOperation,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { randomUUID } from 'crypto';
 import { extname, basename } from 'path';
 import { Audited } from '../../../common/decorators/audited.decorator';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { StorageService } from '../../../infrastructure/storage/storage.service';
 import { UserService } from '../services/user.service';
+
+/** Shape of the authenticated principal attached by JwtStrategy.validate(). */
+interface AuthUser {
+  userId: string;
+  roles: string[];
+}
+
+/** Allow the resource owner or an admin; reject everyone else. */
+function assertCanActOn(targetUserId: string, actor: AuthUser): void {
+  if (actor.userId !== targetUserId && !actor.roles?.includes('admin')) {
+    throw new ForbiddenException('You may only manage your own avatar');
+  }
+}
 
 const ALLOWED_IMAGE_EXTS = new Set([
   '.jpg',
@@ -38,6 +60,8 @@ function safeImageExt(originalname: string): string {
  * All business logic (CRUD, auth) stays in gRPC; only file I/O is REST.
  */
 @ApiTags('users')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard) // require a valid JWT for every file endpoint below
 @Controller('users')
 export class UserController {
   constructor(
@@ -70,6 +94,7 @@ export class UserController {
   )
   async uploadAvatar(
     @Param('id') userId: string,
+    @CurrentUser() actor: AuthUser,
     @UploadedFile()
     file: {
       buffer: Buffer;
@@ -78,6 +103,7 @@ export class UserController {
       mimetype: string;
     },
   ) {
+    assertCanActOn(userId, actor); // owner or admin only — prevents cross-user IDOR
     if (!file) throw new BadRequestException('No file provided');
 
     const ext = safeImageExt(file.originalname);
@@ -106,8 +132,10 @@ export class UserController {
   })
   async getAvatarUrl(
     @Param('id') userId: string,
+    @CurrentUser() actor: AuthUser,
     @Query('key') objectName: string,
   ) {
+    assertCanActOn(userId, actor); // owner or admin only
     if (!objectName)
       throw new BadRequestException('Query param ?key= is required');
 

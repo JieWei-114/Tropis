@@ -13,9 +13,17 @@ resources:
   - backend/secret.yaml
   # - backend/external-secret.yaml
   - backend/pdb.yaml
+  # frontend/ = helm, the admin console (static SPA served by nginx)
   - frontend/deployment.yaml
   - frontend/service.yaml
   - frontend/pdb.yaml
+  # harbor/ = the public site (Next.js SSR/SSG — a Node server, not static)
+  - harbor/deployment.yaml
+  - harbor/service.yaml
+  - harbor/pdb.yaml
+  # Envoy — gRPC-Web ↔ gRPC translator (browser gRPC-Web path). The prod ingress
+  # routes the gRPC-Web host here; Envoy forwards to backend-svc:50051.
+  - envoy/envoy.yaml
   # Nightly DB backup CronJobs (template — needs PVC/S3 config first, see
   # header of backup/cronjob.yaml, then uncomment):
   # - backup/cronjob.yaml

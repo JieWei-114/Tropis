@@ -36,7 +36,7 @@ Full-stack learning monorepo — every major technology wired together into one 
 | Tool                              | Version                                                        | Install                                                                           |
 | --------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | **Docker Desktop**                | recent, with **8 GB+** memory allocated (Settings → Resources) | docker.com                                                                        |
-| **Node.js**                       | **≥ 20** (`.nvmrc` provided)                                   | `nvm install 20 && nvm use`                                                       |
+| **Node.js**                       | **≥ 22** (`.nvmrc` provided)                                   | `nvm install 22 && nvm use`                                                       |
 | **pnpm**                          | 10                                                             | `corepack enable` (ships with Node)                                               |
 | Rust (optional)                   | stable                                                         | `rustup` — only for `services/rust/` and the desktop app                          |
 | Android Studio / Xcode (optional) | —                                                              | only for the mobile shells — see [docs/multi-platform.md](docs/multi-platform.md) |
@@ -45,8 +45,8 @@ Full-stack learning monorepo — every major technology wired together into one 
 
 ```bash
 git clone <this-repo> && cd <repo>
-nvm use              # picks up .nvmrc (Node 20)
-make install         # pnpm install + creates apps/{backend,frontend}/.env from the examples
+nvm use              # picks up .nvmrc (Node 22)
+make install         # pnpm install + creates apps/backend/.env + apps/frontend/helm/.env from the examples
 make up              # starts the core containers (first run pulls images — a few minutes)
 make dev             # backend (:3100 REST / :50051 gRPC) + frontend (:5173) + temporal worker, watch mode
 # in a second terminal, once `make dev` is up:
@@ -104,9 +104,12 @@ contents of any area, look at the directory itself.
 │   ├── backend/           NestJS API — gRPC-first + REST + WS
 │   │   └── src/           modules/ (features) · infrastructure/ (external systems)
 │   │                      · common/ (cross-cutting) · config/
-│   ├── frontend/          React + Vite + Tailwind/shadcn PWA
-│   │   └── src/           app/ (shell) · features/ · pages/ · components/
-│   │                      · state/ (local|zustand|tanstack) · lib/ · locales/
+│   ├── frontend/          Split into two web apps:
+│   │   ├── helm/          React + Vite + Tailwind/shadcn admin PWA (CSR SPA)
+│   │   │   └── src/       app/ (shell) · features/ · pages/ · components/
+│   │   │                  · state/ (local|zustand|tanstack) · lib/ · locales/
+│   │   └── harbor/        Next.js 15 App Router public site (SSR/SSG/SEO)
+│   │       └── app/       features/ · components/ · lib/ (CI-enforced structure)
 │   ├── desktop/           Tauri desktop shell (zero business logic)
 │   └── temporal-worker/   Temporal workflows + activities
 ├── packages/              Importable libraries shared across apps
@@ -302,8 +305,8 @@ Every technology has one distinct role. Nothing is duplicated.
 ### 1. Prerequisites
 
 ```bash
-node >= 20
-pnpm >= 8
+node >= 22
+pnpm >= 10
 docker + docker compose
 ```
 
@@ -1355,7 +1358,7 @@ GOOGLE_CLIENT_ID= / GITHUB_CLIENT_ID= (+ secrets & callback URLs)
 DEFAULT_TENANT=default
 ```
 
-`frontend/helm/.env`:
+`apps/frontend/helm/.env`:
 
 ```env
 # gRPC-Web endpoint (Envoy proxy)
@@ -1670,7 +1673,7 @@ pnpm test:e2e        # root script → @tropis/e2e playwright test (backend+fron
 make test-e2e        # full-stack: compose up + Jest e2e + Playwright + teardown
 
 # Frontend (Vitest)
-cd frontend/helm
+cd apps/frontend/helm
 pnpm test            # run all Vitest tests once
 pnpm test:watch      # run tests in watch mode
 pnpm test:coverage   # run tests and generate coverage report
@@ -1712,6 +1715,6 @@ docker run -p 3100:3100 -p 50051:50051 \
 **Build stages:**
 
 1. **builder** — installs all deps, compiles `@tropis/shared` then `@tropis/backend`, output in `dist/`
-2. **runner** — fresh `node:20-alpine`, production deps only, copies compiled output, runs as non-root user (`appuser`)
+2. **runner** — fresh `node:22-alpine`, production deps only, copies compiled output, runs as non-root user (`appuser`)
 
 The image exposes ports `3100` (HTTP + WebSocket) and `50051` (gRPC). Update the image name in `infra/k8s/base/backend/deployment.yaml` before deploying to Kubernetes.

@@ -2,6 +2,8 @@
 dist
 dist-ssr
 build
+# Next.js build output (harbor)
+.next
 
 # dependencies
 node_modules
@@ -72,21 +74,21 @@ apps/desktop/src-tauri/gen/
 
 # Capacitor — the android/ (and ios/) platform projects ARE committed;
 # only generated/build outputs are ignored (Capacitor's recommended entries).
-frontend/helm/android/app/build/
-frontend/helm/android/build/
-frontend/helm/android/.gradle/
-frontend/helm/android/.idea/
-frontend/helm/android/local.properties
-frontend/helm/android/app/src/main/assets/public/
-frontend/helm/android/app/src/main/assets/capacitor.config.json
-frontend/helm/android/app/src/main/assets/capacitor.plugins.json
-frontend/helm/android/capacitor-cordova-android-plugins/
-frontend/helm/ios/App/Pods/
-frontend/helm/ios/App/public/
-frontend/helm/ios/App/App/capacitor.config.json
-frontend/helm/ios/App/App/config.xml
-frontend/helm/ios/DerivedData/
-frontend/helm/ios/capacitor-cordova-ios-plugins/
+apps/frontend/helm/android/app/build/
+apps/frontend/helm/android/build/
+apps/frontend/helm/android/.gradle/
+apps/frontend/helm/android/.idea/
+apps/frontend/helm/android/local.properties
+apps/frontend/helm/android/app/src/main/assets/public/
+apps/frontend/helm/android/app/src/main/assets/capacitor.config.json
+apps/frontend/helm/android/app/src/main/assets/capacitor.plugins.json
+apps/frontend/helm/android/capacitor-cordova-android-plugins/
+apps/frontend/helm/ios/App/Pods/
+apps/frontend/helm/ios/App/public/
+apps/frontend/helm/ios/App/App/capacitor.config.json
+apps/frontend/helm/ios/App/App/config.xml
+apps/frontend/helm/ios/DerivedData/
+apps/frontend/helm/ios/capacitor-cordova-ios-plugins/
 
 # TypeScript incremental build
 *.tsbuildinfo

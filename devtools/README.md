@@ -14,6 +14,11 @@ technology → tool map is in [docs/dev-tools.md](../docs/dev-tools.md).
 | `src/outbox-status.ts` | Outbox snapshot straight from MongoDB: counts by status + oldest pending/failed rows              | `make outbox-status` |
 | `src/sdk-repl.ts`      | Node REPL with the `@tropis/sdk` facade preloaded + logged in (`await api.fetchUsers()`)          | `make sdk-repl`      |
 
+**Local Kubernetes views** (the `kind-tropis` cluster — see [deployment.md](../docs/deployment.md)):
+`make k8s` opens **k9s** (terminal UI) and `make k8s-ui` opens **Headlamp**
+(browser/desktop UI). Both auto-install via brew; they're external tools driven
+by a make target, not `.ts` scripts.
+
 `src/lib/grpc.ts` is the shared helper (health check, proto loading, unary
 calls, gRPC login). It is devtools' own copy — the backend seeder keeps its
 own minimal variant in `apps/backend/scripts/lib/grpc.ts`.

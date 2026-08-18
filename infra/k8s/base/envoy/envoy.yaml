@@ -1,13 +1,7 @@
-# ⚠️ LOCAL KIND LEARNING ONLY — do NOT use in staging/production.
-#
-# Deploys Envoy into the kind cluster as the gRPC-Web ↔ gRPC translator between
-# the browser and the backend. Mirrors infra/envoy/envoy.yaml, except the
-# upstream cluster targets the in-cluster Service `backend-svc:50051` (via k8s
-# DNS) instead of host.docker.internal.
-#
-# Apply:  kubectl apply -f infra/k8s/local-kind/envoy.yaml
-# Reach:  kubectl port-forward svc/envoy-svc -n tropis 8090:8090
-#         (the frontend calls gRPC-Web at localhost:8090 by default)
+# Envoy — gRPC-Web ↔ gRPC translator between the browser and the backend.
+# The browser speaks gRPC-Web (HTTP/1.1); the NestJS backend speaks gRPC
+# (HTTP/2). Every env needs this on the gRPC-Web path — the ingress routes the
+# browser's gRPC-Web host here, and Envoy forwards to backend-svc:50051.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -87,20 +81,36 @@ metadata:
   namespace: tropis
   labels: { app: envoy }
 spec:
-  replicas: 1
+  replicas: 2
+  revisionHistoryLimit: 10
   selector:
     matchLabels: { app: envoy }
   template:
     metadata:
       labels: { app: envoy }
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101 # "envoy" user in the envoyproxy image
       containers:
         - name: envoy
           image: envoyproxy/envoy:v1.31-latest
           args: ["-c", "/etc/envoy/envoy.yaml", "-l", "info"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           ports:
             - containerPort: 8090
             - containerPort: 9901
+          readinessProbe:
+            httpGet: { path: /ready, port: 9901 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
           volumeMounts:
             - name: config
               mountPath: /etc/envoy
