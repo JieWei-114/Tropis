@@ -30,7 +30,7 @@
     "@bull-board/api": "^7.0.0",
     "@bull-board/express": "^7.0.0",
     "@bull-board/nestjs": "^7.0.0",
-    "@clickhouse/client": "^1.18.2",
+    "@clickhouse/client": "^1.23.1",
     "@elastic/elasticsearch": "^8.13.1",
     "@grpc/grpc-js": "^1.14.3",
     "@grpc/proto-loader": "^0.8.0",
