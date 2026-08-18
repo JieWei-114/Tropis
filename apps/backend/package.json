@@ -31,7 +31,7 @@
     "@bull-board/express": "^7.0.0",
     "@bull-board/nestjs": "^7.0.0",
     "@clickhouse/client": "^1.18.2",
-    "@elastic/elasticsearch": "^8.13.1",
+    "@elastic/elasticsearch": "^8.19.2",
     "@grpc/grpc-js": "^1.14.3",
     "@grpc/proto-loader": "^0.8.0",
     "@grpc/reflection": "1.0.4",
