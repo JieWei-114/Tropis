@@ -13,7 +13,7 @@
     <java.version>11</java.version>
     <maven.compiler.source>11</maven.compiler.source>
     <maven.compiler.target>11</maven.compiler.target>
-    <flink.version>1.18.1</flink.version>
+    <flink.version>2.3.0</flink.version>
     <flink.connector.pulsar.version>4.1.0-1.18</flink.connector.pulsar.version>
     <flink.connector.jdbc.version>3.1.2-1.18</flink.connector.jdbc.version>
     <clickhouse.jdbc.version>0.6.3</clickhouse.jdbc.version>
