@@ -37,7 +37,7 @@ jobs:
     if: ${{ inputs.publish_npm }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Guard: skip everything if the npm token isn't configured yet.
       - name: Check NPM_TOKEN
@@ -79,7 +79,7 @@ jobs:
     if: ${{ inputs.push_bsr }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Guard: skip if the BSR token isn't configured yet.
       - name: Check BUF_TOKEN
