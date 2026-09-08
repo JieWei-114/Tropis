@@ -5,6 +5,11 @@
 -- "Active" = any tracking event. Cohort day 0 is 7 days ago; change the
 -- anchor date to shift the cohort.
 
+-- TENANT SCOPE: set this to the tenant you are analysing. logs.user_behavior
+-- is multi-tenant and tenant_id is its leading key column, so leaving the
+-- filter out aggregates every tenant together (and reads the whole table).
+SET param_tenant_id = 'default';
+
 WITH toDate(now() - INTERVAL 7 DAY) AS day0
 SELECT
     sum(r[1]) AS day_0,
@@ -31,6 +36,7 @@ FROM
             toDate(timestamp) = day0 + 7
         ) AS r
     FROM logs.user_behavior
-    WHERE toDate(timestamp) BETWEEN day0 AND day0 + 7
+    WHERE tenant_id = {tenant_id:String}
+      AND toDate(timestamp) BETWEEN day0 AND day0 + 7
     GROUP BY anonymous_id
 );

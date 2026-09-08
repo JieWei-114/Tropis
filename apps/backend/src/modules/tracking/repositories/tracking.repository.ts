@@ -12,6 +12,7 @@ import {
   IEventCount,
   IDailyUnique,
   IRecentTrackingEvent,
+  IFunnelStep,
 } from '../interfaces/tracking.interface';
 
 /**
@@ -37,21 +38,29 @@ export class TrackingRepository {
         format: 'JSONEachRow',
       });
     } catch (err) {
-      this.logger.warn({ err }, 'ClickHouse tracking insert failed');
+      // Loud on purpose: a rejected JSONEachRow batch drops EVERY event in it,
+      // and the client already received a 202, so this is silent data loss if
+      // it is only logged at warn level.
+      this.logger.error(
+        { err, rows: rows.length },
+        'ClickHouse tracking insert failed — batch dropped',
+      );
+      throw err instanceof Error ? err : new Error(String(err));
     }
   }
 
-  async getTopPages(days: number): Promise<IPageCount[]> {
+  async getTopPages(days: number, tenantId: string): Promise<IPageCount[]> {
     return this.query<IPageCount>(
       `SELECT page, count() AS count
        FROM ${TRACKING_TABLE}
        -- 'page.view' = TRACKING_EVENTS.PAGE_VIEW in @tropis/shared (docs/tracking-plan.md)
-       WHERE event_name = 'page.view'
+       WHERE tenant_id = {tenantId:String}
+         AND event_name = 'page.view'
          AND timestamp >= now() - INTERVAL {days:Int32} DAY
        GROUP BY page
        ORDER BY count DESC
        LIMIT ${TRACKING_TOP_PAGES_LIMIT}`,
-      { days },
+      { days, tenantId },
       (r: { page: string; count: string }) => ({
         page: r.page,
         count: Number(r.count),
@@ -59,14 +68,18 @@ export class TrackingRepository {
     );
   }
 
-  async getEventsByName(days: number): Promise<IEventCount[]> {
+  async getEventsByName(
+    days: number,
+    tenantId: string,
+  ): Promise<IEventCount[]> {
     return this.query<IEventCount>(
       `SELECT event_name AS eventName, count() AS count
        FROM ${TRACKING_TABLE}
-       WHERE timestamp >= now() - INTERVAL {days:Int32} DAY
+       WHERE tenant_id = {tenantId:String}
+         AND timestamp >= now() - INTERVAL {days:Int32} DAY
        GROUP BY event_name
        ORDER BY count DESC`,
-      { days },
+      { days, tenantId },
       (r: { eventName: string; count: string }) => ({
         eventName: r.eventName,
         count: Number(r.count),
@@ -74,14 +87,18 @@ export class TrackingRepository {
     );
   }
 
-  async getDailyUniques(days: number): Promise<IDailyUnique[]> {
+  async getDailyUniques(
+    days: number,
+    tenantId: string,
+  ): Promise<IDailyUnique[]> {
     return this.query<IDailyUnique>(
       `SELECT toDate(timestamp) AS day, uniq(anonymous_id) AS uniques
        FROM ${TRACKING_TABLE}
-       WHERE timestamp >= now() - INTERVAL {days:Int32} DAY
+       WHERE tenant_id = {tenantId:String}
+         AND timestamp >= now() - INTERVAL {days:Int32} DAY
        GROUP BY day
        ORDER BY day ASC`,
-      { days },
+      { days, tenantId },
       (r: { day: string; uniques: string }) => ({
         day: r.day,
         uniques: Number(r.uniques),
@@ -89,7 +106,7 @@ export class TrackingRepository {
     );
   }
 
-  async getRecent(): Promise<IRecentTrackingEvent[]> {
+  async getRecent(tenantId: string): Promise<IRecentTrackingEvent[]> {
     return this.query<IRecentTrackingEvent>(
       `SELECT
          toString(event_id)            AS eventId,
@@ -101,9 +118,10 @@ export class TrackingRepository {
          props,
          toUnixTimestamp64Milli(timestamp) AS timestamp
        FROM ${TRACKING_TABLE}
+       WHERE tenant_id = {tenantId:String}
        ORDER BY timestamp DESC
        LIMIT ${TRACKING_RECENT_LIMIT}`,
-      {},
+      { tenantId },
       (r: {
         eventId: string;
         eventName: string;
@@ -114,6 +132,38 @@ export class TrackingRepository {
         props: string;
         timestamp: string;
       }) => ({ ...r, timestamp: Number(r.timestamp) }),
+    );
+  }
+
+  // Conversion funnel via ClickHouse windowFunnel: how many anonymous users
+  // reached each step (page.view → nav.click → user.login) within a 30-min
+  // window. See infra/clickhouse/queries/funnel.sql.
+  async getFunnel(days: number, tenantId: string): Promise<IFunnelStep[]> {
+    return this.query<IFunnelStep>(
+      `WITH f AS (
+         SELECT anonymous_id,
+                windowFunnel(1800)(
+                  toDateTime(timestamp),
+                  event_name = 'page.view',
+                  event_name = 'nav.click',
+                  event_name = 'user.login'
+                ) AS level
+         FROM ${TRACKING_TABLE}
+         WHERE tenant_id = {tenantId:String}
+           AND timestamp >= now() - INTERVAL {days:Int32} DAY
+         GROUP BY anonymous_id
+       )
+       SELECT ord, step, users FROM (
+         SELECT 1 AS ord, 'page.view'  AS step, toString(countIf(level >= 1)) AS users FROM f
+         UNION ALL SELECT 2, 'nav.click',  toString(countIf(level >= 2)) FROM f
+         UNION ALL SELECT 3, 'user.login', toString(countIf(level >= 3)) FROM f
+       )
+       ORDER BY ord`,
+      { days, tenantId },
+      (r: { step: string; users: string }) => ({
+        step: r.step,
+        users: Number(r.users),
+      }),
     );
   }
 

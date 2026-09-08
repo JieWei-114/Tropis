@@ -6,15 +6,15 @@ API tier separation, request signing, and cryptography terminology. Complements 
 
 Every API surface belongs to exactly one of two tiers.
 
-|                | **Public tier**                                                   | **Internal tier**                                                                                                                                                                                                                   |
-| -------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Surfaces       | REST `/api/v1/*` + gRPC `tropis.<domain>.v1` (gRPC-Web via Envoy) | gRPC `tropis.<domain>.internal.v1` only                                                                                                                                                                                             |
-| Reached via    | Envoy (browser gRPC-Web) / ingress (REST) — gRPC port **50051**   | Dedicated gRPC port **50061** (`GRPC_INTERNAL_PORT`), `backend-internal-svc:50061` inside the cluster — **never** routed through Envoy                                                                                              |
-| Network        | Internet-facing                                                   | Port-separated listener: ClusterIP-only Service + NetworkPolicy (namespace-only ingress on 50061). The internal proto package is loaded **only** on the :50061 listener, so internal RPCs are unreachable on :50051 by construction |
-| Auth — users   | JWT bearer token (`modules/auth`)                                 | n/a                                                                                                                                                                                                                                 |
-| Auth — servers | API Key + HMAC request signature (below)                          | Service identity: `x-service-token` metadata (template) → mTLS/SPIFFE (production)                                                                                                                                                  |
-| Proto layout   | `proto/<domain>/v1/<domain>.proto`                                | `proto/<domain>/internal/v1/<domain>_internal.proto`                                                                                                                                                                                |
-| SDK            | Generated into `packages/sdk/src/gen/`                            | **Excluded** from SDK codegen (`buf.gen.yaml` `exclude_paths`); internal clients generate their own types from the proto                                                                                                            |
+|                | **Public tier**                                                                                            | **Internal tier**                                                                                                                                                                                                                   |
+| -------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Surfaces       | REST under `/api/*` (versioned ingest at `/api/v1/track`) + gRPC `tropis.<domain>.v1` (gRPC-Web via Envoy) | gRPC `tropis.<domain>.internal.v1` only                                                                                                                                                                                             |
+| Reached via    | Envoy (browser gRPC-Web) / ingress (REST) — gRPC port **50051**                                            | Dedicated gRPC port **50061** (`GRPC_INTERNAL_PORT`), `backend-internal-svc:50061` inside the cluster — **never** routed through Envoy                                                                                              |
+| Network        | Internet-facing                                                                                            | Port-separated listener: ClusterIP-only Service + NetworkPolicy (namespace-only ingress on 50061). The internal proto package is loaded **only** on the :50061 listener, so internal RPCs are unreachable on :50051 by construction |
+| Auth — users   | JWT bearer token (`modules/auth`)                                                                          | n/a                                                                                                                                                                                                                                 |
+| Auth — servers | API Key + HMAC request signature (below)                                                                   | Service identity: `x-service-token` metadata (template) → mTLS/SPIFFE (production)                                                                                                                                                  |
+| Proto layout   | `proto/<domain>/v1/<domain>.proto`                                                                         | `proto/<domain>/internal/v1/<domain>_internal.proto`                                                                                                                                                                                |
+| SDK            | Generated into `packages/sdk/src/gen/`                                                                     | **Excluded** from SDK codegen (`buf.gen.yaml` `exclude_paths`); internal clients generate their own types from the proto                                                                                                            |
 
 **Zero-trust rule:** internal calls still authenticate — the separate port does not change this. Port separation (50061 ClusterIP-only + NetworkPolicy) decides _exposure_; the `x-service-token` check decides _identity_. "It's inside the cluster" (or "it arrived on the internal port") is a network posture, not an identity — an internal RPC without a valid service identity is rejected (`PERMISSION_DENIED`). The template check is a constant-time compare of `x-service-token` metadata against `SERVICE_TOKEN` (unset ⇒ internal tier disabled, RPCs return `UNIMPLEMENTED`); production deployments should replace the shared token with transport-level identity (mTLS / SPIFFE via a service mesh).
 
@@ -82,11 +82,9 @@ Shared test vector: the backend guard spec (`common/guards/__tests__/signature.g
 
 ## Response envelope
 
-Successful REST responses are wrapped by `common/interceptors/transform.interceptor.ts`:
-
-```json
-{ "success": true, "data": { ... }, "timestamp": "2026-01-01T00:00:00.000Z" }
-```
+Successful REST responses are **not** wrapped — controllers return the payload
+directly (e.g. `GET /api/users/roles` returns the id→roles map itself). There is
+no success-envelope interceptor; only errors have a fixed shape.
 
 Errors are shaped by `common/filters/http-exception.filter.ts` (`GlobalExceptionFilter`):
 
@@ -105,14 +103,14 @@ Errors are shaped by `common/filters/http-exception.filter.ts` (`GlobalException
 Notes:
 
 - `code` appears **only on errors** and is always a value from the single source of truth, `packages/shared/src/errors/error-codes.ts` (`ERROR_CODES`). Never invent ad-hoc code strings — add to the table.
-- `traceId` echoes the `X-Trace-Id` request header or is generated. Success responses currently don't carry `traceId`/`code`/`message`; the type contract is `ApiResponse<T>` in `packages/shared/src/types/api-response.types.ts`.
+- `traceId` echoes the `X-Trace-Id` request header or is generated. Success responses carry none of `success`/`code`/`message`/`traceId`. (`ApiResponse<T>` in `packages/shared/src/types/api-response.types.ts` describes this envelope shape but is not currently used by any code — the error filter builds its object literally.)
 - gRPC errors map through `common/filters/grpc-exception.filter.ts` using the same error-code table (`HTTP_STATUS_TO_GRPC_STATUS`).
 
 ## Parameter & data conventions
 
 - **JSON bodies / query params: `camelCase`** (`eventName`, `anonymousId`).
 - **Proto fields: `snake_case`** (`login_count`, `idempotency_key`) — buf enforces it; the gRPC loader uses `keepCase: true` so handlers see snake_case as-is; transformers map at the boundary.
-- **Timestamps:** JSON = ISO 8601 UTC strings (`2026-01-01T00:00:00.000Z` — the envelope's `timestamp`); proto = `int64` epoch **milliseconds** (the live convention: `tracking.proto` `timestamp = 8; // epoch ms`, `analytics.proto` `cached_at`). `X-Timestamp` in request signing is the one deliberate exception: unix **seconds**, per the spec above.
+- **Timestamps:** JSON = ISO 8601 UTC strings (`2026-01-01T00:00:00.000Z` — the error envelope's `timestamp`); proto = `int64` epoch **milliseconds** (the live convention: `tracking.proto` `timestamp = 8; // epoch ms`, `analytics.proto` `cached_at`). `X-Timestamp` in request signing is the one deliberate exception: unix **seconds**, per the spec above.
 - **Money: integer minor units** (cents/sen) in an `int64`/`number`, plus an explicit currency code. **Never floats** — `0.1 + 0.2 !== 0.3`.
-- **Pagination:** requests take `page` (1-based) + `limit` — shared `PaginationDto` / `PaginationQuery` in `packages/shared/src/dto/pagination.dto.ts`; list responses use `PaginatedResult<T>` (`data`, `total`, `page`, `limit`, `totalPages`).
+- **Pagination:** requests take `page` (1-based) + `limit`, and list responses carry `total`/`page`/`limit`/`totalPages` (proto `UsersResponse`; repository `PageResult<T>` in `modules/user/repositories/user.repository.ts`, plus a cursor variant `CursorPageResult<T>`). `packages/shared` also ships `PaginationDto`/`PaginationQuery`/`PaginatedResult<T>` (`dto/pagination.dto.ts`, `types/pagination.types.ts`), but these are **unused declarations, not the wire contract** — nothing imports them, and the shapes above are what actually crosses the wire.
 - **IDs:** opaque strings; never expose Mongo `_id`/`__v` (transformers strip them).

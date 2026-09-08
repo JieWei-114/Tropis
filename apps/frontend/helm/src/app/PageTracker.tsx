@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { tracker } from '../lib/tracking';
 
 /** Fires a `page.view` tracking event on every route change. Renders nothing. */

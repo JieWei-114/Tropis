@@ -7,6 +7,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AuthService } from './services/auth.service';
 import { LoginLockoutService } from './services/login-lockout.service';
+import { OAuthConfiguredGuard } from './guards/oauth-configured.guard';
 import { OAuthService } from './services/oauth.service';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { GithubStrategy } from './strategies/github.strategy';
@@ -36,6 +37,7 @@ import { UserModule } from '../user/user.module';
     OAuthService,
     GoogleStrategy,
     GithubStrategy,
+    OAuthConfiguredGuard,
   ],
   exports: [JwtModule, JwtAuthGuard, AuthService],
 })

@@ -6,15 +6,20 @@ import rego.v1
 # admin  → can do everything
 # editor → can read and write, cannot delete or manage users
 # viewer → can only read
-
+#
+# `read` and `list` are deliberately distinct on `user`. Registration is public
+# and self-registered accounts default to `editor`, so granting enumeration
+# under `read` meant one free signup could dump every user's email. `list`
+# (FindAll / Search / FindSimilar) is admin-only; `read` is a single record and
+# the controller additionally requires owner-or-admin.
 role_permissions := {
   "admin": {
-    "user":      {"create", "read", "update", "delete", "manage_roles"},
-    "analytics": {"read"},
+    "user":      {"create", "read", "list", "update", "delete", "manage_roles"},
+    "analytics": {"read", "write"},
   },
   "editor": {
     "user":      {"create", "read", "update"},
-    "analytics": {"read"},
+    "analytics": {"read", "write"},
   },
   "viewer": {
     "user":      {"read"},
@@ -35,7 +40,11 @@ allow if {
   action == input.action
 }
 
-# ── Convenience: which actions can the caller perform? ────────────────────
+# ── Introspection: which actions can these roles perform on a resource? ────
+# Not consulted by the application, which always asks the specific question
+# via `allow`. This exists for operators reasoning about the policy:
+#   curl -s -X POST localhost:8181/v1/data/authz/allowed_actions \
+#     -d '{"input":{"roles":["editor"],"resource":"user"}}'
 allowed_actions contains action if {
   some role in input.roles
   some action in role_permissions[role][input.resource]

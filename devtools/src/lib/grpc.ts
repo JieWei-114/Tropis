@@ -10,13 +10,13 @@ import * as path from 'path';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 
-export const HEALTH_URL = process.env.HEALTH_URL ?? 'http://localhost:3100/api/health';
-export const GRPC_ADDRESS = process.env.GRPC_ADDRESS ?? 'localhost:50051';
+const HEALTH_URL = process.env.HEALTH_URL ?? 'http://localhost:3100/api/health';
+const GRPC_ADDRESS = process.env.GRPC_ADDRESS ?? 'localhost:50051';
 
 // devtools/src/lib → repo root → proto/
-export const PROTO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..', 'proto');
+const PROTO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..', 'proto');
 
-export function loadService(
+function loadService(
   protoRel: string,
   pkgPath: string[],
   service: string,
@@ -33,7 +33,7 @@ export function loadService(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function call<T>(client: any, method: string, request: unknown): Promise<T> {
+function call<T>(client: any, method: string, request: unknown): Promise<T> {
   return new Promise((resolve, reject) => {
     client[method](request, (err: grpc.ServiceError | null, res: T) =>
       err ? reject(err) : resolve(res),
@@ -59,11 +59,22 @@ export async function checkHealth(): Promise<void> {
 }
 
 /** Logs in over gRPC (AuthService/Login) and returns the JWT. */
-export async function loginForToken(email: string, password: string): Promise<string> {
-  const AuthService = loadService('auth/v1/auth.proto', ['app', 'auth', 'v1'], 'AuthService');
+export async function loginForToken(
+  email: string,
+  password: string,
+): Promise<string> {
+  // Package path must match `package tropis.auth.v1` in proto/auth/v1/auth.proto.
+  const AuthService = loadService(
+    'auth/v1/auth.proto',
+    ['tropis', 'auth', 'v1'],
+    'AuthService',
+  );
   const auth = new AuthService(GRPC_ADDRESS, grpc.credentials.createInsecure());
   try {
-    const res = await call<{ access_token: string }>(auth, 'Login', { email, password });
+    const res = await call<{ access_token: string }>(auth, 'Login', {
+      email,
+      password,
+    });
     if (!res.access_token) throw new Error('login returned no access_token');
     return res.access_token;
   } finally {

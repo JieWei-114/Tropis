@@ -1,14 +1,6 @@
 import { useTranslation } from 'react-i18next';
-import { ANALYTICS_EVENT_TYPES } from '@tropis/shared';
 import type { AnalyticsEvent } from '../../../lib/api';
-
-const TYPE_COLOR: Record<string, string> = {
-  [ANALYTICS_EVENT_TYPES.PAGE_VIEW]: '#6366f1',
-  [ANALYTICS_EVENT_TYPES.BUTTON_CLICK]: '#22c55e',
-  [ANALYTICS_EVENT_TYPES.API_CALL]: '#f59e0b',
-  [ANALYTICS_EVENT_TYPES.ERROR]: '#ef4444',
-  [ANALYTICS_EVENT_TYPES.PURCHASE]: '#14b8a6',
-};
+import { eventColor } from '../eventColors';
 
 interface Props {
   events: AnalyticsEvent[];
@@ -21,7 +13,7 @@ export function LiveFeed({ events }: Props) {
       <h3 className="mb-4 text-sm font-semibold text-body">
         {t('analytics.liveFeed')}{' '}
         <span className="ml-1.5 inline-block h-2 w-2 animate-blink rounded-full bg-success" />{' '}
-        SSE
+        live
       </h3>
       {events.length === 0 ? (
         <p className="py-3 text-[13px] text-faint">
@@ -35,13 +27,15 @@ export function LiveFeed({ events }: Props) {
               className="feed-item flex animate-fade-in items-center gap-2.5 rounded-md bg-background px-2.5 py-2"
             >
               <span
-                className="rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-white"
-                style={{ background: TYPE_COLOR[e.eventType] ?? '#6366f1' }}
+                className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-white"
+                style={{ background: eventColor(e.eventType) }}
               >
                 {e.eventType}
               </span>
-              <span className="flex-1 text-xs text-body">{e.userId}</span>
-              <span className="text-[11px] whitespace-nowrap text-faint">
+              <span className="min-w-0 flex-1 truncate font-mono text-xs text-body">
+                {e.userId}
+              </span>
+              <span className="shrink-0 text-[11px] whitespace-nowrap text-faint">
                 {new Date(e.timestamp).toLocaleTimeString()}
               </span>
             </li>

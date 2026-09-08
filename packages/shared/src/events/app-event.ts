@@ -6,14 +6,14 @@ export interface AppEvent {
   eventId: string;
   eventType: string;
   userId: string;
-  payload: string;   // JSON string
+  payload: string; // JSON string
   timestamp: number; // Unix millis
 }
 
 export const EVENT_TYPES = {
-  USER_CREATED:  'user.created',
-  USER_UPDATED:  'user.updated',
-  USER_DELETED:  'user.deleted',
+  USER_CREATED: 'user.created',
+  USER_UPDATED: 'user.updated',
+  USER_DELETED: 'user.deleted',
 } as const;
 
 export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];

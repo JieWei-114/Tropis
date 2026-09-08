@@ -11,6 +11,8 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { OAuthProvider } from '../../../common/decorators/oauth-provider.decorator';
+import { OAuthConfiguredGuard } from '../guards/oauth-configured.guard';
 import { AuthGuard } from '@nestjs/passport';
 import {
   ApiBearerAuth,
@@ -29,7 +31,7 @@ import { Public } from '../../../common/decorators/public.decorator';
 import { Audited } from '../../../common/decorators/audited.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { OAuthUserProfile } from '../interfaces/oauth-profile.interface';
-import { corsOriginFromEnv } from '../../../config/cors.constants';
+import { primaryWebOrigin } from '../../../config/cors.constants';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -40,8 +42,10 @@ export class AuthController {
     private readonly config: ConfigService,
   ) {}
 
+  /** OAuth providers redirect a real browser here, so it must be a single
+   *  web origin — never the native-shell entries in the CORS allow-list. */
   private frontendUrl(): string {
-    return corsOriginFromEnv();
+    return primaryWebOrigin();
   }
 
   // ── Password login ────────────────────────────────────────────────────────
@@ -49,7 +53,7 @@ export class AuthController {
   @Public()
   @Post('login')
   @Audited('auth.login')
-  @Throttle({ default: { limit: 10, ttl: 60_000 } }) // 10 attempts per minute per IP
+  @Throttle({ auth: {} }) // RATE_LIMIT_AUTH per RATE_LIMIT_TTL_MS, per IP
   @ApiOperation({
     summary:
       'Login with email + password — returns JWT access + refresh tokens',
@@ -63,7 +67,7 @@ export class AuthController {
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Throttle({ auth: {} })
   @ApiOperation({
     summary:
       'Exchange a valid refresh token for a new access + refresh token pair',
@@ -84,9 +88,12 @@ export class AuthController {
   })
   async logout(
     @CurrentUser() user: { jti: string; exp: number },
-    @Body() body: Partial<RefreshTokenDto>,
+    // Optional, and read with `?.` below: a caller that sends no body at all
+    // (no content-type) leaves this undefined, and logout must still revoke
+    // the access token rather than fail on a property access.
+    @Body() body?: Partial<RefreshTokenDto>,
   ): Promise<void> {
-    await this.authService.logout(user.jti, user.exp, body.refreshToken);
+    await this.authService.logout(user.jti, user.exp, body?.refreshToken);
   }
 
   // ── Whoami ────────────────────────────────────────────────────────────────
@@ -103,7 +110,8 @@ export class AuthController {
 
   @Public()
   @Get('google')
-  @UseGuards(AuthGuard('google'))
+  @OAuthProvider('google')
+  @UseGuards(OAuthConfiguredGuard, AuthGuard('google'))
   @ApiOperation({ summary: 'Redirect to Google OAuth2 consent screen' })
   googleLogin() {
     // Passport redirects — this handler body never executes
@@ -111,8 +119,9 @@ export class AuthController {
 
   @Public()
   @Get('google/callback')
-  @UseGuards(AuthGuard('google'))
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @OAuthProvider('google')
+  @UseGuards(OAuthConfiguredGuard, AuthGuard('google'))
+  @Throttle({ auth: {} })
   @ApiExcludeEndpoint()
   async googleCallback(@Req() req: Request, @Res() res: Response) {
     const profile = req.user as OAuthUserProfile;
@@ -124,7 +133,8 @@ export class AuthController {
 
   @Public()
   @Get('github')
-  @UseGuards(AuthGuard('github'))
+  @OAuthProvider('github')
+  @UseGuards(OAuthConfiguredGuard, AuthGuard('github'))
   @ApiOperation({ summary: 'Redirect to GitHub OAuth2 consent screen' })
   githubLogin() {
     // Passport redirects — this handler body never executes
@@ -132,8 +142,9 @@ export class AuthController {
 
   @Public()
   @Get('github/callback')
-  @UseGuards(AuthGuard('github'))
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @OAuthProvider('github')
+  @UseGuards(OAuthConfiguredGuard, AuthGuard('github'))
+  @Throttle({ auth: {} })
   @ApiExcludeEndpoint()
   async githubCallback(@Req() req: Request, @Res() res: Response) {
     const profile = req.user as OAuthUserProfile;

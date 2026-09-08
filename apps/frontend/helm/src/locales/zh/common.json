@@ -1,11 +1,9 @@
 {
   "common": {
     "loading": "加载中…",
-    "refresh": "↺ 刷新",
+    "refresh": "刷新",
     "checking": "检查中…",
-    "save": "保存",
     "saving": "保存中…",
-    "create": "创建",
     "cancel": "取消",
     "confirm": "确认",
     "edit": "编辑",
@@ -13,11 +11,9 @@
     "genericError": "出错了，请稍后重试"
   },
   "nav": {
-    "analytics": "📊 数据分析",
-    "users": "👤 用户",
-    "stack": "🛠 技术栈",
-    "state": "⚡ 状态管理",
-    "behavior": "🧭 用户行为",
+    "analytics": "数据分析",
+    "users": "用户",
+    "stack": "技术栈",
     "wsLive": "已连接",
     "wsConnecting": "连接中…",
     "language": "切换语言",
@@ -41,27 +37,30 @@
   },
   "analytics": {
     "title": "分析仪表盘",
-    "subtitle": "端到端链路：MongoDB → Pulsar → Processor → ClickHouse → Redis 缓存 → gRPC → 前端",
-    "refreshStats": "↺ 刷新统计",
+    "eventChartEmpty": "暂无 ClickHouse 数据 — 触发一些事件后等约 5 秒",
+    "eventsByType": "按类型的事件 — 近 24 小时 (ClickHouse)",
+    "eventsPerMinute": "每分钟事件 — 近 1 小时 (ClickHouse 物化视图)",
+    "minutelyEmpty": "暂无分钟级数据 — 触发一些事件后等约 1 分钟，ClickHouse 物化视图会填充",
+    "subtitle": "端到端链路：MongoDB → Pulsar → 处理器 → ClickHouse → Redis 缓存 → gRPC → 前端",
     "fireEvents": "触发事件",
     "userId": "用户 ID",
     "userIdPlaceholder": "user_123",
     "sending": "发送中…",
     "sent": "已发送：",
     "events": {
-      "pageView": "📄 页面浏览",
-      "buttonClick": "🖱️ 按钮点击",
-      "apiCall": "⚡ API 调用",
-      "error": "🔴 错误",
-      "purchase": "💳 购买"
+      "pageView": "页面浏览",
+      "buttonClick": "按钮点击",
+      "apiCall": "API 调用",
+      "error": "错误",
+      "purchase": "购买"
     },
     "stats": {
       "totalEvents": "事件总数（24 小时）",
       "uniqueTypes": "事件类型数",
       "lastEvent": "最近事件",
       "redisCache": "Redis 缓存",
-      "hit": "✅ 命中",
-      "miss": "🔄 未命中",
+      "hit": "命中",
+      "miss": "未命中",
       "cachedAt": "缓存于 {{time}}"
     },
     "liveFeed": "实时事件流",
@@ -80,7 +79,7 @@
     "validation": {
       "nameRequired": "请输入姓名",
       "emailInvalid": "请输入有效的邮箱地址",
-      "passwordMin6": "密码至少需要 6 个字符",
+      "passwordMin8": "密码至少需要 8 个字符",
       "ageRange": "年龄必须在 1 到 120 之间"
     }
   },
@@ -91,14 +90,15 @@
     "searchPlaceholder": "按姓名或邮箱搜索（Elasticsearch 模糊匹配）…",
     "noUsers": "暂无用户。",
     "showingSimilar": "正在显示相似用户",
-    "clearSimilar": "✕ 清除",
+    "clearSimilar": "清除",
     "similarFooter": "pgvector 余弦相似度 — 找到 {{total}} 个最近邻",
     "actions": {
       "created": "已创建 {{name}}",
       "updated": "已更新 {{name}}",
       "deleted": "已删除 {{name}}",
-      "avatarUploaded": "🖼 已为 {{name}} 上传头像",
-      "showingSimilarTo": "≈ 正在显示与 {{name}} 相似的用户"
+      "avatarUploaded": "已为 {{name}} 上传头像",
+      "showingSimilarTo": "≈ 正在显示与 {{name}} 相似的用户",
+      "roleChanged": "{{name}} 的角色已改为 {{role}}"
     },
     "table": {
       "avatar": "头像",
@@ -107,12 +107,18 @@
       "age": "年龄",
       "status": "状态",
       "logins": "登录次数",
+      "role": "角色",
+      "onboarding": "入职跟进",
       "actions": "操作",
       "similar": "≈ 相似",
       "findSimilarTitle": "查找相似用户（pgvector）",
       "changeAvatarTitle": "点击更换头像",
       "uploadAvatarTitle": "上传头像（MinIO）",
       "avatarAlt": "{{name}} 的头像"
+    },
+    "onboarding": {
+      "sent": "已跟进",
+      "scheduled": "已排期"
     },
     "modal": {
       "newTitle": "新建用户",
@@ -132,36 +138,38 @@
       "emailInvalid": "请输入有效的邮箱地址",
       "passwordMin8": "密码至少需要 8 个字符",
       "ageRange": "年龄必须在 1 到 120 之间"
-    }
+    },
+    "adminRequired": "管理用户目录需要管理员账号。请让管理员为你授予该角色 (make promote-admin EMAIL=<你的邮箱>)，然后重新登录。"
   },
   "stack": {
     "title": "技术栈",
     "subtitle": "基础设施状态 + 可观测性链接",
     "lastChecked": "上次检查于 {{time}}",
-    "allOperational": "✅ 所有系统运行正常",
-    "upDown": "⚠️ {{up}} 个正常 · {{down}} 个故障"
+    "categories": {
+      "services": "应用服务",
+      "data": "数据库与存储",
+      "streaming": "流处理与工作流",
+      "observability": "可观测性",
+      "security": "安全与网络",
+      "delivery": "交付与工具"
+    },
+    "builtWith": "技术构成",
+    "statusUnknown": "未知"
   },
   "behavior": {
-    "title": "用户行为",
-    "subtitle": "埋点 pipeline：SDK tracker → REST /api/v1/track → Pulsar → Processor → ClickHouse → gRPC GetInsights",
-    "loadFailed": "加载洞察数据失败 — 请确认已登录（GetInsights 需要认证）",
+    "funnelTitle": "转化漏斗",
+    "funnelEmpty": "暂无漏斗数据。",
     "topPages": "热门页面（7 天）",
     "eventsByName": "按名称统计事件（7 天）",
     "dailyUniques": "每日独立访客（uniq anonymous_id）",
-    "recentEvents": "最近事件",
     "table": {
       "page": "页面",
       "views": "浏览量",
       "day": "日期",
-      "uniques": "独立访客",
-      "event": "事件",
-      "user": "用户",
-      "session": "会话",
-      "when": "时间"
+      "uniques": "独立访客"
     },
     "noPageViews": "暂无页面浏览记录 — 先四处逛逛再回来看看。",
     "noEvents": "暂无事件。",
-    "noData": "暂无数据。",
-    "noRecent": "暂无最近事件。"
+    "noData": "暂无数据。"
   }
 }

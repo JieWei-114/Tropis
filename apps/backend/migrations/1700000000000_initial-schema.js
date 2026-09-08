@@ -11,11 +11,23 @@ exports.up = (pgm) => {
 
   // ── user_vectors ──────────────────────────────────────────────────────────
   pgm.createTable('user_vectors', {
-    id:         { type: 'uuid', primaryKey: true, default: pgm.func('gen_random_uuid()') },
-    user_id:    { type: 'text', notNull: true, unique: true },
-    embedding:  { type: 'vector(384)', notNull: true },
-    created_at: { type: 'timestamptz', notNull: true, default: pgm.func('now()') },
-    updated_at: { type: 'timestamptz', notNull: true, default: pgm.func('now()') },
+    id: {
+      type: 'uuid',
+      primaryKey: true,
+      default: pgm.func('gen_random_uuid()'),
+    },
+    user_id: { type: 'text', notNull: true, unique: true },
+    embedding: { type: 'vector(384)', notNull: true },
+    created_at: {
+      type: 'timestamptz',
+      notNull: true,
+      default: pgm.func('now()'),
+    },
+    updated_at: {
+      type: 'timestamptz',
+      notNull: true,
+      default: pgm.func('now()'),
+    },
   });
 
   pgm.createIndex('user_vectors', 'user_id');
@@ -28,14 +40,22 @@ exports.up = (pgm) => {
 
   // ── documents ─────────────────────────────────────────────────────────────
   pgm.createTable('documents', {
-    id:         { type: 'uuid', primaryKey: true, default: pgm.func('gen_random_uuid()') },
-    user_id:    { type: 'text', notNull: true },
-    bucket:     { type: 'text', notNull: true },
+    id: {
+      type: 'uuid',
+      primaryKey: true,
+      default: pgm.func('gen_random_uuid()'),
+    },
+    user_id: { type: 'text', notNull: true },
+    bucket: { type: 'text', notNull: true },
     object_key: { type: 'text', notNull: true },
-    filename:   { type: 'text', notNull: true },
-    mime_type:  { type: 'text' },
+    filename: { type: 'text', notNull: true },
+    mime_type: { type: 'text' },
     size_bytes: { type: 'bigint' },
-    created_at: { type: 'timestamptz', notNull: true, default: pgm.func('now()') },
+    created_at: {
+      type: 'timestamptz',
+      notNull: true,
+      default: pgm.func('now()'),
+    },
   });
 
   pgm.createIndex('documents', 'user_id');

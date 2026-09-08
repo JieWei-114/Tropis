@@ -13,7 +13,7 @@ import { REDIS_CLIENT } from '../../infrastructure/redis/redis.module';
 import { ApiKeyService } from './api-key.service';
 
 /** Signed requests are valid for ±300 s around the server clock. */
-export const SIGNATURE_MAX_SKEW_SECONDS = 300;
+const SIGNATURE_MAX_SKEW_SECONDS = 300;
 
 /** Nonces are remembered for the full validity window (SET NX EX 300). */
 const NONCE_TTL_SECONDS = SIGNATURE_MAX_SKEW_SECONDS;

@@ -6,7 +6,9 @@ import { loadEnv } from './env';
 const env = loadEnv();
 
 async function run() {
-  const connection = await NativeConnection.connect({ address: env.temporalAddress });
+  const connection = await NativeConnection.connect({
+    address: env.temporalAddress,
+  });
   const worker = await Worker.create({
     workflowsPath: require.resolve('./workflows/notification.workflow'),
     activities: notificationActivities,
@@ -15,7 +17,9 @@ async function run() {
     namespace: env.temporalNamespace,
   });
 
-  console.log(`Temporal worker running — queue: ${env.taskQueue}, server: ${env.temporalAddress}`);
+  console.log(
+    `Temporal worker running — queue: ${env.taskQueue}, server: ${env.temporalAddress}`,
+  );
   await worker.run();
 }
 

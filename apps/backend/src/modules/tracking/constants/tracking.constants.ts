@@ -17,3 +17,20 @@ export const TRACKING_TABLE = 'logs.user_behavior';
 export const TRACKING_INSIGHTS_DEFAULT_DAYS = 7;
 export const TRACKING_TOP_PAGES_LIMIT = 10;
 export const TRACKING_RECENT_LIMIT = 20;
+
+/**
+ * Idempotency marker per ingested event.
+ *
+ * Every event carries a client-generated `eventId` UUID, but nothing used it:
+ * `logs.user_behavior` is a plain MergeTree with no deduplication, so a
+ * retried batch — which is the normal case, since `navigator.sendBeacon` and
+ * the SDK both retry on network failure — was counted twice and inflated
+ * every aggregate built on it.
+ */
+export const trackingSeenKey = (eventId: string) => `track:seen:${eventId}`;
+
+/**
+ * Marker TTL. Long enough to cover client retry windows and a broker outage,
+ * short enough that the key space stays bounded at ingest volume.
+ */
+export const TRACKING_SEEN_TTL_SECONDS = 24 * 60 * 60;

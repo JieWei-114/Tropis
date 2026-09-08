@@ -24,6 +24,12 @@ import { UserVectorService } from './user-vector.service';
             config.get('POSTGRES_PASSWORD', 'tropis_dev_password'),
           database: config.get('POSTGRES_DB', 'tropis'),
           autoLoadEntities: true,
+          // Survive a slow-starting Postgres (k8s cold start, compose race)
+          // without crash-looping the whole app: retry for ~90s, then keep the
+          // pool alive across transient drops instead of tearing down.
+          retryAttempts: config.get<number>('POSTGRES_RETRY_ATTEMPTS', 30),
+          retryDelay: config.get<number>('POSTGRES_RETRY_DELAY', 3000),
+          keepConnectionAlive: true,
           // synchronize MUST stay false in all environments — use TypeORM migrations.
           // NODE_ENV=production check is insufficient because a misconfigured staging env
           // could silently drop columns. Explicit opt-in via TYPEORM_SYNC=true for local dev only.

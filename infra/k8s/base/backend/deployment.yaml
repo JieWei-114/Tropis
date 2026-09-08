@@ -18,11 +18,11 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1001        # matches the numeric uid baked into the backend image
+        runAsUser: 1001 # matches the numeric uid baked into the backend image
         runAsGroup: 1001
       containers:
         - name: backend
-          image: ghcr.io/tropis/backend:latest  # replace with your image
+          image: ghcr.io/tropis/backend:latest # replace with your image
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -57,8 +57,8 @@ spec:
             periodSeconds: 20
           resources:
             requests:
-              cpu: "100m"
-              memory: "256Mi"
+              cpu: '100m'
+              memory: '256Mi'
             limits:
-              cpu: "500m"
-              memory: "512Mi"
+              cpu: '500m'
+              memory: '512Mi'

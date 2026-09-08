@@ -5,6 +5,11 @@
 -- Only 'page.view' events; sequences capped at the first 10 pages to keep
 -- cardinality sane. groupArray preserves ORDER BY inside the subquery.
 
+-- TENANT SCOPE: set this to the tenant you are analysing. logs.user_behavior
+-- is multi-tenant and tenant_id is its leading key column, so leaving the
+-- filter out aggregates every tenant together (and reads the whole table).
+SET param_tenant_id = 'default';
+
 SELECT
     arrayStringConcat(path_seq, ' → ') AS path,
     count()                            AS sessions
@@ -17,7 +22,8 @@ FROM
     (
         SELECT session_id, page, timestamp
         FROM logs.user_behavior
-        WHERE event_name = 'page.view'
+        WHERE tenant_id = {tenant_id:String}
+          AND event_name = 'page.view'
           AND timestamp >= now() - INTERVAL 30 DAY
         ORDER BY session_id, timestamp
     )

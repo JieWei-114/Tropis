@@ -21,6 +21,7 @@ export interface GrpcInsightsResponse {
   events_by_name: { event_name: string; count: number }[];
   daily_uniques: { day: string; uniques: number }[];
   recent: GrpcRecentTrackEvent[];
+  funnel: { step: string; users: number }[];
 }
 
 export class TrackingTransformer {
@@ -33,6 +34,7 @@ export class TrackingTransformer {
       })),
       daily_uniques: insights.dailyUniques,
       recent: insights.recent.map(TrackingTransformer.toGrpcRecent),
+      funnel: insights.funnel,
     };
   }
 

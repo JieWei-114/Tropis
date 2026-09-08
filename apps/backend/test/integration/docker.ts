@@ -4,7 +4,7 @@ import { execSync } from 'child_process';
  * Detect Docker availability at module-load time so suites can gracefully
  * skip (describe.skip) instead of exploding when Docker isn't running.
  */
-export function isDockerAvailable(): boolean {
+function isDockerAvailable(): boolean {
   try {
     execSync('docker info', { stdio: 'ignore', timeout: 15_000 });
     return true;

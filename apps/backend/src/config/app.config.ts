@@ -1,10 +1,14 @@
+/** Global HTTP route prefix (see main.ts setGlobalPrefix and the auth throttler scope). */
+export const API_PREFIX = 'api';
+
 import { registerAs } from '@nestjs/config';
-import { DEFAULT_CORS_ORIGIN } from './cors.constants';
+import { DEFAULT_CORS_ORIGIN, primaryWebOrigin } from './cors.constants';
 
 export const appConfig = registerAs('app', () => ({
   port: parseInt(process.env.PORT ?? '3100', 10),
   env: process.env.NODE_ENV ?? 'development',
-  corsOrigin: process.env.CORS_ORIGIN ?? DEFAULT_CORS_ORIGIN,
+  // The primary web origin; the full allow-list lives in cors.constants.ts.
+  corsOrigin: primaryWebOrigin(),
   logLevel: process.env.LOG_LEVEL ?? 'info',
 }));
 

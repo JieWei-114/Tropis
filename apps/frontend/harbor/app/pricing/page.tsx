@@ -16,7 +16,10 @@ export default function PricingPage() {
       <section className="hero">
         <p className="eyebrow">Pricing</p>
         <h1>Simple, transparent pricing.</h1>
-        <p className="lede">Replace with your real plans. This page is SSR-rendered and fully crawlable.</p>
+        <p className="lede">
+          Replace with your real plans. This page is SSR-rendered and fully
+          crawlable.
+        </p>
         <Link className="btn btn-primary" href="/">
           ← Back home
         </Link>

@@ -2,14 +2,17 @@
   "name": "@tropis/harbor",
   "private": true,
   "version": "0.0.0",
-  "//": "Harbor — the PUBLIC site (前台). Next.js App Router, SSR/SSG, full SEO. The logged-in admin console lives in apps/frontend/helm.",
+  "//": "Harbor — the PUBLIC site (public-facing frontend). Next.js App Router, SSR/SSG, full SEO. The logged-in admin console lives in apps/frontend/helm.",
   "scripts": {
     "dev": "next dev -p 4000",
     "build": "next build",
     "start": "next start -p 4000",
-    "lint": "next lint",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "lint:arch": "depcruise app features components lib --config .dependency-cruiser.cjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "next": "^15.1.6",
@@ -18,13 +21,20 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
-    "dependency-cruiser": "^16.10.0",
+    "@testing-library/jest-dom": "^6.0.0",
+    "@testing-library/react": "^14.0.0",
     "@types/node": "^20.19.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.3",
+    "dependency-cruiser": "^16.10.0",
     "eslint": "^9.18.0",
     "eslint-config-next": "^15.1.6",
-    "typescript": "^5.7.3"
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "jsdom": "^22.1.0",
+    "typescript": "^5.7.3",
+    "vite": "^5.4.10",
+    "vitest": "^1.6.1"
   },
   "engines": {
     "node": ">=22"

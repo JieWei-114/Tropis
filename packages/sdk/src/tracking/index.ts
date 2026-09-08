@@ -1,5 +1,5 @@
 /**
- * Tracking (埋点) — client-side user-behavior tracker.
+ * Tracking — client-side user-behavior tracker.
  *
  * Design:
  *   - Events are buffered and flushed as a batch to `POST <endpoint>` (the
@@ -64,7 +64,8 @@ const SESSION_TTL_MS = 30 * 60 * 1000; // 30-min sliding window
 
 function uuid(): string {
   try {
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    if (typeof crypto !== 'undefined' && crypto.randomUUID)
+      return crypto.randomUUID();
   } catch {
     /* fall through */
   }
@@ -95,7 +96,10 @@ function getSessionId(): string {
     if (raw) {
       const { id, ts } = JSON.parse(raw) as { id: string; ts: number };
       if (id && now - ts < SESSION_TTL_MS) {
-        window.sessionStorage.setItem(SESSION_KEY, JSON.stringify({ id, ts: now }));
+        window.sessionStorage.setItem(
+          SESSION_KEY,
+          JSON.stringify({ id, ts: now }),
+        );
         return id;
       }
     }
@@ -133,7 +137,9 @@ export function createTracker(options: TrackerOptions): Tracker {
     page: window.location?.pathname ?? '',
     referrer: typeof document !== 'undefined' ? document.referrer : '',
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
-    screen: window.screen ? `${window.screen.width}x${window.screen.height}` : '',
+    screen: window.screen
+      ? `${window.screen.width}x${window.screen.height}`
+      : '',
   });
 
   /** Send a batch. `beacon: true` on page hide (sendBeacon survives unload). */

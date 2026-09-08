@@ -1,4 +1,4 @@
-import { Controller, Inject } from '@nestjs/common';
+import { Controller, Inject, Logger } from '@nestjs/common';
 import { Audited } from '../../../common/decorators/audited.decorator';
 import { extractToken } from '../../../infrastructure/grpc/grpc.utils';
 import { GrpcMethod, RpcException } from '@nestjs/microservices';
@@ -42,6 +42,8 @@ interface CurrentUserResponse {
  */
 @Controller()
 export class GrpcAuthService {
+  private readonly logger = new Logger(GrpcAuthService.name);
+
   private readonly jwtSecret: string;
   private readonly jwtExpiresIn: string;
 
@@ -86,7 +88,13 @@ export class GrpcAuthService {
         message: 'Invalid credentials',
       });
 
-    void this.userService.recordLogin(user.id, user.email);
+    // Fire-and-forget with an explicit catch — an unhandled rejection would
+    // crash the process.
+    this.userService
+      .recordLogin(user.id, user.email)
+      .catch((err: Error) =>
+        this.logger.warn(`recordLogin failed: ${err.message}`),
+      );
 
     const token = jwt.sign(
       {

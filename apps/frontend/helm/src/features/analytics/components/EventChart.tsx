@@ -1,4 +1,4 @@
-import { ANALYTICS_EVENT_TYPES } from '@tropis/shared';
+import { useTranslation } from 'react-i18next';
 import {
   BarChart,
   Bar,
@@ -10,24 +10,18 @@ import {
   Cell,
 } from 'recharts';
 import type { EventTypeStat } from '../../../lib/api';
-
-const COLORS: Record<string, string> = {
-  [ANALYTICS_EVENT_TYPES.PAGE_VIEW]: '#6366f1',
-  [ANALYTICS_EVENT_TYPES.BUTTON_CLICK]: '#22c55e',
-  [ANALYTICS_EVENT_TYPES.API_CALL]: '#f59e0b',
-  [ANALYTICS_EVENT_TYPES.ERROR]: '#ef4444',
-  [ANALYTICS_EVENT_TYPES.PURCHASE]: '#14b8a6',
-};
+import { eventColor } from '../eventColors';
 
 interface Props {
   data: EventTypeStat[];
 }
 
 export function EventChart({ data }: Props) {
+  const { t } = useTranslation();
   if (data.length === 0) {
     return (
       <div className="flex h-[120px] items-center justify-center rounded-xl border border-border bg-card p-5 text-[13px] text-faint max-md:p-3.5">
-        No ClickHouse data yet — fire some events and wait ~5s
+        {t('analytics.eventChartEmpty')}
       </div>
     );
   }
@@ -35,31 +29,32 @@ export function EventChart({ data }: Props) {
   return (
     <div className="rounded-xl border border-border bg-card p-5 max-md:p-3.5">
       <h3 className="mb-4 text-sm font-semibold text-body">
-        Events by Type — last 24h (ClickHouse)
+        {t('analytics.eventsByType')}
       </h3>
       <ResponsiveContainer width="100%" height={260}>
         <BarChart
           data={data}
           margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
         >
-          <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
-          <XAxis dataKey="eventType" tick={{ fill: '#a0a0b8', fontSize: 12 }} />
-          <YAxis tick={{ fill: '#a0a0b8', fontSize: 12 }} />
-          <Tooltip
-            contentStyle={{
-              background: '#1a1a2e',
-              border: '1px solid #2a2a3a',
-              borderRadius: 8,
-            }}
-            labelStyle={{ color: '#e0e0f0' }}
-            itemStyle={{ color: '#a0a0b8' }}
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-soft)" />
+          <XAxis
+            dataKey="eventType"
+            tick={{ fill: 'var(--muted)', fontSize: 12 }}
           />
-          <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+          <YAxis tick={{ fill: 'var(--muted)', fontSize: 12 }} />
+          <Tooltip
+            cursor={{ fill: 'var(--surface)' }}
+            contentStyle={{
+              background: 'var(--card)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+            }}
+            labelStyle={{ color: 'var(--heading)' }}
+            itemStyle={{ color: 'var(--muted)' }}
+          />
+          <Bar dataKey="count" radius={[6, 6, 0, 0]}>
             {data.map((entry) => (
-              <Cell
-                key={entry.eventType}
-                fill={COLORS[entry.eventType] ?? '#6366f1'}
-              />
+              <Cell key={entry.eventType} fill={eventColor(entry.eventType)} />
             ))}
           </Bar>
         </BarChart>

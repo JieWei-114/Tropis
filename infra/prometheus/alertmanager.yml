@@ -14,9 +14,9 @@ route:
   receiver: slack
   # Alerts with the same alertname are batched into one notification.
   group_by: ['alertname']
-  group_wait: 30s        # wait for more alerts of the same group before first notify
-  group_interval: 5m     # min time between updates for an already-firing group
-  repeat_interval: 4h    # re-notify a still-firing alert every 4h (not every eval)
+  group_wait: 30s # wait for more alerts of the same group before first notify
+  group_interval: 5m # min time between updates for an already-firing group
+  repeat_interval: 4h # re-notify a still-firing alert every 4h (not every eval)
 
 receivers:
   - name: slack

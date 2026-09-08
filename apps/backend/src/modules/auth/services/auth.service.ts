@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException, Inject } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  UnauthorizedException,
+  Inject,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -6,7 +11,11 @@ import { randomUUID, createHmac, createHash, timingSafeEqual } from 'crypto';
 import type Redis from 'ioredis';
 import { UserService } from '../../user/services/user.service';
 import { LoginDto } from '../dto/login.dto';
-import { UserDocument, DEFAULT_TENANT } from '../../user/schemas/user.schema';
+import {
+  UserDocument,
+  DEFAULT_TENANT,
+  UserStatus,
+} from '../../user/schemas/user.schema';
 import { IUserWithPassword } from '../../user/interfaces/user.interface';
 import { REDIS_CLIENT } from '../../../infrastructure/redis/redis.module';
 import { LoginLockoutService } from './login-lockout.service';
@@ -25,6 +34,8 @@ export interface AuthTokens {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   private readonly refreshSecret: string;
 
   constructor(
@@ -69,8 +80,21 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // status is an access-control field: a suspended or inactive account must
+    // not be able to obtain a token. Checked after the password so a wrong
+    // password and a suspended account are indistinguishable to the caller.
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException('Account is not active');
+    }
+
     await this.lockout.reset(dto.email, ip);
-    void this.userService.recordLogin(user.id, user.email);
+    // Fire-and-forget, but the rejection MUST be handled: an unhandled
+    // rejection takes the whole process down on Node >= 15.
+    this.userService
+      .recordLogin(user.id, user.email)
+      .catch((err: Error) =>
+        this.logger.warn(`recordLogin failed: ${err.message}`),
+      );
 
     // Fire-and-forget session record in Aerospike (no-op when client is null)
     void this.sessions.create(user.id, user.email, ip);

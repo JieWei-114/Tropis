@@ -4,8 +4,9 @@
  * Global notification queue. Any service/component can push a toast
  * without needing to pass callbacks down the tree.
  *
- * Compare to local state pattern where `push` had to be prop-drilled
- * from App.tsx → UsersPage → UserModal → ...
+ * Held in a store rather than local state because the callers are spread
+ * across the tree (App.tsx → UsersPage → UserModal → …) and prop-drilling
+ * `push` down every one of those levels couples them all to toasting.
  */
 
 import { create } from 'zustand';

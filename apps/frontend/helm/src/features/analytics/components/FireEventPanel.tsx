@@ -3,32 +3,33 @@ import { useTranslation } from 'react-i18next';
 import { ANALYTICS_EVENT_TYPES, TRACKING_EVENTS } from '@tropis/shared';
 import { fireEvent, type EventType } from '../../../lib/api';
 import { tracker } from '../../../lib/tracking';
+import { eventColor } from '../eventColors';
 
 const EVENT_TYPES: { type: EventType; labelKey: string; color: string }[] = [
   {
     type: ANALYTICS_EVENT_TYPES.PAGE_VIEW,
     labelKey: 'analytics.events.pageView',
-    color: '#6366f1',
+    color: eventColor(ANALYTICS_EVENT_TYPES.PAGE_VIEW),
   },
   {
     type: ANALYTICS_EVENT_TYPES.BUTTON_CLICK,
     labelKey: 'analytics.events.buttonClick',
-    color: '#22c55e',
+    color: eventColor(ANALYTICS_EVENT_TYPES.BUTTON_CLICK),
   },
   {
     type: ANALYTICS_EVENT_TYPES.API_CALL,
     labelKey: 'analytics.events.apiCall',
-    color: '#f59e0b',
+    color: eventColor(ANALYTICS_EVENT_TYPES.API_CALL),
   },
   {
     type: ANALYTICS_EVENT_TYPES.ERROR,
     labelKey: 'analytics.events.error',
-    color: '#ef4444',
+    color: eventColor(ANALYTICS_EVENT_TYPES.ERROR),
   },
   {
     type: ANALYTICS_EVENT_TYPES.PURCHASE,
     labelKey: 'analytics.events.purchase',
-    color: '#14b8a6',
+    color: eventColor(ANALYTICS_EVENT_TYPES.PURCHASE),
   },
 ];
 
@@ -96,7 +97,7 @@ export function FireEventPanel({ onEventFired }: Props) {
 
       {lastSent && (
         <p className="fire-status rounded-md border border-success/25 bg-success/10 px-3 py-2 text-xs text-success">
-          ✅ {t('analytics.sent')} <strong>{lastSent}</strong>
+          {t('analytics.sent')} <strong>{lastSent}</strong>
           &nbsp;→ MongoDB → Pulsar → Processor → ClickHouse
         </p>
       )}

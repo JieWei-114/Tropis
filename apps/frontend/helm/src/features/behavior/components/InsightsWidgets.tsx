@@ -8,14 +8,6 @@ import type { useTrackingInsights } from '../../../state/tanstack/useTrackingQue
 
 type Insights = NonNullable<ReturnType<typeof useTrackingInsights>['data']>;
 
-function timeAgo(ts: number): string {
-  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
-
 interface WidgetProps {
   data?: Insights;
   isLoading: boolean;
@@ -145,64 +137,43 @@ export function DailyUniquesTable({ data, isLoading }: WidgetProps) {
   );
 }
 
-export function RecentEventsTable({ data, isLoading }: WidgetProps) {
+export function FunnelChart({ data, isLoading }: WidgetProps) {
   const { t } = useTranslation();
+  const steps = data?.funnel ?? [];
+  const base = Math.max(1, steps[0]?.users ?? 0);
   return (
-    <div className="max-h-80 overflow-y-auto rounded-xl border border-border bg-card p-5 max-md:p-3.5">
+    <div className="rounded-xl border border-border bg-card p-5 max-md:p-3.5">
       <h3 className="mb-4 text-sm font-semibold text-body">
-        {t('behavior.recentEvents')}
+        {t('behavior.funnelTitle')}
       </h3>
-      <div className="overflow-x-auto rounded-xl border border-border max-md:max-w-full">
-        <table className="w-full border-collapse text-[13px] max-md:min-w-[560px] [&_tbody_tr]:border-b [&_tbody_tr]:border-border-soft [&_tbody_tr:hover]:bg-surface [&_tbody_tr:last-child]:border-b-0 [&_td]:px-4 [&_td]:py-[11px] [&_td]:align-middle [&_td]:text-body">
-          <thead className="bg-surface">
-            <tr>
-              <th className="border-b border-border px-4 py-[11px] text-left text-[11px] font-semibold tracking-[0.5px] text-muted uppercase">
-                {t('behavior.table.event')}
-              </th>
-              <th className="border-b border-border px-4 py-[11px] text-left text-[11px] font-semibold tracking-[0.5px] text-muted uppercase">
-                {t('behavior.table.page')}
-              </th>
-              <th className="border-b border-border px-4 py-[11px] text-left text-[11px] font-semibold tracking-[0.5px] text-muted uppercase">
-                {t('behavior.table.user')}
-              </th>
-              <th className="border-b border-border px-4 py-[11px] text-left text-[11px] font-semibold tracking-[0.5px] text-muted uppercase">
-                {t('behavior.table.session')}
-              </th>
-              <th className="border-b border-border px-4 py-[11px] text-left text-[11px] font-semibold tracking-[0.5px] text-muted uppercase">
-                {t('behavior.table.when')}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {(data?.recent ?? []).map((e) => (
-              <tr key={e.eventId}>
-                <td className="font-mono text-xs text-primary-soft">
-                  {e.eventName}
-                </td>
-                <td className="font-mono text-xs text-primary-soft">
-                  {e.page}
-                </td>
-                <td className="font-mono text-xs text-primary-soft">
-                  {e.userId || `${e.anonymousId.slice(0, 8)}… (anon)`}
-                </td>
-                <td className="font-mono text-xs text-primary-soft">
-                  {e.sessionId.slice(0, 8)}…
-                </td>
-                <td>{timeAgo(e.timestamp)}</td>
-              </tr>
-            ))}
-            {!isLoading && (data?.recent.length ?? 0) === 0 && (
-              <tr>
-                <td
-                  colSpan={5}
-                  className="py-6 text-center text-[13px] text-muted"
-                >
-                  {t('behavior.noRecent')}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className="flex flex-col gap-2.5">
+        {steps.map((s, i) => {
+          const pct = Math.round((100 * s.users) / base);
+          return (
+            <div key={s.step} className="flex flex-col gap-1">
+              <div className="flex items-baseline justify-between text-[13px]">
+                <span className="font-mono text-xs text-primary-soft">
+                  {i + 1}. {s.step}
+                </span>
+                <span className="text-body">
+                  {s.users}
+                  <span className="ml-2 text-xs text-muted">{pct}%</span>
+                </span>
+              </div>
+              <div className="h-2.5 overflow-hidden rounded-full bg-surface">
+                <div
+                  className="h-full rounded-full bg-primary transition-[width] duration-500"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+        {!isLoading && steps.length === 0 && (
+          <p className="py-6 text-center text-[13px] text-muted">
+            {t('behavior.funnelEmpty')}
+          </p>
+        )}
       </div>
     </div>
   );

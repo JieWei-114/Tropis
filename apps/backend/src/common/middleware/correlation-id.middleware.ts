@@ -5,7 +5,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 
 // Module-level store so any code in the request call-chain can read the ID
 // without passing it through every function argument.
-export const correlationStore = new AsyncLocalStorage<{ requestId: string }>();
+const correlationStore = new AsyncLocalStorage<{ requestId: string }>();
 
 export function getRequestId(): string {
   return correlationStore.getStore()?.requestId ?? 'no-request-context';

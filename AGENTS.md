@@ -25,7 +25,7 @@ SEO/rendering: [docs/web-quality.md](docs/web-quality.md).
    Local CLI dev tooling goes in `devtools/` (never inside apps — see
    [devtools/README.md](devtools/README.md)).
 2. **API design** — gRPC is the primary API; REST only for uploads, OAuth
-   callbacks, webhooks, health/metrics, SSE/beacon ingest.
+   callbacks, webhooks, health/metrics, beacon ingest.
    Conventions (tiers, signing, envelope, naming): [docs/api-conventions.md](docs/api-conventions.md).
 3. **Proto changes** — add-only; never reuse field numbers; breaking change ⇒
    new version package. Rules: [docs/api-versioning.md](docs/api-versioning.md).

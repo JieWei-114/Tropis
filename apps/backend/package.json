@@ -12,7 +12,7 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
@@ -24,7 +24,9 @@
     "migrate:up": "pnpm migrate up",
     "migrate:down": "pnpm migrate down",
     "migrate:create": "pnpm migrate create",
-    "lint:arch": "depcruise src --config .dependency-cruiser.cjs"
+    "lint:arch": "depcruise src --config .dependency-cruiser.cjs",
+    "promote-admin": "ts-node scripts/promote-admin.ts",
+    "lint:fix": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix"
   },
   "dependencies": {
     "@bull-board/api": "^7.0.0",
@@ -55,12 +57,15 @@
     "@nestjs/typeorm": "^11.0.0",
     "@nestjs/websockets": "^11.1.19",
     "@opentelemetry/api": "^1.9.1",
-    "@opentelemetry/auto-instrumentations-node": "^0.72.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",
-    "@opentelemetry/resources": "^2.6.1",
-    "@opentelemetry/sdk-node": "^0.214.0",
-    "@opentelemetry/semantic-conventions": "^1.40.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.80.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
+    "@opentelemetry/resources": "^2.11.0",
+    "@opentelemetry/sdk-node": "^0.222.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "@temporalio/activity": "^1.17.1",
     "@temporalio/client": "^1.17.1",
+    "@temporalio/worker": "^1.17.1",
+    "@temporalio/workflow": "^1.17.1",
     "@tropis/shared": "workspace:*",
     "@types/jsonwebtoken": "^9.0.10",
     "@willsoto/nestjs-prometheus": "^6.0.0",
@@ -76,10 +81,10 @@
     "joi": "^18.2.1",
     "jsonwebtoken": "^9.0.3",
     "minio": "^8.0.2",
-    "mongoose": "^9.4.1",
+    "mongoose": "^9.9.5",
     "nestjs-pino": "^4.6.1",
     "node-vault": "^0.12.0",
-    "nodemailer": "^6.9.16",
+    "nodemailer": "^10.0.0",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
@@ -92,8 +97,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.3",
-    "swagger-ui-express": "^5.0.1",
-    "typeorm": "^0.3.20"
+    "typeorm": "^0.3.31"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
@@ -109,7 +113,6 @@
     "@types/multer": "^2.1.0",
     "@types/node": "^24.0.0",
     "@types/node-vault": "^0.9.13",
-    "@types/nodemailer": "^6.4.17",
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/passport-oauth2": "^1.8.0",
     "@types/pg": "^8.11.10",
@@ -159,17 +162,6 @@
       }
     },
     "testEnvironment": "node"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@nestjs/core",
-      "@scarf/scarf",
-      "bcrypt",
-      "pg",
-      "protobufjs",
-      "pulsar-client",
-      "unrs-resolver"
-    ]
   },
   "engines": {
     "node": ">=22"

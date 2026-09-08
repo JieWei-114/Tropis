@@ -25,7 +25,8 @@ module.exports = {
     {
       name: 'no-circular',
       severity: 'error',
-      comment: 'Circular dependencies make modules impossible to reason about or extract.',
+      comment:
+        'Circular dependencies make modules impossible to reason about or extract.',
       from: {},
       to: { circular: true, dependencyTypesNot: ['type-only'] },
     },
@@ -60,10 +61,13 @@ module.exports = {
       name: 'feature-internals-are-private',
       severity: 'error',
       comment:
-        "Everything outside a feature imports it through its index.ts barrel — " +
+        'Everything outside a feature imports it through its index.ts barrel — ' +
         "the barrel defines the feature's public surface.",
       from: { path: '^', pathNot: ['^features/'] },
-      to: { path: '^features/[^/]+/.', pathNot: ['^features/[^/]+/index\\.ts$'] },
+      to: {
+        path: '^features/[^/]+/.',
+        pathNot: ['^features/[^/]+/index\\.ts$'],
+      },
     },
     {
       name: 'shared-components-are-presentational',

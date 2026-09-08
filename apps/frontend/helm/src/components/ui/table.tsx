@@ -2,7 +2,7 @@ import * as React from 'react';
 
 import { cn } from '@/lib/utils';
 
-/** shadcn/ui Table on app tokens — matches the old UserTable styling. */
+/** shadcn/ui Table, restyled onto the app's design tokens. */
 const Table = React.forwardRef<
   HTMLTableElement,
   React.HTMLAttributes<HTMLTableElement>

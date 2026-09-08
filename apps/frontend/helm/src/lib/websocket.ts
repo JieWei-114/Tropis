@@ -9,7 +9,7 @@ import {
 } from '@tropis/sdk';
 import { env } from './env';
 
-export type { WsEvent, WsEventName } from '@tropis/sdk';
+export type { WsEvent } from '@tropis/sdk';
 
 /**
  * Connect to the Socket.io gateway at /ws.

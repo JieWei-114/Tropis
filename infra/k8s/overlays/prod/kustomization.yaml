@@ -11,11 +11,11 @@ resources:
 # Run: kustomize edit set image ghcr.io/tropis/backend=ghcr.io/tropis/backend:$(git describe --tags)
 images:
   - name: ghcr.io/tropis/backend
-    newTag: latest   # overwritten by CI: kustomize edit set image ...
+    newTag: latest # overwritten by CI: kustomize edit set image ...
   - name: ghcr.io/tropis/frontend
-    newTag: latest   # overwritten by CI: kustomize edit set image ...
+    newTag: latest # overwritten by CI: kustomize edit set image ...
   - name: ghcr.io/tropis/harbor
-    newTag: latest   # overwritten by CI: kustomize edit set image ...
+    newTag: latest # overwritten by CI: kustomize edit set image ...
 
 # Prod-specific config overrides (merged on top of base ConfigMap)
 configMapGenerator:
@@ -25,8 +25,10 @@ configMapGenerator:
     literals:
       - NODE_ENV=production
       - LOG_LEVEL=warn
-      # Browser origins allowed to call the API. Harbor (public) + helm (admin).
-      - CORS_ORIGIN=https://yourdomain.com,https://www.yourdomain.com,https://app.yourdomain.com   # ← replace
+      # Browser origin allowed to call the API. CORS_ORIGIN is validated as a
+      # single URI (env.validation.ts) and passed to enableCors verbatim — it is
+      # never split on commas, so exactly one origin goes here.
+      - CORS_ORIGIN=https://app.yourdomain.com # ← replace
 
 # Scale up for prod
 patches:

@@ -1,4 +1,4 @@
--- User-behavior tracking (埋点) events.
+-- User-behavior tracking (product analytics instrumentation) events.
 -- Fed by: SDK tracker → POST /api/v1/track → Pulsar "tracking-events"
 --         → TrackingProcessor (apps/backend/.../modules/tracking/processors/)
 -- Run once before starting the backend:

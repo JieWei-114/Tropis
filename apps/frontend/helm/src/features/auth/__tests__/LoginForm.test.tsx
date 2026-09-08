@@ -64,7 +64,7 @@ describe('LoginForm', () => {
       await screen.findByText(/enter a valid email address/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/password must be at least 6 characters/i),
+      screen.getByText(/password must be at least 8 characters/i),
     ).toBeInTheDocument();
     expect(screen.getByTestId('login-email')).toHaveAttribute(
       'aria-invalid',
@@ -115,7 +115,7 @@ describe('LoginForm', () => {
 
     await ui.type(screen.getByTestId('login-name'), 'Bob');
     await ui.type(screen.getByTestId('login-email'), 'bob@example.com');
-    await ui.type(screen.getByTestId('login-password'), 'pass123');
+    await ui.type(screen.getByTestId('login-password'), 'pass1234');
 
     const submitButton = screen
       .getAllByRole('button', { name: /create account/i })

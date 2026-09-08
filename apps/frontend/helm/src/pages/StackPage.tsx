@@ -1,24 +1,29 @@
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
-import {
-  useStackHealth,
-  ServiceHealthCards,
-  VaultCard,
-  PatternsCard,
-  StackLinks,
-} from '../features/stack';
+import { useStackHealth, SystemMap, TechStack } from '../features/stack';
+import { useOnboardingWorkflows } from '../features/workflows';
 
 export function StackPage() {
   const { t } = useTranslation();
   const { services, lastChecked, checking, checkHealth } = useStackHealth();
+  const { data: onboarding } = useOnboardingWorkflows();
+
+  // Prove Temporal is actually doing work, right on its Stack row.
+  const notes: Record<string, string> = {};
+  if (onboarding.available) {
+    const { running, completed } = onboarding.summary;
+    notes.Temporal = `${running} running · ${completed} done`;
+  }
 
   return (
-    <div className="mx-auto flex max-w-[1200px] flex-col gap-7 px-6 py-8">
+    <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-7 px-8 py-8 max-md:px-4">
       {/* ── Header ── */}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-heading">{t('stack.title')}</h2>
-          <p className="mt-[3px] text-xs text-muted">{t('stack.subtitle')}</p>
+        <div className="flex flex-col gap-1.5">
+          <h1 className="text-2xl font-bold tracking-[-0.4px] text-heading">
+            {t('stack.title')}
+          </h1>
+          <p className="text-[13px] text-muted">{t('stack.subtitle')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {lastChecked && (
@@ -40,10 +45,8 @@ export function StackPage() {
         </div>
       </div>
 
-      <ServiceHealthCards services={services} />
-      <VaultCard />
-      <PatternsCard />
-      <StackLinks />
+      <SystemMap services={services} notes={notes} />
+      <TechStack />
     </div>
   );
 }

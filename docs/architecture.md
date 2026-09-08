@@ -4,19 +4,19 @@ Full-stack overview of the Tropis monorepo: what runs, how data moves, and why.
 
 ## Components
 
-| Component                    | Location                          | Role                                                                                                                                                                                                                                    |
-| ---------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Backend API**              | `apps/backend/`                   | NestJS. Serves gRPC (public tier :50051, internal tier :50061), REST (`/api/v1`), WebSocket (Socket.io), health + metrics                                                                                                               |
-| **Frontend — helm** (后台)   | `apps/frontend/helm/`             | Logged-in **admin console**. React 18 + Vite SPA (CSR), `noindex`. Talks gRPC-Web through Envoy; Socket.io for realtime. Ships as a static nginx image                                                                                  |
-| **Frontend — harbor** (前台) | `apps/frontend/harbor/`           | Public **marketing/content site**. Next.js App Router (SSR/SSG), full SEO. Ships as a standalone Node server                                                                                                                            |
-| **Temporal worker**          | `apps/temporal-worker/`           | Runs durable workflows (`src/workflows/`) and activities (`src/activities/`)                                                                                                                                                            |
-| **Shared package**           | `packages/shared/`                | Types, DTOs, event contracts (`AppEvent`, `EVENT_TYPES`) consumed by backend, frontend, and Flink                                                                                                                                       |
-| **Client SDK**               | `packages/sdk/`                   | `@tropis/sdk` — gRPC-Web client, REST helpers, realtime (Socket.io) client, tracking SDK, request-signing module; buf-generated proto types in `src/gen/`                                                                               |
-| **Rust services**            | `services/rust/`                  | Cargo workspace; `signing/` gRPC service (`tropis.signing.v1`, port 50052, compose profile `rust`)                                                                                                                                      |
-| **Flink jobs**               | `flink/`                          | Java/Maven. `PulsarToClickHouseJob` streams events into ClickHouse                                                                                                                                                                      |
-| **Local infra**              | `infra/docker/docker-compose.yml` | All datastores, brokers, observability pipeline, admin UIs, and the Rust signing service — grouped into compose profiles (core / `analytics` / `observability` / `tools` / `rust`); see the compose file for the current container list |
-| **Kubernetes**               | `infra/k8s/`                      | Base manifests + `overlays/prod` kustomize overlay (HPA, ingress)                                                                                                                                                                       |
-| **CI/CD**                    | `.github/workflows/`              | `ci.yml` (lint/test/build/audit/SAST/secrets/quality), `deploy-prod.yml` (GHCR build + K8s deploy on tag), `publish.yml` (npm publish), `release-please.yml` (release PRs)                                                              |
+| Component                               | Location                                    | Role                                                                                                                                                                                                                                                  |
+| --------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Backend API**                         | `apps/backend/`                             | NestJS. Serves gRPC (public tier :50051, internal tier :50061), REST (`/api/v1`), WebSocket (Socket.io), health + metrics                                                                                                                             |
+| **Frontend — helm** (backend console)   | `apps/frontend/helm/`                       | Logged-in **admin console**. React 18 + Vite SPA (CSR), `noindex`. Talks gRPC-Web through Envoy; Socket.io for realtime. Ships as a static nginx image                                                                                                |
+| **Frontend — harbor** (public frontend) | `apps/frontend/harbor/`                     | Public **marketing/content site**. Next.js App Router (SSR/SSG), full SEO. Ships as a standalone Node server                                                                                                                                          |
+| **Temporal worker**                     | `apps/backend/src/infrastructure/temporal/` | Runs **in-process inside the backend** (`temporal-worker.module.ts`). Durable workflows (`workflows.ts`, live: `userOnboardingWorkflow`) and activities (`activities.ts`). `apps/temporal-worker/` is a legacy standalone worker and is not what runs |
+| **Shared package**                      | `packages/shared/`                          | Types, DTOs, event contracts (`AppEvent`, `EVENT_TYPES`) consumed by backend, frontend, and Flink                                                                                                                                                     |
+| **Client SDK**                          | `packages/sdk/`                             | `@tropis/sdk` — gRPC-Web client, REST helpers, realtime (Socket.io) client, tracking SDK, request-signing module; buf-generated proto types in `src/gen/`                                                                                             |
+| **Rust services**                       | `services/rust/`                            | Cargo workspace; `signing/` gRPC service (`tropis.signing.v1`, port 50052, compose profile `rust`)                                                                                                                                                    |
+| **Flink jobs**                          | `flink/`                                    | Java/Maven. `PulsarToClickHouseJob` streams the analytics topic into `logs.analytics_events_flink` — its own table, so it can run alongside the backend's in-process processor without both writing the same non-deduplicating table                  |
+| **Local infra**                         | `infra/docker/docker-compose.yml`           | All datastores, brokers, observability pipeline, admin UIs, and the Rust signing service — grouped into compose profiles (core / `analytics` / `observability` / `tools` / `rust`); see the compose file for the current container list               |
+| **Kubernetes**                          | `infra/k8s/`                                | Base manifests + `overlays/prod` kustomize overlay (HPA, ingress)                                                                                                                                                                                     |
+| **CI/CD**                               | `.github/workflows/`                        | `ci.yml` (lint/test/build/audit/SAST/secrets/quality), `deploy-prod.yml` (GHCR build + K8s deploy on tag), `publish.yml` (npm publish), `release-please.yml` (release PRs)                                                                            |
 
 ## Data flow
 
@@ -24,7 +24,7 @@ Full-stack overview of the Tropis monorepo: what runs, how data moves, and why.
                        ┌────────────────────────── Browser ──────────────────────────┐
                        │  React (Vite)                                                │
                        │   ├─ gRPC-Web ──► Envoy :8090 ──► NestJS gRPC :50051         │
-                       │   ├─ REST (uploads / OAuth / SSE) ──► NestJS HTTP /api/v1    │
+                       │   ├─ REST (uploads / OAuth) ──► NestJS HTTP /api/v1          │
                        │   └─ Socket.io (realtime notifications) ◄──┐                 │
                        └────────────────────────────────────────────┼─────────────────┘
                                                                     │
@@ -73,7 +73,6 @@ REST (`/api/v1`) exists **only** for cases gRPC handles poorly:
 | OAuth2 callbacks (Google/GitHub, `src/modules/auth/`) | Providers redirect to HTTP URLs                                   |
 | Inbound webhooks                                      | Third parties speak HTTP                                          |
 | `/api/health`, `/api/metrics`                         | Kubernetes probes and Prometheus scrapers expect HTTP             |
-| Server-Sent Events                                    | HTTP-native streaming                                             |
 
 **WebSocket (Socket.io, `src/modules/websocket/`)** handles bidirectional realtime: in-app notifications and live updates. The gateway is JWT-authenticated.
 
@@ -84,13 +83,14 @@ Rule of thumb: if you are adding a REST endpoint and it's not on the list above,
 1. **Write + outbox** — services never publish to Pulsar directly. They write the domain change and an outbox document (`src/infrastructure/outbox/outbox.schema.ts`) in the same MongoDB transaction, guaranteeing at-least-once delivery.
 2. **Relay** — `outbox.relay.ts` polls unpublished outbox entries and publishes `AppEvent` (defined in `packages/shared/src/events/app-event.ts`) to Pulsar via the broker-agnostic `MESSAGE_BROKER` port (`src/infrastructure/messaging/`).
 3. **Pulsar** — the cross-service event bus. Consumers must tolerate unknown fields (add-only payload evolution; see `docs/api-versioning.md`). Each module owns a **durable Pulsar consumer** for its at-least-once side-effects: e.g. `modules/user/processors/user.processor.ts` performs the Elasticsearch index, pgvector upsert, welcome email, and counter/cache off the outbox (idempotent via a Redis `SET NX` dedup on eventId). In-process EventEmitter handlers (`modules/user/events/user-event.handlers.ts`) are reserved for **ephemeral** effects only — realtime WebSocket broadcasts — where a dropped event is not a consistency bug.
-4. **Flink** — `flink/src/main/java/com/app/flink/jobs/PulsarToClickHouseJob.java` deserializes events and sinks them into ClickHouse.
+4. **Flink** — `flink/src/main/java/com/app/flink/jobs/PulsarToClickHouseJob.java` unwraps the outbox envelope (the business fields sit under `payload`), resolves `tenant_id` from it, and sinks into `logs.analytics_events_flink`. It consumes the same topic as `AnalyticsProcessor` on its own subscription, so both receive every message; separate tables keep the counts the console reads independent of whether the job is running.
 5. **ClickHouse** — append-only analytics store (init SQL in `infra/clickhouse/`).
 
 In parallel:
 
-- **BullMQ** (`src/infrastructure/queue/`) — short, retryable background jobs within the backend: notifications, file processing, plus a dead-letter queue.
-- **Temporal** (`src/infrastructure/temporal/` + `apps/temporal-worker/`) — long-running, durable, multi-step workflows (e.g. `notification.workflow.ts`), surviving restarts and supporting sagas/compensation.
+- **BullMQ** (`src/infrastructure/queue/`) — short, retryable background jobs within the backend: notifications, file processing, plus the `dead-letter` queue (replayable from Bull Board).
+- **Pulsar DLQ** — consumers created via `PulsarBrokerAdapter.subscribe()` declare a dead-letter policy (`maxRedeliverCount: 5` → `<topic>-DLQ`), so a poison message is parked instead of redelivered forever.
+- **Temporal** (`src/infrastructure/temporal/`) — long-running, durable, multi-step workflows (live: `userOnboardingWorkflow`), surviving restarts and supporting sagas/compensation. The worker runs **in-process in the backend** (`temporal-worker.module.ts`); `apps/temporal-worker/` is a legacy standalone worker and is not what runs.
 
 See `docs/tech-decisions.md` for when to pick which.
 
@@ -112,13 +112,13 @@ See `docs/tech-decisions.md` for when to pick which.
 - **Audit logging** — `@Audited()` decorator + `AuditInterceptor` (`src/common/`) write sensitive-action records to ClickHouse `logs.audit_log` via `modules/audit/` (schema: `infra/clickhouse/init-audit.sql`).
 - Helmet, CORS allowlist (`src/config/cors.constants.ts`), global ValidationPipe in `main.ts`.
 
-## User-behavior tracking (埋点)
+## User-behavior tracking (instrumentation)
 
 ```
 SDK tracker (packages/sdk/src/tracking/) ──batch──► REST POST /api/v1/track (202, public, rate-limited)
   ──► TrackingService ──direct──► Pulsar "tracking-events" ──► TrackingProcessor ──► ClickHouse logs.user_behavior
                                                                      │
-Dashboard (/behavior) ◄── gRPC TrackingService.GetInsights (auth) ◄──┘
+Analytics page (/analytics) ◄── gRPC TrackingService.GetInsights (auth) ◄──┘
 ```
 
 - **Ingest is REST** — the tracker flushes on page unload via `navigator.sendBeacon`, which can only POST plain HTTP (this is an approved REST exception; reads stay gRPC).

@@ -1,3 +1,5 @@
+name: tropis
+
 services:
   # ── MongoDB ────────────────────────────────────────────────────────
   mongodb:
@@ -12,11 +14,36 @@ services:
     environment:
       MONGO_INITDB_DATABASE: tropis
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "rs.status().ok"]
+      test: ['CMD', 'mongosh', '--quiet', '--eval', 'rs.status().ok']
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  # ── Replica-set host fix (one-shot) ───────────────────────────────
+  # Moves the single-node replica set from advertising `localhost:27017` to the
+  # compose service name. mongo-rs-init.js has to seed `localhost` (the initdb
+  # mongod is bound to loopback, so anything else fails its isSelf check), but a
+  # set that advertises `localhost` is unusable by any client that performs
+  # topology discovery: it resolves the member to its own container's loopback.
+  # `mongo-express` is exactly that — it drops query options, so it cannot be
+  # told `directConnection=true` — and crash-loops without this.
+  #
+  # Idempotent and safe to re-run: it exits immediately once the host is right.
+  # Clients on the HOST still need `directConnection=true`, because `mongodb`
+  # is a Docker-network name that does not resolve outside it.
+  mongo-rs-reconfig:
+    image: mongo:7
+    container_name: tropis_mongo_rs_reconfig
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - ./mongo-rs-reconfig.js:/rs.js:ro
+    command: >
+      mongosh "mongodb://mongodb:27017/?directConnection=true"
+      --quiet --file /rs.js
+    restart: 'no'
 
   # ── Mongo Express (MongoDB web UI) ────────────────────────────────
   mongo-express:
@@ -24,11 +51,13 @@ services:
     image: mongo-express:latest
     container_name: tropis_mongo_express
     depends_on:
-      - mongodb
+      mongo-rs-reconfig:
+        condition: service_completed_successfully
     ports:
-      - '8085:8081'   # Web UI → http://localhost:8085
+      - '8085:8081' # Web UI → http://localhost:8085
     environment:
-      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017
+      # directConnection is required: mongod runs as a single-node replica set.
+      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017/?directConnection=true
       ME_CONFIG_BASICAUTH: 'false'
     restart: unless-stopped
 
@@ -49,15 +78,15 @@ services:
     depends_on:
       - clickhouse
     ports:
-      - '8124:3488'   # Web UI → http://localhost:8124
+      - '8124:3488' # Web UI → http://localhost:8124
 
   # ── ClickHouse ─────────────────────────────────────────────────────
   clickhouse:
     image: clickhouse/clickhouse-server:24
     container_name: tropis_clickhouse
     ports:
-      - '8123:8123'   # HTTP interface (used by @clickhouse/client and JDBC)
-      - '9000:9000'   # Native binary protocol
+      - '8123:8123' # HTTP interface (used by @clickhouse/client and JDBC)
+      - '9000:9000' # Native binary protocol
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ../clickhouse/init-analytics.sql:/docker-entrypoint-initdb.d/01-analytics.sql:ro
@@ -74,25 +103,29 @@ services:
     image: aerospike/aerospike-server:latest
     container_name: tropis_aerospike
     ports:
-      - '3000:3000'   # Client service port
-      - '3001:3001'   # Fabric (intra-cluster)
-      - '3003:3003'   # Info (telnet admin)
+      - '3000:3000' # Client service port
+      - '3001:3001' # Fabric (intra-cluster)
+      - '3003:3003' # Info (telnet admin)
 
   # ── Apache Pulsar ──────────────────────────────────────────────────
   pulsar:
     image: apachepulsar/pulsar:3.3.0
     container_name: tropis_pulsar
     ports:
-      - '6650:6650'   # Pulsar binary protocol (clients connect here)
-      - '8080:8080'   # HTTP admin API + Flink Pulsar connector
+      - '6650:6650' # Pulsar binary protocol (clients connect here)
+      - '8080:8080' # HTTP admin API + Flink Pulsar connector
     command: bin/pulsar standalone
     environment:
-      PULSAR_MEM: "-Xms512m -Xmx1g -XX:MaxDirectMemorySize=512m"
+      PULSAR_MEM: '-Xms512m -Xmx1g -XX:MaxDirectMemorySize=512m'
     volumes:
       - pulsar_data:/pulsar/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/admin/v2/brokers/health || exit 1"]
+      test:
+        [
+          'CMD-SHELL',
+          'curl -sf http://localhost:8080/admin/v2/brokers/health || exit 1',
+        ]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -106,8 +139,8 @@ services:
     depends_on:
       - pulsar
     ports:
-      - '9527:9527'   # Web UI → http://localhost:9527
-      - '7750:7750'   # Backend API
+      - '9527:9527' # Web UI → http://localhost:9527
+      - '7750:7750' # Backend API
     environment:
       SPRING_CONFIGURATION_FILE: /pulsar-manager/pulsar-manager/application.properties
     restart: unless-stopped
@@ -118,14 +151,14 @@ services:
     image: flink:1.18-scala_2.12-java11
     container_name: tropis_flink_jm
     ports:
-      - '8081:8081'   # Flink Web UI → http://localhost:8081
+      - '8081:8081' # Flink Web UI → http://localhost:8081
     command: jobmanager
     environment:
       JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
     volumes:
       - flink_data:/opt/flink/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8081/overview || exit 1"]
+      test: ['CMD-SHELL', 'curl -sf http://localhost:8081/overview || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -153,12 +186,12 @@ services:
     image: envoyproxy/envoy:v1.31-latest
     container_name: tropis_envoy
     ports:
-      - '8090:8090'   # gRPC-Web endpoint (frontend connects here)
-      - '9901:9901'   # Envoy admin UI → http://localhost:9901
+      - '8090:8090' # gRPC-Web endpoint (frontend connects here)
+      - '9901:9901' # Envoy admin UI → http://localhost:9901
     volumes:
       - ../envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # Linux compat; no-op on Mac
+      - 'host.docker.internal:host-gateway' # Linux compat; no-op on Mac
 
   # ── grpcui (gRPC web UI) ───────────────────────────────────────────
   # Point-and-click gRPC client — discovers services via server reflection,
@@ -171,9 +204,9 @@ services:
     container_name: tropis_grpcui
     command: -plaintext -bind 0.0.0.0 -port 8080 host.docker.internal:50051
     ports:
-      - '8083:8080'   # Web UI → http://localhost:8083
+      - '8083:8080' # Web UI → http://localhost:8083
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # Linux compat; no-op on Mac
+      - 'host.docker.internal:host-gateway' # Linux compat; no-op on Mac
     restart: unless-stopped
 
   # ── Jaeger (distributed tracing UI) ───────────────────────────────
@@ -190,8 +223,8 @@ services:
     image: jaegertracing/all-in-one:1.56
     container_name: tropis_jaeger
     ports:
-      - '16686:16686'  # Jaeger UI
-      - '14250:14250'  # gRPC (OTel Collector sends traces here)
+      - '16686:16686' # Jaeger UI
+      - '14250:14250' # gRPC (OTel Collector sends traces here)
     environment:
       COLLECTOR_OTLP_ENABLED: 'true'
 
@@ -206,10 +239,10 @@ services:
     depends_on:
       - jaeger
     ports:
-      - '4317:4317'   # OTLP gRPC receiver
-      - '4318:4318'   # OTLP HTTP receiver (NestJS sends here)
-      - '8888:8888'   # Prometheus metrics (self) — scraped by Prometheus
-      - '8889:8889'   # Prometheus exporter — NestJS metrics forwarded here
+      - '4317:4317' # OTLP gRPC receiver
+      - '4318:4318' # OTLP HTTP receiver (NestJS sends here)
+      - '8888:8888' # Prometheus metrics (self) — scraped by Prometheus
+      - '8889:8889' # Prometheus exporter — NestJS metrics forwarded here
     volumes:
       - ../otel/otel-collector.yaml:/etc/otelcol-contrib/config.yaml
 
@@ -238,7 +271,7 @@ services:
     depends_on:
       - postgres
     ports:
-      - '5050:80'     # Web UI → http://localhost:5050
+      - '5050:80' # Web UI → http://localhost:5050
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@local.dev
       PGADMIN_DEFAULT_PASSWORD: admin
@@ -270,7 +303,7 @@ services:
     depends_on:
       - elasticsearch
     ports:
-      - '5601:5601'   # Web UI → http://localhost:5601
+      - '5601:5601' # Web UI → http://localhost:5601
     environment:
       ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
       XPACK_SECURITY_ENABLED: 'false'
@@ -283,8 +316,8 @@ services:
     image: minio/minio:latest
     container_name: tropis_minio
     ports:
-      - '9900:9000'   # S3 API (avoid conflict with Pulsar's 9000)
-      - '9902:9902'   # MinIO Console UI → http://localhost:9902
+      - '9900:9000' # S3 API (avoid conflict with Pulsar's 9000)
+      - '9902:9902' # MinIO Console UI → http://localhost:9902
     volumes:
       - minio_data:/data
     environment:
@@ -299,8 +332,8 @@ services:
     image: mailhog/mailhog:latest
     container_name: tropis_mailhog
     ports:
-      - '1025:1025'   # SMTP (NestJS/Nodemailer sends here)
-      - '8025:8025'   # Web UI → http://localhost:8025
+      - '1025:1025' # SMTP (NestJS/Nodemailer sends here)
+      - '8025:8025' # Web UI → http://localhost:8025
 
   # ── HashiCorp Vault ────────────────────────────────────────────────
   # Secret management — stores all app credentials (DB passwords, API keys, JWT secrets).
@@ -314,16 +347,20 @@ services:
     image: hashicorp/vault:1.17
     container_name: tropis_vault
     ports:
-      - '8200:8200'   # Vault API + Web UI → http://localhost:8200
+      - '8200:8200' # Vault API + Web UI → http://localhost:8200
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: dev-root-token
       VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
       VAULT_ADDR: http://127.0.0.1:8200
     cap_add:
-      - IPC_LOCK   # Vault needs this to prevent secrets being swapped to disk
+      - IPC_LOCK # Vault needs this to prevent secrets being swapped to disk
     command: vault server -dev -dev-root-token-id=dev-root-token
     healthcheck:
-      test: ["CMD-SHELL", "vault status -address=http://127.0.0.1:8200 | grep -q 'Sealed.*false'"]
+      test:
+        [
+          'CMD-SHELL',
+          "vault status -address=http://127.0.0.1:8200 | grep -q 'Sealed.*false'",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -354,7 +391,7 @@ services:
     depends_on:
       - redis
     ports:
-      - '5540:5540'   # Web UI → http://localhost:5540
+      - '5540:5540' # Web UI → http://localhost:5540
 
   # ── Dozzle (Docker container log viewer) ───────────────────────────
   # Live tail + search across all local containers, zero config.
@@ -365,7 +402,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
-      - '9999:8080'   # Web UI → http://localhost:9999 (8888 taken by otel)
+      - '9999:8080' # Web UI → http://localhost:9999 (8888 taken by otel)
 
   # ── Prometheus ─────────────────────────────────────────────────────
   # Scrapes metrics from OTel Collector (8889) and NestJS /metrics (3100).
@@ -374,8 +411,12 @@ services:
     profiles: ['observability']
     image: prom/prometheus:v2.51.2
     container_name: tropis_prometheus
+    # prometheus.yml scrapes the host-run backend at host.docker.internal:3100,
+    # which Linux does not resolve without this mapping (same as envoy/grpcui).
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     ports:
-      - '9090:9090'   # Prometheus UI + query API
+      - '9090:9090' # Prometheus UI + query API
     volumes:
       - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
@@ -392,7 +433,7 @@ services:
     image: prom/alertmanager:v0.27.0
     container_name: tropis_alertmanager
     ports:
-      - '9093:9093'   # Alertmanager UI + API
+      - '9093:9093' # Alertmanager UI + API
     volumes:
       - ../prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     command:
@@ -407,7 +448,7 @@ services:
     image: openpolicyagent/opa:latest
     container_name: tropis_opa
     ports:
-      - '8181:8181'   # OPA REST API
+      - '8181:8181' # OPA REST API
     volumes:
       - ../opa:/policies:ro
     command: run --server --addr 0.0.0.0:8181 --log-format=json --log-level=info /policies
@@ -423,7 +464,7 @@ services:
     depends_on:
       - postgresql-temporal
     ports:
-      - '7233:7233'   # Temporal gRPC frontend (clients + workers connect here)
+      - '7233:7233' # Temporal gRPC frontend (clients + workers connect here)
     environment:
       DB: postgres12
       DB_PORT: 5432
@@ -442,10 +483,10 @@ services:
     depends_on:
       - temporal
     ports:
-      - '8233:8080'   # Web UI → http://localhost:8233
+      - '8233:8080' # Web UI → http://localhost:8233
     environment:
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_CORS_ORIGINS: 'http://localhost:3000'
+      TEMPORAL_CORS_ORIGINS: 'http://localhost:5173'
     restart: unless-stopped
 
   # Dedicated PostgreSQL for Temporal (keeps it isolated from app DB)
@@ -470,7 +511,7 @@ services:
     depends_on:
       - prometheus
     ports:
-      - '3101:3000'   # Grafana UI → http://localhost:3101  (3000 taken by Aerospike, 3001 by Aerospike fabric)
+      - '3101:3000' # Grafana UI → http://localhost:3101  (3000 taken by Aerospike, 3001 by Aerospike fabric)
     volumes:
       - grafana_data:/var/lib/grafana
       - ../grafana/provisioning:/etc/grafana/provisioning:ro
@@ -496,9 +537,9 @@ services:
     depends_on:
       - clickhouse
     ports:
-      - '3200:3000'   # Web UI → http://localhost:3200 (host 3000 taken by Aerospike)
+      - '3200:3000' # Web UI → http://localhost:3200 (host 3000 taken by Aerospike)
     environment:
-      MB_DB_TYPE: h2                      # embedded app DB — fine for local dev
+      MB_DB_TYPE: h2 # embedded app DB — fine for local dev
       MB_DB_FILE: /metabase-data/metabase.db
     volumes:
       - metabase_data:/metabase-data
@@ -510,14 +551,14 @@ services:
   signing:
     profiles: ['rust']
     build:
-      context: ../..                        # repo root — build needs proto/
+      context: ../.. # repo root — build needs proto/
       dockerfile: services/rust/signing/Dockerfile
     container_name: tropis_signing
     ports:
       - '50052:50052'
     environment:
       GRPC_PORT: 50052
-      API_KEYS: '${API_KEYS:-{}}'           # JSON map {keyId: secret}, same as backend
+      API_KEYS: '${API_KEYS:-{}}' # JSON map {keyId: secret}, same as backend
     restart: unless-stopped
 
 volumes:

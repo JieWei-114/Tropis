@@ -6,7 +6,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 
-export const trackingKeys = {
+const trackingKeys = {
   insights: (days: number) => ['tracking', 'insights', days] as const,
 };
 

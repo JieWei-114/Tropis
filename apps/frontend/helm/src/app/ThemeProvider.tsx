@@ -16,7 +16,7 @@ interface ThemeContextValue {
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
-  theme: 'dark',
+  theme: 'light',
   setTheme: () => {},
 });
 
@@ -31,8 +31,8 @@ function applyTheme(theme: Theme) {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    // Default = dark: the app's original look.
-    return stored === 'light' || stored === 'system' ? stored : 'dark';
+    // Default = light: the warm beige look.
+    return stored === 'dark' || stored === 'system' ? stored : 'light';
   });
 
   useEffect(() => {

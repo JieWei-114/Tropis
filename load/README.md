@@ -16,7 +16,7 @@ The stack must be up and the backend healthy:
 make up                       # core infra (docker compose)
 pnpm --filter @tropis/backend start   # or `make dev`
 curl http://localhost:3100/api/health   # must return 200
-make seed                     # login.js needs the seeded admin user
+make seed                     # login.js needs the seeded admin@example.com user
 ```
 
 ## Running

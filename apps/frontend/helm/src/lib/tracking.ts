@@ -1,5 +1,5 @@
 /**
- * App-wide user-behavior tracker singleton (埋点).
+ * App-wide user-behavior tracker singleton.
  *
  * Delivery: batches to POST /api/v1/track (REST — sendBeacon-compatible),
  * then backend → Pulsar → TrackingProcessor → ClickHouse.

@@ -50,7 +50,10 @@ export default function () {
   if (res.status !== 429) {
     const ok = check(res, {
       'login succeeded': (r) => r.status === 200 || r.status === 201,
-      'got access token': (r) => !!(r.json('accessToken') || r.json('access_token')),
+      // Guard the body — r.json() on a null body throws and aborts the
+      // iteration rather than recording a failed check.
+      'got access token': (r) =>
+        r.body ? !!(r.json('accessToken') || r.json('access_token')) : false,
     });
 
     if (ok) {

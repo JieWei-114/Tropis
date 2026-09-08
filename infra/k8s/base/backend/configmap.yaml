@@ -4,18 +4,20 @@ metadata:
   name: backend-config
   namespace: tropis
 data:
-  PORT: "3100"
-  GRPC_PORT: "50051"
-  GRPC_INTERNAL_PORT: "50061"
-  NODE_ENV: "production"
-  LOG_LEVEL: "info"
-  CORS_ORIGIN: "https://yourdomain.com"
-  MONGODB_URI: "mongodb://mongodb-svc:27017/tropis"
-  REDIS_HOST: "redis-svc"
-  REDIS_PORT: "6379"
-  CLICKHOUSE_HOST: "http://clickhouse-svc:8123"
-  CLICKHOUSE_USER: "default"
-  CLICKHOUSE_DATABASE: "logs"
-  PULSAR_SERVICE_URL: "pulsar://pulsar-svc:6650"
-  OTEL_SERVICE_NAME: "nestjs-backend"
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector-svc:4318/v1/traces"
+  PORT: '3100'
+  GRPC_PORT: '50051'
+  GRPC_INTERNAL_PORT: '50061'
+  NODE_ENV: 'production'
+  LOG_LEVEL: 'info'
+  CORS_ORIGIN: 'https://yourdomain.com'
+  MONGODB_URI: 'mongodb://mongodb-svc:27017/tropis'
+  REDIS_HOST: 'redis-svc'
+  REDIS_PORT: '6379'
+  CLICKHOUSE_HOST: 'http://clickhouse-svc:8123'
+  CLICKHOUSE_USER: 'default'
+  CLICKHOUSE_DATABASE: 'logs'
+  PULSAR_SERVICE_URL: 'pulsar://pulsar-svc:6650'
+  TEMPORAL_ADDRESS: 'temporal-svc:7233'
+  TEMPORAL_NAMESPACE: 'default'
+  OTEL_SERVICE_NAME: 'nestjs-backend'
+  OTEL_EXPORTER_OTLP_ENDPOINT: 'http://otel-collector-svc:4318/v1/traces'

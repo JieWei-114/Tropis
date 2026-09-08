@@ -1,11 +1,14 @@
 import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { clearToken } from '../lib/api';
 import { Button } from '@/components/ui/button';
 import { parseApiError } from '../lib/error';
-import { LoginForm } from '../features/auth';
-import { UserTable } from '../features/users';
-import { UserModal } from '../features/users';
+import {
+  UserTable,
+  UserModal,
+  useUserRoles,
+  type Role,
+} from '../features/users';
+import { useOnboardingWorkflows } from '../features/workflows';
 import {
   useUsers,
   useUserSearch,
@@ -17,13 +20,7 @@ import {
 } from '../state/tanstack/useUsersQuery';
 import type { User, CreateUserPayload, ReplaceUserPayload } from '../lib/api';
 
-interface Props {
-  authed: boolean;
-  onLogin: (token: string) => void;
-  onLogout: () => void;
-}
-
-export function UsersPage({ authed, onLogin, onLogout }: Props) {
+export function UsersPage() {
   const { t } = useTranslation();
   // ── UI state (local — not server data) ────────────────────────────
   const [modalUser, setModalUser] = useState<User | null | 'new'>(null);
@@ -34,6 +31,13 @@ export function UsersPage({ authed, onLogin, onLogout }: Props) {
   const [avatarUrls, setAvatarUrls] = useState<Record<string, string>>({});
   const [avatarUser, setAvatarUser] = useState<User | null>(null);
   const [actionError, setActionError] = useState('');
+  const onboarding = useOnboardingWorkflows();
+  const {
+    rolesByUser,
+    setRoles,
+    isAdmin,
+    isLoading: rolesLoading,
+  } = useUserRoles();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -134,21 +138,18 @@ export function UsersPage({ authed, onLogin, onLogout }: Props) {
     }
   };
 
-  const handleLogout = () => {
-    clearToken();
-    onLogout();
-  };
-
   // ── Render ────────────────────────────────────────────────────────
 
-  if (!authed) return <LoginForm onLogin={onLogin} />;
-
+  // Listing the directory is admin-only, so a signed-in non-admin gets a
+  // PERMISSION_DENIED here. Explain what to do instead of showing the raw
+  // transport message.
+  const listError = error ? parseApiError(error) : null;
   const errorMsg =
     actionError ||
-    (error instanceof Error ? error.message : error ? String(error) : '');
+    (listError?.isAuth ? t('users.adminRequired') : (listError?.message ?? ''));
 
   return (
-    <div className="mx-auto flex max-w-[1200px] flex-col gap-5 px-6 py-8">
+    <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-8 py-8 max-md:px-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-heading">{t('users.title')}</h2>
@@ -167,18 +168,12 @@ export function UsersPage({ authed, onLogin, onLogout }: Props) {
           <Button onClick={() => setModalUser('new')}>
             {t('users.newUser')}
           </Button>
-          <Button variant="secondary" onClick={handleLogout}>
-            {t('users.logout')}
-          </Button>
         </div>
       </div>
 
       {/* ── Search bar ── */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex min-w-[260px] flex-1 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5">
-          <span className="text-sm" aria-hidden="true">
-            🔍
-          </span>
           <input
             aria-label={t('users.searchPlaceholder')}
             className="flex-1 border-none bg-transparent text-[13px] text-foreground outline-none placeholder:text-faint"
@@ -186,13 +181,13 @@ export function UsersPage({ authed, onLogin, onLogout }: Props) {
             value={searchQuery}
             onChange={(e) => handleSearchChange(e.target.value)}
           />
-          {searching && <span className="text-xs text-primary">…</span>}
+          {searching && <span className="text-xs text-primary-soft">…</span>}
         </div>
         {similarId && (
           <span className="rounded-md border border-primary/25 bg-primary/10 px-2.5 py-1 text-xs text-primary-soft">
             {t('users.showingSimilar')}
             <button
-              className="cursor-pointer border-none bg-transparent px-1 text-xs text-primary"
+              className="cursor-pointer border-none bg-transparent px-1 text-xs text-primary-soft"
               onClick={handleClearSimilar}
             >
               {' '}
@@ -225,6 +220,23 @@ export function UsersPage({ authed, onLogin, onLogout }: Props) {
         <UserTable
           users={displayUsers}
           avatarUrls={avatarUrls}
+          onboardingByUser={onboarding.byUser}
+          rolesByUser={rolesByUser}
+          canManageRoles={isAdmin}
+          rolesLoading={rolesLoading}
+          roleUpdating={setRoles.isPending}
+          onChangeRole={(u, role) => {
+            setRoles.mutate(
+              { id: u.id, roles: [role as Role] },
+              {
+                onSuccess: () =>
+                  setLastAction(
+                    t('users.actions.roleChanged', { name: u.name, role }),
+                  ),
+                onError: (e: Error) => setActionError(e.message),
+              },
+            );
+          }}
           onEdit={(u) => setModalUser(u)}
           onDelete={(u) => {
             void handleDelete(u);

@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { createHmac } from 'crypto';
 import { AuthService } from '../services/auth.service';
+import { UserStatus } from '../../user/constants/user.enums';
 import { UserService } from '../../user/services/user.service';
 import { REDIS_CLIENT } from '../../../infrastructure/redis/redis.module';
 import { LoginLockoutService } from '../services/login-lockout.service';
@@ -33,6 +34,7 @@ describe('AuthService', () => {
     id: 'user-123',
     email: 'alice@example.com',
     passwordHash: '', // set per test via bcrypt.hash
+    status: UserStatus.ACTIVE,
   };
 
   // Mirror AuthService: HMAC-sign the token so decodeRefreshToken accepts it.
@@ -93,6 +95,22 @@ describe('AuthService', () => {
 
       await expect(
         service.login({ email: 'unknown@example.com', password: 'pass' }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('refuses to issue a token for an account that is not active', async () => {
+      // status is an access-control field: issuing a token for a non-active
+      // account gives a suspended user full access, including the ability to
+      // reactivate itself.
+      const hash = await bcrypt.hash('correct', 10);
+      userService.findByEmailWithPassword.mockResolvedValue({
+        ...mockUserWithPassword,
+        passwordHash: hash,
+        status: UserStatus.INACTIVE,
+      } as never);
+
+      await expect(
+        service.login({ email: 'alice@example.com', password: 'correct' }),
       ).rejects.toThrow(UnauthorizedException);
     });
 

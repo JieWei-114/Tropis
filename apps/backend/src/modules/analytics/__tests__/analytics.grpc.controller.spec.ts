@@ -1,12 +1,24 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import { RpcException } from '@nestjs/microservices';
+import { status as GrpcStatus } from '@grpc/grpc-js';
 import * as jwt from 'jsonwebtoken';
 import { GrpcAnalyticsService } from '../controllers/analytics.grpc.controller';
 import { AnalyticsService } from '../services/analytics.service';
-import { AnalyticsEventType } from '../schemas/event-log.schema';
+import { AnalyticsEventType } from '../constants/analytics.enums';
 import { IEventLog, IAnalyticsStats } from '../interfaces/analytics.interface';
+import { GrpcAuthzService } from '../../../infrastructure/grpc/grpc-authz.service';
+import { OpaService } from '../../../infrastructure/opa/opa.service';
 
 const JWT_SECRET = 'test-secret';
+
+/** Metadata carrying a signed token for `tenantId`. */
+const authMeta = (tenantId = 'tenant-a') => {
+  const token = jwt.sign({ sub: 'user-1', tenantId }, JWT_SECRET);
+  return {
+    get: (k: string) => (k === 'authorization' ? [`Bearer ${token}`] : []),
+  };
+};
 
 const mockEvent = (overrides = {}): IEventLog => ({
   eventId: 'evt-123',
@@ -38,6 +50,7 @@ const mockStats = (): IAnalyticsStats => ({
 describe('GrpcAnalyticsService', () => {
   let service: GrpcAnalyticsService;
   let analyticsService: jest.Mocked<AnalyticsService>;
+  let opa: { allow: jest.Mock };
 
   beforeEach(async () => {
     analyticsService = {
@@ -46,11 +59,14 @@ describe('GrpcAnalyticsService', () => {
       getRecent: jest.fn(),
       getMinutelyStats: jest.fn(),
     } as unknown as jest.Mocked<AnalyticsService>;
+    opa = { allow: jest.fn().mockResolvedValue(true) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GrpcAnalyticsService,
+        GrpcAuthzService,
         { provide: AnalyticsService, useValue: analyticsService },
+        { provide: OpaService, useValue: opa },
         {
           provide: ConfigService,
           useValue: { getOrThrow: () => JWT_SECRET },
@@ -59,6 +75,73 @@ describe('GrpcAnalyticsService', () => {
     }).compile();
 
     service = module.get(GrpcAnalyticsService);
+  });
+
+  // ── Authorization ────────────────────────────────────────────────────────
+  //
+  // Every method must demand a verified token and an OPA decision. An
+  // unauthorized method lets anyone on the network read event rows (with
+  // userIds and metadata) and inject events into the pipeline.
+
+  describe('authorization', () => {
+    const callsWithoutToken: [string, () => Promise<unknown>][] = [
+      [
+        'createEvent',
+        () =>
+          service.createEvent(
+            { event_type: 'page_view', user_id: 'u1' },
+            undefined,
+          ),
+      ],
+      ['getStats', () => service.getStats({}, undefined)],
+      ['getRecent', () => service.getRecent({}, undefined)],
+      ['getMinutelyStats', () => service.getMinutelyStats({}, undefined)],
+    ];
+
+    it.each(callsWithoutToken)('%s rejects an absent token', async (_n, fn) => {
+      await expect(fn()).rejects.toThrow(RpcException);
+      expect(analyticsService.create).not.toHaveBeenCalled();
+      expect(analyticsService.getStats).not.toHaveBeenCalled();
+      expect(analyticsService.getRecent).not.toHaveBeenCalled();
+      expect(analyticsService.getMinutelyStats).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unverifiable token instead of falling back to the default tenant', async () => {
+      const metadata = {
+        get: (k: string) => (k === 'authorization' ? ['Bearer garbage'] : []),
+      };
+
+      await expect(service.getStats({}, metadata)).rejects.toMatchObject({
+        error: { code: GrpcStatus.UNAUTHENTICATED },
+      });
+      expect(analyticsService.getStats).not.toHaveBeenCalled();
+    });
+
+    it('rejects a valid token whose role OPA denies', async () => {
+      opa.allow.mockResolvedValue(false);
+
+      await expect(service.getStats({}, authMeta())).rejects.toMatchObject({
+        error: { code: GrpcStatus.PERMISSION_DENIED },
+      });
+    });
+
+    it('asks OPA for `write` on createEvent and `read` on the queries', async () => {
+      analyticsService.create.mockResolvedValue(mockEvent());
+      analyticsService.getStats.mockResolvedValue(mockStats());
+
+      await service.createEvent(
+        { event_type: 'page_view', user_id: 'u1' },
+        authMeta(),
+      );
+      expect(opa.allow).toHaveBeenCalledWith(
+        expect.objectContaining({ resource: 'analytics', action: 'write' }),
+      );
+
+      await service.getStats({}, authMeta());
+      expect(opa.allow).toHaveBeenCalledWith(
+        expect.objectContaining({ resource: 'analytics', action: 'read' }),
+      );
+    });
   });
 
   // ── CreateEvent ──────────────────────────────────────────────────────────
@@ -73,7 +156,7 @@ describe('GrpcAnalyticsService', () => {
           user_id: 'user-123',
           metadata: '{"page":"/home"}',
         },
-        undefined,
+        authMeta(),
       );
 
       expect(analyticsService.create).toHaveBeenCalledWith(
@@ -81,7 +164,7 @@ describe('GrpcAnalyticsService', () => {
           eventType: 'page_view',
           userId: 'user-123',
           metadata: { page: '/home' },
-          tenantId: 'default',
+          tenantId: 'tenant-a',
         }),
       );
       expect(res.event_id).toBe('evt-123');
@@ -92,11 +175,8 @@ describe('GrpcAnalyticsService', () => {
       analyticsService.create.mockResolvedValue(mockEvent());
 
       await service.createEvent(
-        {
-          event_type: 'page_view',
-          user_id: 'user-123',
-        },
-        undefined,
+        { event_type: 'page_view', user_id: 'user-123' },
+        authMeta(),
       );
 
       expect(analyticsService.create).toHaveBeenCalledWith(
@@ -110,11 +190,8 @@ describe('GrpcAnalyticsService', () => {
       );
 
       const res = await service.createEvent(
-        {
-          event_type: 'page_view',
-          user_id: 'user-123',
-        },
-        undefined,
+        { event_type: 'page_view', user_id: 'user-123' },
+        authMeta(),
       );
 
       expect(typeof res.metadata).toBe('string');
@@ -128,37 +205,21 @@ describe('GrpcAnalyticsService', () => {
     it('maps stats to gRPC shape', async () => {
       analyticsService.getStats.mockResolvedValue(mockStats());
 
-      const res = await service.getStats({}, undefined);
+      const res = await service.getStats({}, authMeta());
 
       expect(res.total_events).toBe(42);
       expect(res.by_type).toHaveLength(2);
       expect(res.by_type[0].event_type).toBe('page_view');
       expect(res.by_type[0].count).toBe(30);
       expect(res.from_cache).toBe(false);
-      expect(analyticsService.getStats).toHaveBeenCalledWith('default');
     });
 
-    it('resolves tenantId from a valid JWT in the authorization metadata', async () => {
+    it('scopes stats to the tenant in the verified token', async () => {
       analyticsService.getStats.mockResolvedValue(mockStats());
-      const token = jwt.sign({ tenantId: 'tenant-a' }, JWT_SECRET);
-      const metadata = {
-        get: (k: string) => (k === 'authorization' ? [`Bearer ${token}`] : []),
-      };
 
-      await service.getStats({}, metadata);
+      await service.getStats({}, authMeta('tenant-b'));
 
-      expect(analyticsService.getStats).toHaveBeenCalledWith('tenant-a');
-    });
-
-    it('falls back to default tenant on invalid token', async () => {
-      analyticsService.getStats.mockResolvedValue(mockStats());
-      const metadata = {
-        get: (k: string) => (k === 'authorization' ? ['Bearer garbage'] : []),
-      };
-
-      await service.getStats({}, metadata);
-
-      expect(analyticsService.getStats).toHaveBeenCalledWith('default');
+      expect(analyticsService.getStats).toHaveBeenCalledWith('tenant-b');
     });
   });
 
@@ -171,7 +232,7 @@ describe('GrpcAnalyticsService', () => {
         mockEvent({ eventId: 'evt-456' }),
       ]);
 
-      const res = await service.getRecent({});
+      const res = await service.getRecent({}, authMeta());
 
       expect(res.events).toHaveLength(2);
       expect(res.events[0].event_id).toBe('evt-123');
@@ -181,9 +242,17 @@ describe('GrpcAnalyticsService', () => {
     it('returns empty list when no events', async () => {
       analyticsService.getRecent.mockResolvedValue([]);
 
-      const res = await service.getRecent({});
+      const res = await service.getRecent({}, authMeta());
 
       expect(res.events).toEqual([]);
+    });
+
+    it('scopes the live feed to the tenant in the verified token', async () => {
+      analyticsService.getRecent.mockResolvedValue([]);
+
+      await service.getRecent({}, authMeta('tenant-b'));
+
+      expect(analyticsService.getRecent).toHaveBeenCalledWith('tenant-b');
     });
   });
 
@@ -196,20 +265,37 @@ describe('GrpcAnalyticsService', () => {
         { windowMs: 1700000060000, eventType: 'page_view', count: 8 },
       ]);
 
-      const res = await service.getMinutelyStats({ minutes: 30 });
+      const res = await service.getMinutelyStats({ minutes: 30 }, authMeta());
 
       expect(res.stats).toHaveLength(2);
       expect(res.stats[0].window_ms).toBe(1700000000000);
       expect(res.stats[0].count).toBe(5);
-      expect(analyticsService.getMinutelyStats).toHaveBeenCalledWith(30);
+      expect(analyticsService.getMinutelyStats).toHaveBeenCalledWith(
+        30,
+        'tenant-a',
+      );
     });
 
     it('defaults to 60 minutes', async () => {
       analyticsService.getMinutelyStats.mockResolvedValue([]);
 
-      await service.getMinutelyStats({});
+      await service.getMinutelyStats({}, authMeta());
 
-      expect(analyticsService.getMinutelyStats).toHaveBeenCalledWith(60);
+      expect(analyticsService.getMinutelyStats).toHaveBeenCalledWith(
+        60,
+        'tenant-a',
+      );
+    });
+
+    it('clamps an unbounded window to 24h', async () => {
+      analyticsService.getMinutelyStats.mockResolvedValue([]);
+
+      await service.getMinutelyStats({ minutes: 100_000 }, authMeta());
+
+      expect(analyticsService.getMinutelyStats).toHaveBeenCalledWith(
+        24 * 60,
+        'tenant-a',
+      );
     });
   });
 });

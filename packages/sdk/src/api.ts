@@ -1,12 +1,17 @@
 /**
- * High-level API facade — exposes the same function surface the frontend
- * consumed from the old hand-rolled gRPC-Web codec (lib/grpc-web.ts), now
- * backed by the generated connect-es clients.
+ * High-level API facade — wraps the generated connect-es clients in a flat,
+ * domain-typed function surface so callers never touch proto messages or
+ * transport details.
  */
 
 import { createSdk, type Sdk } from './client/index';
 import { createRestClient, type RestClient } from './rest/index';
-import { setToken, setRefreshToken } from './auth/token';
+import {
+  setToken,
+  setRefreshToken,
+  getRefreshToken,
+  clearTokens,
+} from './auth/token';
 import { createRefresher } from './auth/refresh';
 import type { UserResponse } from './gen/user/v1/user_pb';
 import type { EventResponse } from './gen/analytics/v1/analytics_pb';
@@ -70,7 +75,12 @@ export interface PatchUserPayload {
   status?: 'active' | 'inactive';
 }
 
-export type EventType = 'page_view' | 'button_click' | 'api_call' | 'error' | 'purchase';
+export type EventType =
+  | 'page_view'
+  | 'button_click'
+  | 'api_call'
+  | 'error'
+  | 'purchase';
 
 // ── Tracking (user-behavior) insights ────────────────────────────────────────
 
@@ -100,11 +110,17 @@ export interface TrackingRecentEvent {
   timestamp: number;
 }
 
+export interface TrackingFunnelStep {
+  step: string;
+  users: number;
+}
+
 export interface TrackingInsights {
   topPages: TrackingPageCount[];
   eventsByName: TrackingEventCount[];
   dailyUniques: TrackingDailyUnique[];
   recent: TrackingRecentEvent[];
+  funnel: TrackingFunnelStep[];
 }
 
 // ── Mappers (proto messages → domain types; int64 comes back as bigint) ──────
@@ -123,7 +139,8 @@ function toUser(u: UserResponse): User {
 function toEvent(e: EventResponse): AnalyticsEvent {
   let metadata: Record<string, unknown> = {};
   try {
-    if (e.metadata) metadata = JSON.parse(e.metadata) as Record<string, unknown>;
+    if (e.metadata)
+      metadata = JSON.parse(e.metadata) as Record<string, unknown>;
   } catch {
     metadata = {};
   }
@@ -156,6 +173,8 @@ export interface Api {
 
   // Auth
   login: (email: string, password: string) => Promise<void>;
+  /** Revokes the tokens server-side, then clears them locally. */
+  logout: () => Promise<void>;
 
   // Users
   fetchUsers: (page?: number, limit?: number) => Promise<User[]>;
@@ -178,7 +197,6 @@ export interface Api {
   fetchStats: () => Promise<AnalyticsStats>;
   fetchRecent: () => Promise<AnalyticsEvent[]>;
   fetchMinutelyStats: (minutes?: number) => Promise<MinutelyStat[]>;
-  subscribeToStream: (onEvent: (e: AnalyticsEvent) => void) => () => void;
 
   // Tracking (user behavior) — read side; ingest goes through createTracker()
   fetchTrackingInsights: (days?: number) => Promise<TrackingInsights>;
@@ -216,6 +234,16 @@ export function createApi(options: ApiOptions): Api {
       if (!accessToken) throw new Error('Login failed: no token in response');
       setToken(accessToken);
       if (refreshToken) setRefreshToken(refreshToken);
+    },
+
+    async logout() {
+      // Server first: the access token lives 7 days and the refresh token
+      // longer, so dropping only the local copy leaves both valid server-side
+      // and the session resumable from any copy of the token. rest.logout
+      // swallows its own errors, so a network failure still clears local state
+      // rather than trapping the user signed in.
+      await rest.logout(getRefreshToken() ?? undefined);
+      clearTokens();
     },
 
     async fetchUsers(page = 1, limit = 20) {
@@ -318,33 +346,6 @@ export function createApi(options: ApiOptions): Api {
       }));
     },
 
-    /**
-     * Poll GetRecent every 2s and call onEvent for each new event.
-     * (Replaces SSE — no streaming proto RPC defined yet.)
-     */
-    subscribeToStream(onEvent) {
-      let seen = new Set<string>();
-
-      const poll = async () => {
-        try {
-          const events = await fetchRecent();
-          for (const e of events) {
-            if (!seen.has(e.eventId)) {
-              seen.add(e.eventId);
-              onEvent(e);
-            }
-          }
-          if (seen.size > 200) seen = new Set([...seen].slice(-100)); // cap memory
-        } catch {
-          /* ignore transient errors */
-        }
-      };
-
-      poll();
-      const timer = setInterval(poll, 2000);
-      return () => clearInterval(timer);
-    },
-
     async fetchTrackingInsights(days = 7) {
       const res = await clients.tracking.getInsights({ days });
       return {
@@ -375,6 +376,7 @@ export function createApi(options: ApiOptions): Api {
             timestamp: Number(r.timestamp),
           };
         }),
+        funnel: res.funnel.map((s) => ({ step: s.step, users: s.users })),
       };
     },
   };

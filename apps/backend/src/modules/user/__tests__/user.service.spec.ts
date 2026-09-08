@@ -12,6 +12,8 @@ import { PULSAR_CLIENT } from '../../../infrastructure/pulsar/pulsar.module';
 import { CLICKHOUSE_CLIENT } from '../../../infrastructure/clickhouse/clickhouse.module';
 import { UserRole, UserStatus } from '../schemas/user.schema';
 import { IUserResponse } from '../interfaces/user.interface';
+import { TenantContext } from '../../../common/tenant/tenant.context';
+import { DEFAULT_TENANT } from '../schemas/user.schema';
 
 const mockUser = (overrides = {}): IUserResponse => ({
   id: 'user-123',
@@ -32,6 +34,7 @@ describe('UserService', () => {
   let vectorService: jest.Mocked<UserVectorService>;
   let eventEmitter: { emit: jest.Mock };
   let ch: { insert: jest.Mock };
+  let vaultService: { encrypt: jest.Mock; decrypt: jest.Mock };
 
   beforeEach(async () => {
     commandBus = { execute: jest.fn() } as unknown as jest.Mocked<CommandBus>;
@@ -63,6 +66,14 @@ describe('UserService', () => {
     } as unknown as jest.Mocked<UserVectorService>;
 
     ch = { insert: jest.fn().mockResolvedValue(undefined) };
+
+    // Default: Vault cannot encrypt (the state of a stack without VAULT_ADDR).
+
+    vaultService = {
+      encrypt: jest.fn().mockResolvedValue(null),
+
+      decrypt: jest.fn().mockResolvedValue(null),
+    };
     eventEmitter = { emit: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -73,13 +84,7 @@ describe('UserService', () => {
         { provide: UserRepository, useValue: repo },
         { provide: SearchService, useValue: searchService },
         { provide: UserVectorService, useValue: vectorService },
-        {
-          provide: VaultService,
-          useValue: {
-            encrypt: jest.fn().mockResolvedValue(null),
-            decrypt: jest.fn().mockResolvedValue(null),
-          },
-        },
+        { provide: VaultService, useValue: vaultService },
         { provide: EventEmitter2, useValue: eventEmitter },
         {
           provide: REDIS_CLIENT,
@@ -94,6 +99,14 @@ describe('UserService', () => {
           },
         },
         { provide: CLICKHOUSE_CLIENT, useValue: ch },
+        // UserService reads the ambient tenant for every repository call.
+        {
+          provide: TenantContext,
+          useValue: {
+            tenantId: DEFAULT_TENANT,
+            run: (_t: string, fn: () => unknown) => fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -217,9 +230,24 @@ describe('UserService', () => {
       expect(commandBus.execute).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'user-123' }),
       );
+      // Vault is mocked as unavailable here, so the audit row must carry a
+      // REDACTION — never the plaintext address.
       expect(ch.insert).toHaveBeenCalledWith(
         expect.objectContaining({
-          values: [expect.objectContaining({ email: 'alice@example.com' })],
+          values: [expect.objectContaining({ email: '[redacted]' })],
+        }),
+      );
+    });
+
+    it('writes Vault ciphertext, not the address, when encryption works', async () => {
+      vaultService.encrypt.mockResolvedValue('vault:v1:Y2lwaGVy');
+      commandBus.execute.mockResolvedValue('alice@example.com');
+
+      await service.delete('user-123');
+
+      expect(ch.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          values: [expect.objectContaining({ email: 'vault:v1:Y2lwaGVy' })],
         }),
       );
     });

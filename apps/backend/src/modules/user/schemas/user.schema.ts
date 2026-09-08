@@ -1,18 +1,11 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import type { HydratedDocument } from 'mongoose';
+import { UserStatus, UserRole, DEFAULT_TENANT } from '../constants/user.enums';
+
+// Re-exported so existing `from '../schemas/user.schema'` imports keep working.
+export { UserStatus, UserRole, DEFAULT_TENANT };
 
 export type UserDocument = HydratedDocument<User>;
-
-export enum UserStatus {
-  ACTIVE = 'active',
-  INACTIVE = 'inactive',
-}
-
-export enum UserRole {
-  ADMIN = 'admin',
-  EDITOR = 'editor',
-  VIEWER = 'viewer',
-}
 
 /**
  * Soft delete pattern:
@@ -31,8 +24,6 @@ export enum UserRole {
  *   All find queries filter { deletedAt: null } automatically
  */
 
-export const DEFAULT_TENANT = 'default';
-
 @Schema({ timestamps: true, versionKey: false })
 export class User {
   @Prop({ required: true, trim: true })
@@ -48,7 +39,7 @@ export class User {
   @Prop({ min: 0, max: 120 })
   age?: number;
 
-  @Prop({ enum: UserStatus, default: UserStatus.ACTIVE })
+  @Prop({ type: String, enum: UserStatus, default: UserStatus.ACTIVE })
   status: UserStatus;
 
   @Prop({ default: 0 })
@@ -79,6 +70,16 @@ export const UserSchema = SchemaFactory.createForClass(User);
 
 // Compound unique index: email is unique per tenant, not globally.
 // Two tenants can have the same email — they are separate accounts.
-UserSchema.index({ email: 1, tenantId: 1 }, { unique: true });
+//
+// `partialFilterExpression` scopes uniqueness to LIVE rows. Without it a
+// soft-deleted user reserved its email forever: findByEmail (which filters
+// deletedAt: null) reported "not found", the pre-check passed, and the insert
+// then failed on a raw E11000 surfaced as a 500.
+// tenantId leads the key so the equality predicate every query carries can use
+// the index prefix.
+UserSchema.index(
+  { tenantId: 1, email: 1 },
+  { unique: true, partialFilterExpression: { deletedAt: null } },
+);
 // Fast lookup for OAuth login: find user by provider + providerId within a tenant
 UserSchema.index({ provider: 1, providerId: 1, tenantId: 1 }, { sparse: true });

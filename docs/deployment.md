@@ -24,8 +24,9 @@ recreate.
 ```bash
 nvm use && make install
 make up            # every datastore/broker the health check probes (~8 GB Docker mem)
-make dev           # backend (:3100 / :50051) + frontend (:5173) + worker
-make seed          # admin@example.com / Password123!
+make dev           # backend (:3100 / :50051) + frontend (:5173)
+make seed          # admin@example.com / Password123! (role: editor)
+make promote-admin EMAIL=admin@example.com   # grants the admin role
 ```
 
 ### Rung 2 — Local Kubernetes with `kind` (learn the ops stack, free)
@@ -133,7 +134,7 @@ kubectl apply -k infra/k8s/overlays/staging
 ```
 
 For GitOps, a commented optional Argo CD Application (`tropis-staging`) is
-provided in `infra/argocd/tropis-staging.yaml` — uncomment it (and add the
+provided in `infra/argocd/app-staging.yaml` — uncomment it (and add the
 `tropis-staging` namespace to `project.yaml` destinations) to have Argo track
 the staging overlay alongside prod.
 

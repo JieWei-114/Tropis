@@ -39,9 +39,15 @@ message RecentTrackEvent {
   int64  timestamp    = 8; // epoch ms
 }
 
+message FunnelStep {
+  string step  = 1; // event name for this step, e.g. page.view
+  int32  users = 2; // anonymous users who reached this step within the window
+}
+
 message InsightsResponse {
   repeated PageCount        top_pages      = 1;
   repeated EventCount       events_by_name = 2;
   repeated DailyUnique      daily_uniques  = 3;
   repeated RecentTrackEvent recent         = 4;
+  repeated FunnelStep       funnel         = 5;
 }

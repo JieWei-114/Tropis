@@ -18,7 +18,26 @@ export const envValidationSchema = Joi.object({
   // opt-in (GRPC_REFLECTION=true) required in production. Gating rationale:
   // config/grpc-reflection.ts.
   GRPC_REFLECTION: Joi.boolean().default(false),
-  CORS_ORIGIN: Joi.string().uri().default(DEFAULT_CORS_ORIGIN),
+  // A comma-separated list of WEB origins. The packaged clients' origins are
+  // constants appended in cors.constants.ts, not configuration.
+  CORS_ORIGIN: Joi.string()
+    .default(DEFAULT_CORS_ORIGIN)
+    .custom((value: string, helpers) => {
+      const parts = value
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+      if (!parts.length) return helpers.error('any.invalid');
+      for (const part of parts) {
+        const { error } = Joi.string().uri().validate(part);
+        if (error) return helpers.error('any.invalid');
+      }
+      return value;
+    })
+    .messages({
+      'any.invalid':
+        'CORS_ORIGIN must be a comma-separated list of absolute URLs',
+    }),
   LOG_LEVEL: Joi.string()
     .valid('trace', 'debug', 'info', 'warn', 'error')
     .default('info'),
@@ -112,4 +131,12 @@ export const envValidationSchema = Joi.object({
   // Temporal
   TEMPORAL_ADDRESS: Joi.string().default('localhost:7233'),
   TEMPORAL_NAMESPACE: Joi.string().default('default'),
+  ONBOARDING_FOLLOWUP_DELAY_MS: Joi.number().default(30000),
+
+  // Rate limiting. The auth limit is deliberately far tighter than the global
+  // one; raise it only where many real sign-ins share one source IP (browser
+  // E2E, load tests, a stack behind a single NAT).
+  RATE_LIMIT_TTL_MS: Joi.number().integer().min(1000).default(60000),
+  RATE_LIMIT_DEFAULT: Joi.number().integer().min(1).default(100),
+  RATE_LIMIT_AUTH: Joi.number().integer().min(1).default(10),
 });

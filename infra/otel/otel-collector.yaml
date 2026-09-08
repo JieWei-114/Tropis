@@ -4,7 +4,7 @@ receivers:
       grpc:
         endpoint: 0.0.0.0:4317
       http:
-        endpoint: 0.0.0.0:4318   # NestJS tracing.ts sends here
+        endpoint: 0.0.0.0:4318 # NestJS tracing.ts sends here
 
 processors:
   batch:
@@ -15,13 +15,16 @@ exporters:
   # Send traces to Jaeger for visualization
   # View at http://localhost:16686 → select service "nestjs-app"
   otlp/jaeger:
-    endpoint: jaeger:14250
+    # Jaeger's native OTLP gRPC receiver (COLLECTOR_OTLP_ENABLED=true in
+    # docker-compose.yml). Port 14250 is the legacy Jaeger-proto collector and
+    # does NOT speak OTLP — sending there drops every span silently.
+    endpoint: jaeger:4317
     tls:
       insecure: true
 
   # Expose metrics for Prometheus to scrape on :8889
   prometheus:
-    endpoint: "0.0.0.0:8889"
+    endpoint: '0.0.0.0:8889'
     namespace: otel
 
   # Also log to stdout so you can see traces in collector logs
@@ -40,14 +43,14 @@ service:
 
   pipelines:
     traces:
-      receivers:  [otlp]
+      receivers: [otlp]
       processors: [batch]
-      exporters:  [otlp/jaeger, debug]
+      exporters: [otlp/jaeger, debug]
     metrics:
-      receivers:  [otlp]
+      receivers: [otlp]
       processors: [batch]
-      exporters:  [prometheus, debug]
+      exporters: [prometheus, debug]
     logs:
-      receivers:  [otlp]
+      receivers: [otlp]
       processors: [batch]
-      exporters:  [debug]
+      exporters: [debug]

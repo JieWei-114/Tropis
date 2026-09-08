@@ -32,7 +32,8 @@ function png(size) {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(size, 0);
   ihdr.writeUInt32BE(size, 4);
-  ihdr[8] = 8; ihdr[9] = 2; // 8-bit RGB
+  ihdr[8] = 8;
+  ihdr[9] = 2; // 8-bit RGB
   const rows = [];
   const inner = [size * 0.3, size * 0.7];
   for (let y = 0; y < size; y++) {

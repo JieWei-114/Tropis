@@ -73,8 +73,15 @@ export class SearchService implements OnModuleInit {
     };
   }
 
+  /**
+   * Deletes a document, treating "not there" as success.
+   *
+   * Without `ignore: [404]` this throws for any id that was never indexed (an
+   * earlier indexing failure, or a redelivered delete), which turns an
+   * already-satisfied delete into a permanent handler failure.
+   */
   async delete(index: string, id: string): Promise<void> {
-    await this.es.delete({ index, id });
+    await this.es.delete({ index, id }, { ignore: [404] });
   }
 
   async deleteIndex(index: string): Promise<void> {

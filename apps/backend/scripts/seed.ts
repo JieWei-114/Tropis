@@ -15,7 +15,14 @@
  * tolerated and reported as "skipped").
  */
 import * as grpc from '@grpc/grpc-js';
-import { GRPC_ADDRESS, call, checkHealth, loadService } from './lib/grpc';
+import {
+  GRPC_ADDRESS,
+  call,
+  checkHealth,
+  loadService,
+  bearer,
+  loginForToken,
+} from './lib/grpc';
 
 const PASSWORD = process.env.SEED_PASSWORD ?? 'Password123!';
 
@@ -87,20 +94,38 @@ async function main(): Promise<void> {
   const userIds = created.map((u) => u.id);
   if (userIds.length === 0) userIds.push('seed-anonymous');
 
+  // Analytics writes require an authenticated caller with the `write`
+  // permission, so sign in as the seeded account first.
+  let auth: ReturnType<typeof bearer> | undefined;
+  try {
+    auth = bearer(await loginForToken('admin@example.com', PASSWORD));
+  } catch (err) {
+    console.log(
+      `  ! could not sign in to fire analytics events: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
   let events = 0;
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 50 && auth; i++) {
     const eventType = EVENT_TYPES[i % EVENT_TYPES.length];
     const userId = userIds[i % userIds.length];
     try {
-      await call(analytics, 'CreateEvent', {
-        event_type: eventType,
-        user_id: userId,
-        metadata: JSON.stringify({
-          source: 'seed-script',
-          seq: i,
-          page: `/demo/${i % 7}`,
-        }),
-      });
+      await call(
+        analytics,
+        'CreateEvent',
+        {
+          event_type: eventType,
+          user_id: userId,
+          metadata: JSON.stringify({
+            source: 'seed-script',
+            seq: i,
+            page: `/demo/${i % 7}`,
+          }),
+        },
+        auth,
+      );
       events++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -113,7 +138,11 @@ async function main(): Promise<void> {
     `Analytics: ${events}/50 events fired (types: ${EVENT_TYPES.join(', ')})\n`,
   );
 
-  console.log(`Done. Log in with admin@example.com / ${PASSWORD}`);
+  console.log(
+    `Done. Log in with admin@example.com / ${PASSWORD}\n` +
+      `Note: this user was created with the default 'editor' role. To grant admin:\n` +
+      `  make promote-admin EMAIL=admin@example.com`,
+  );
   users.close();
   analytics.close();
 }

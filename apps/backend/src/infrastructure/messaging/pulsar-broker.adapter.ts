@@ -9,6 +9,13 @@ import {
   SubscribeOptions,
 } from './message-broker.port';
 
+/** Redelivery attempts before a message is routed to `<topic>-DLQ`. */
+const MAX_REDELIVERIES = 5;
+/** Delay before a nacked message comes back — avoids a hot retry loop. */
+const NACK_REDELIVER_DELAY_MS = 5_000;
+/** Redeliver if a consumer holds a message this long without acking. */
+const ACK_TIMEOUT_MS = 60_000;
+
 const SUBSCRIPTION_TYPE_MAP: Record<
   NonNullable<SubscribeOptions['type']>,
   Pulsar.SubscriptionType
@@ -19,11 +26,10 @@ const SUBSCRIPTION_TYPE_MAP: Record<
 };
 
 /**
- * MessageBrokerPort adapter backed by the existing Pulsar client
- * (PulsarModule still owns the client lifecycle + graceful shutdown).
+ * MessageBrokerPort adapter backed by the Pulsar client. PulsarModule owns the
+ * client lifecycle and graceful shutdown; this adapter owns only producers.
  *
- * - Producers are created lazily and cached per topic (same pattern the
- *   outbox relay used before this abstraction existed).
+ * - Producers are created lazily and cached per topic.
  * - subscribe() runs a receive loop per subscription: handler resolves → ack,
  *   handler throws → negativeAcknowledge (Pulsar redelivers).
  */
@@ -58,6 +64,17 @@ export class PulsarBrokerAdapter implements MessageBrokerPort, OnModuleDestroy {
       topic,
       subscription,
       subscriptionType: SUBSCRIPTION_TYPE_MAP[opts?.type ?? 'shared'],
+      // Poison-message protection. Without a dead-letter policy a message that
+      // always throws (malformed JSON, a permanently rejecting sink) is
+      // redelivered forever and blocks the subscription's progress.
+      deadLetterPolicy: {
+        maxRedeliverCount: MAX_REDELIVERIES,
+        deadLetterTopic: `${topic}-DLQ`,
+      },
+      // Back off between redeliveries instead of hot-looping on a failure.
+      nAckRedeliverTimeoutMs: NACK_REDELIVER_DELAY_MS,
+      // Redeliver if a consumer takes the message and then dies without acking.
+      ackTimeoutMs: ACK_TIMEOUT_MS,
     });
 
     let running = true;
@@ -77,8 +94,10 @@ export class PulsarBrokerAdapter implements MessageBrokerPort, OnModuleDestroy {
           await handler(msg.getData());
           await consumer.acknowledge(msg);
         } catch (err) {
+          // nack → redelivered after NACK_REDELIVER_DELAY_MS, then routed to
+          // <topic>-DLQ once MAX_REDELIVERIES is exhausted.
           this.logger.error(
-            `Handler failed on ${topic}: ${(err as Error).message}`,
+            `Handler failed on ${topic} (will retry, then DLQ): ${(err as Error).message}`,
           );
           consumer.negativeAcknowledge(msg);
         }

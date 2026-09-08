@@ -70,7 +70,10 @@ export const notificationActivities: NotificationActivities = {
     // Intentionally a structured log only: a template repo ships no FCM/APNs
     // credentials. Swap for firebase-admin `messaging().send()` (or web-push)
     // in a real deployment — the workflow contract stays the same.
-    log.info('Push notification (stub — no FCM in template)', { userId, title });
+    log.info('Push notification (stub — no FCM in template)', {
+      userId,
+      title,
+    });
   },
 
   /**
@@ -81,7 +84,9 @@ export const notificationActivities: NotificationActivities = {
   async recordDelivery({ userId, sentAt }: RecordDeliveryInput): Promise<void> {
     const { workflowExecution } = Context.current().info;
     if (!workflowExecution) {
-      throw new Error('recordDelivery must run inside a workflow activity context');
+      throw new Error(
+        'recordDelivery must run inside a workflow activity context',
+      );
     }
     log.info('Recording delivery', { userId, sentAt });
     await pool.query(

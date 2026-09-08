@@ -31,7 +31,6 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="flex min-h-[300px] items-center justify-center p-8">
         <div className="flex max-w-[480px] flex-col items-center gap-3 rounded-[14px] border border-danger/30 bg-danger/10 px-10 py-8 text-center">
-          <span className="text-[32px]">⚠️</span>
           <h3 className="m-0 text-base font-bold text-danger">
             Something went wrong
           </h3>

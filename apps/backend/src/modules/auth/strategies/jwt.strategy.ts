@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import type Redis from 'ioredis';
 import { UserRole, DEFAULT_TENANT } from '../../user/schemas/user.schema';
 import { REDIS_CLIENT } from '../../../infrastructure/redis/redis.module';
+import { suspendedKey } from '../../user/constants/user.constants';
 
 export interface JwtPayload {
   sub: string;
@@ -29,11 +30,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload) {
-    // Reject tokens that have been explicitly revoked via logout
-    if (payload.jti) {
-      const blacklisted = await this.redis.exists(`bl:${payload.jti}`);
-      if (blacklisted) throw new UnauthorizedException('Token revoked');
-    }
+    // Reject tokens that have been explicitly revoked via logout, and tokens
+    // belonging to an account that was suspended after the token was issued.
+    // Both markers are read in one round trip.
+    const [blacklisted, suspended] = await this.redis
+      .multi()
+      .exists(payload.jti ? `bl:${payload.jti}` : 'bl:none')
+      .exists(suspendedKey(payload.sub))
+      .exec()
+      .then((res) => [Number(res?.[0]?.[1] ?? 0), Number(res?.[1]?.[1] ?? 0)]);
+    if (payload.jti && blacklisted)
+      throw new UnauthorizedException('Token revoked');
+    if (suspended) throw new UnauthorizedException('Account is not active');
 
     return {
       userId: payload.sub,

@@ -6,7 +6,8 @@
 const STORAGE_KEY = 'token';
 const REFRESH_KEY = 'refresh_token';
 
-export const setToken = (t: string): void => localStorage.setItem(STORAGE_KEY, t);
+export const setToken = (t: string): void =>
+  localStorage.setItem(STORAGE_KEY, t);
 export const clearToken = (): void => localStorage.removeItem(STORAGE_KEY);
 
 /**

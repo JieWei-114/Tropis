@@ -6,6 +6,7 @@ import * as jwt from 'jsonwebtoken';
 import { GrpcUserService } from '../controllers/user.grpc.controller';
 import { UserService } from '../services/user.service';
 import { OpaService } from '../../../infrastructure/opa/opa.service';
+import { GrpcAuthzService } from '../../../infrastructure/grpc/grpc-authz.service';
 import { UserRole, UserStatus } from '../schemas/user.schema';
 import { IUserResponse } from '../interfaces/user.interface';
 
@@ -70,6 +71,7 @@ describe('GrpcUserService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GrpcUserService,
+        GrpcAuthzService,
         { provide: UserService, useValue: userService },
         { provide: OpaService, useValue: opaService },
         {
@@ -115,7 +117,7 @@ describe('GrpcUserService', () => {
         totalPages: 1,
       });
 
-      const res = await service.findAll({});
+      const res = await service.findAll({}, authMeta(validToken));
 
       expect(res.users).toHaveLength(1);
       expect(res.total).toBe(1);
@@ -132,7 +134,7 @@ describe('GrpcUserService', () => {
         totalPages: 0,
       });
 
-      await service.findAll({ page: 2, limit: 5 });
+      await service.findAll({ page: 2, limit: 5 }, authMeta(validToken));
 
       expect(userService.findAll).toHaveBeenCalledWith(2, 5);
     });
@@ -144,7 +146,10 @@ describe('GrpcUserService', () => {
     it('maps user to gRPC shape', async () => {
       userService.findById.mockResolvedValue(mockUser({ age: 30 }));
 
-      const res = await service.findById({ id: 'user-123' });
+      const res = await service.findById(
+        { id: 'user-123' },
+        authMeta(validToken),
+      );
 
       expect(res.id).toBe('user-123');
       expect(res.age).toBe(30);
@@ -152,6 +157,34 @@ describe('GrpcUserService', () => {
   });
 
   // ── GetMe ────────────────────────────────────────────────────────────────
+
+  describe('read methods require authentication', () => {
+    // Every read method returns user records, so one reachable without
+    // credentials lets a caller dump every user's email.
+    it.each([
+      ['findAll', () => service.findAll({}, undefined)],
+      ['findById', () => service.findById({ id: 'user-123' }, undefined)],
+      ['search', () => service.search({ query: 'a', size: 5 }, undefined)],
+      [
+        'findSimilar',
+        () => service.findSimilar({ user_id: 'user-123' }, undefined),
+      ],
+    ])('%s rejects an unauthenticated call', async (_name, call) => {
+      expect(await grpcCode(call())).toBe(GrpcStatus.UNAUTHENTICATED);
+    });
+
+    it('findAll clamps an oversized limit', async () => {
+      userService.findAll.mockResolvedValue({
+        data: [],
+        total: 0,
+        page: 1,
+        limit: 100,
+        totalPages: 0,
+      });
+      await service.findAll({ page: 1, limit: 100000 }, authMeta(validToken));
+      expect(userService.findAll).toHaveBeenCalledWith(1, 100);
+    });
+  });
 
   describe('getMe', () => {
     it('returns user for valid token', async () => {
@@ -282,7 +315,10 @@ describe('GrpcUserService', () => {
         mockUser({ id: 'user-456' }),
       ]);
 
-      const res = await service.search({ query: 'alice', size: 10 });
+      const res = await service.search(
+        { query: 'alice', size: 10 },
+        authMeta(validToken),
+      );
 
       expect(res.users).toHaveLength(2);
       expect(res.total).toBe(2);
@@ -296,7 +332,10 @@ describe('GrpcUserService', () => {
     it('returns similar users with default limit', async () => {
       userService.findSimilar.mockResolvedValue([mockUser({ id: 'user-456' })]);
 
-      const res = await service.findSimilar({ user_id: 'user-123' });
+      const res = await service.findSimilar(
+        { user_id: 'user-123' },
+        authMeta(validToken),
+      );
 
       expect(res.users).toHaveLength(1);
       expect(userService.findSimilar).toHaveBeenCalledWith('user-123', 5);

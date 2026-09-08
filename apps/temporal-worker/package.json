@@ -6,18 +6,17 @@
     "build": "tsc",
     "start": "node dist/worker.js",
     "start:dev": "ts-node -r tsconfig-paths/register src/worker.ts",
-    "lint": "eslint \"src/**/*.ts\" --fix"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@temporalio/activity": "^1.11.0",
     "@temporalio/worker": "^1.11.0",
     "@temporalio/workflow": "^1.11.0",
-    "nodemailer": "^6.10.1",
+    "nodemailer": "^10.0.0",
     "pg": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "@types/nodemailer": "^6.4.23",
     "@types/pg": "^8.15.6",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",

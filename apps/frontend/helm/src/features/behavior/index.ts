@@ -3,5 +3,5 @@ export {
   TopPagesTable,
   EventsByNameChart,
   DailyUniquesTable,
-  RecentEventsTable,
+  FunnelChart,
 } from './components/InsightsWidgets';

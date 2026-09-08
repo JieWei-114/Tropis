@@ -4,7 +4,7 @@ import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
-/** shadcn/ui Select (Radix) on app tokens — matches the old native select. */
+/** shadcn/ui Select (Radix), restyled onto the app's design tokens. */
 const Select = SelectPrimitive.Root;
 const SelectGroup = SelectPrimitive.Group;
 const SelectValue = SelectPrimitive.Value;

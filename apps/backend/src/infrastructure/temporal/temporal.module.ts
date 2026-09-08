@@ -1,4 +1,4 @@
-import { Module, Global, OnApplicationShutdown } from '@nestjs/common';
+import { Module, Global, Logger, OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Client, Connection } from '@temporalio/client';
 import { TEMPORAL_CLIENT } from './temporal.constants';
@@ -16,8 +16,20 @@ import { TemporalService } from './temporal.service';
           'localhost:7233',
         );
         const namespace = config.get<string>('TEMPORAL_NAMESPACE', 'default');
-        const connection = await Connection.connect({ address });
-        return new Client({ connection, namespace });
+        // Degrade gracefully: if Temporal isn't running, disable workflow
+        // features instead of crash-looping the whole app at boot.
+        try {
+          const connection = await Connection.connect({
+            address,
+            connectTimeout: '3s',
+          });
+          return new Client({ connection, namespace });
+        } catch (err) {
+          new Logger('TemporalModule').warn(
+            `Temporal not available at ${address} — workflow features disabled (${(err as Error).message})`,
+          );
+          return null;
+        }
       },
     },
     TemporalService,

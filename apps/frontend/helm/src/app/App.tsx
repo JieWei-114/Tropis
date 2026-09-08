@@ -2,13 +2,7 @@ import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HelmetProvider } from 'react-helmet-async';
 import { QueryClientProvider } from '@tanstack/react-query';
-import {
-  BrowserRouter,
-  Routes,
-  Route,
-  Navigate,
-  NavLink,
-} from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, NavLink } from 'react-router';
 import { Toasts } from '../components/Toasts';
 import {
   DropdownMenu,
@@ -18,7 +12,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ErrorBoundary } from './ErrorBoundary';
+import { LoginForm } from '../features/auth';
 import { PageTracker } from './PageTracker';
+import { useNativeBackButton } from './useNativeBackButton';
+import { useKeyboardAwareInputs } from './useKeyboardAwareInputs';
 import { ThemeProvider, useTheme, type Theme } from './ThemeProvider';
 import { tracker } from '../lib/tracking';
 import { TRACKING_EVENTS } from '@tropis/shared';
@@ -28,20 +25,14 @@ import { useToastStore } from '../state/zustand/toastStore';
 import { queryClient } from '../state/tanstack/queryClient';
 
 // Route-level code splitting — each page loads as its own chunk on first visit.
-const Dashboard = lazy(() =>
-  import('../pages/Dashboard').then((m) => ({ default: m.Dashboard })),
+const AnalyticsPage = lazy(() =>
+  import('../pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })),
 );
 const UsersPage = lazy(() =>
   import('../pages/UsersPage').then((m) => ({ default: m.UsersPage })),
 );
 const StackPage = lazy(() =>
   import('../pages/StackPage').then((m) => ({ default: m.StackPage })),
-);
-const StateDemoPage = lazy(() =>
-  import('../pages/StateDemoPage').then((m) => ({ default: m.StateDemoPage })),
-);
-const BehaviorPage = lazy(() =>
-  import('../pages/BehaviorPage').then((m) => ({ default: m.BehaviorPage })),
 );
 
 function PageFallback() {
@@ -61,11 +52,6 @@ function PageFallback() {
   );
 }
 
-const THEME_ICONS: Record<Theme, string> = {
-  light: '☀️',
-  dark: '🌙',
-  system: '🖥️',
-};
 const THEME_OPTIONS: Theme[] = ['light', 'dark', 'system'];
 
 function ThemeToggle() {
@@ -81,7 +67,7 @@ function ThemeToggle() {
           title={label}
           aria-label={label}
         >
-          {THEME_ICONS[theme]}
+          {t(`theme.${theme}`)}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -91,7 +77,7 @@ function ThemeToggle() {
         >
           {THEME_OPTIONS.map((option) => (
             <DropdownMenuRadioItem key={option} value={option}>
-              {THEME_ICONS[option]} {t(`theme.${option}`)}
+              {t(`theme.${option}`)}
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
@@ -119,7 +105,7 @@ function LanguageSwitcher() {
           title={t('nav.language')}
           aria-label={t('nav.language')}
         >
-          🌐 {current.label}
+          {current.label}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -149,6 +135,10 @@ function stringField(
 }
 
 function AppInner() {
+  // Android back gesture -> SPA history. No-op on web and desktop.
+  useNativeBackButton();
+  // Keep a focused field above the soft keyboard. No-op without one.
+  useKeyboardAwareInputs();
   const { t } = useTranslation();
   const authed = useAuthStore((s) => s.authed);
   const login = useAuthStore((s) => s.login);
@@ -200,6 +190,48 @@ function AppInner() {
     };
   }, [authed, handleWsEvent]);
 
+  // Auth gate: an unauthenticated visitor only ever sees the login screen —
+  // no nav, no pages. Everything below renders only once signed in.
+  if (!authed) {
+    return (
+      <main className="min-h-dvh">
+        <LoginForm onLogin={login} />
+      </main>
+    );
+  }
+
+  const navItem = ({ isActive }: { isActive: boolean }) =>
+    `relative flex items-center rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
+      isActive
+        ? 'bg-primary/12 font-semibold text-primary-soft'
+        : 'font-medium text-muted hover:bg-surface hover:text-body'
+    }`;
+
+  const navList = (onNavigate?: () => void) =>
+    NAV_LINKS.map(({ to, labelKey }) => (
+      <NavLink
+        key={to}
+        to={to}
+        onClick={() => {
+          tracker.track(TRACKING_EVENTS.NAV_CLICK.name, {
+            to,
+            label: t(labelKey),
+          });
+          onNavigate?.();
+        }}
+        className={navItem}
+      >
+        {({ isActive }: { isActive: boolean }) => (
+          <>
+            {isActive && (
+              <span className="absolute top-1/2 left-0 h-4 w-[3px] -translate-y-1/2 rounded-full bg-primary" />
+            )}
+            {t(labelKey)}
+          </>
+        )}
+      </NavLink>
+    ));
+
   return (
     <>
       <a
@@ -208,77 +240,105 @@ function AppInner() {
       >
         {t('nav.skipToContent')}
       </a>
-      <nav className="sticky top-0 z-[100] border-b border-border bg-surface">
-        <div className="mx-auto flex h-[52px] max-w-[1200px] items-center gap-8 px-6 max-md:gap-3 max-md:px-3">
-          <span className="text-[15px] font-bold tracking-[-0.3px] text-heading">
-            ⚡ Tropis
-          </span>
-          <div className="flex gap-1 max-md:scrollbar-none max-md:flex-1 max-md:overflow-x-auto">
-            {NAV_LINKS.map(({ to, labelKey }) => (
-              <NavLink
-                key={to}
-                to={to}
-                onClick={() =>
-                  tracker.track(TRACKING_EVENTS.NAV_CLICK.name, {
-                    to,
-                    label: t(labelKey),
-                  })
-                }
-                className={({ isActive }: { isActive: boolean }) =>
-                  `app-tab rounded-md px-4 py-1.5 text-[13px] font-medium transition-colors max-md:px-3 max-md:whitespace-nowrap ${
-                    isActive
-                      ? 'app-tab--active bg-raised text-heading'
-                      : 'text-muted hover:bg-raised hover:text-body'
-                  }`
-                }
-              >
-                {t(labelKey)}
-              </NavLink>
-            ))}
+
+      {/*
+        Column on mobile, row from md up. The sidebar (md+), the mobile top bar
+        and <main> are siblings in this container, so a row layout gives the
+        full-width mobile header the whole line and leaves <main> with no width.
+      */}
+      <div className="flex min-h-dvh flex-col md:flex-row">
+        {/* ── Sidebar (desktop) ── */}
+        <aside className="sticky top-0 hidden h-dvh w-[232px] shrink-0 flex-col gap-1 border-r border-border bg-card px-3 py-5 md:flex">
+          <div className="flex items-center gap-2 px-2 pb-5 text-[16px] font-bold tracking-[-0.3px] text-heading">
+            <span className="h-5 w-5 rounded-[6px] bg-primary" />
+            Tropis
           </div>
-          <div className="ml-auto flex items-center gap-2.5">
-            {authed && (
-              <span
-                className={`ws-badge inline-flex items-center gap-[5px] rounded-full border px-2.5 py-[3px] text-[11px] font-semibold max-md:hidden ${
-                  wsOn
-                    ? 'border-success/25 bg-success/10 text-success'
-                    : 'border-border bg-card text-muted'
-                }`}
-              >
-                <span className="h-1.5 w-1.5 animate-blink rounded-full bg-current" />{' '}
-                WS {wsOn ? t('nav.wsLive') : t('nav.wsConnecting')}
-              </span>
-            )}
+          <nav className="flex flex-col gap-1">{navList()}</nav>
+
+          <div className="mt-auto flex flex-col gap-3 border-t border-border-soft pt-4">
+            <span
+              className={`inline-flex items-center gap-[6px] self-start rounded-full border px-2.5 py-[3px] text-[11px] font-semibold ${
+                wsOn
+                  ? 'border-success/25 bg-success/10 text-success'
+                  : 'border-border bg-surface text-muted'
+              }`}
+            >
+              <span className="h-1.5 w-1.5 animate-blink rounded-full bg-current" />
+              WS {wsOn ? t('nav.wsLive') : t('nav.wsConnecting')}
+            </span>
+            <div className="flex items-center gap-2 px-0.5">
+              <LanguageSwitcher />
+              <ThemeToggle />
+            </div>
+            <button
+              onClick={() => void logout()}
+              className="rounded-lg border border-border px-3 py-1.5 text-left text-[13px] text-muted transition-colors hover:bg-surface hover:text-body"
+            >
+              {t('users.logout')}
+            </button>
+          </div>
+        </aside>
+
+        {/* ── Mobile top bar ── */}
+        {/*
+          Two rows on purpose. The nav needs its own row because sharing one
+          with the brand and the controls leaves the scroller about a tab wide,
+          hiding every destination but the first behind a horizontal swipe.
+        */}
+        <header className="sticky top-0 z-[100] flex w-full flex-col gap-1.5 border-b border-border bg-background/85 px-3 py-2.5 backdrop-blur-md md:hidden">
+          <div className="flex items-center gap-2">
+            <span className="flex shrink-0 items-center gap-2 text-[15px] font-bold text-heading">
+              <span className="h-4 w-4 rounded-[5px] bg-primary" />
+              Tropis
+            </span>
+            <span
+              className={`ml-auto inline-flex shrink-0 items-center gap-[5px] rounded-full border px-2 py-[2px] text-[10px] font-semibold ${
+                wsOn
+                  ? 'border-success/25 bg-success/10 text-success'
+                  : 'border-border bg-surface text-muted'
+              }`}
+            >
+              <span className="h-1.5 w-1.5 animate-blink rounded-full bg-current" />
+              WS
+            </span>
             <LanguageSwitcher />
             <ThemeToggle />
+            <button
+              onClick={() => void logout()}
+              className="cursor-pointer rounded-md border border-border bg-transparent px-2 py-1 text-[12px] text-muted transition-colors hover:bg-surface hover:text-body"
+            >
+              {t('users.logout')}
+            </button>
           </div>
-        </div>
-      </nav>
+          <nav className="scrollbar-none flex min-w-0 gap-1 overflow-x-auto">
+            {navList()}
+          </nav>
+        </header>
 
-      <main id="main-content" className="min-h-[calc(100vh-52px)]">
-        <ErrorBoundary>
-          <Suspense fallback={<PageFallback />}>
-            <Routes>
-              <Route path="/" element={<Navigate to="/analytics" replace />} />
-              <Route path="/analytics" element={<Dashboard />} />
-              <Route
-                path="/users"
-                element={
-                  <UsersPage
-                    authed={authed}
-                    onLogin={login}
-                    onLogout={logout}
-                  />
-                }
-              />
-              <Route path="/stack" element={<StackPage />} />
-              <Route path="/state-demo" element={<StateDemoPage />} />
-              <Route path="/behavior" element={<BehaviorPage />} />
-              <Route path="*" element={<Navigate to="/analytics" replace />} />
-            </Routes>
-          </Suspense>
-        </ErrorBoundary>
-      </main>
+        <main id="main-content" className="min-w-0 flex-1">
+          <ErrorBoundary>
+            <Suspense fallback={<PageFallback />}>
+              <Routes>
+                <Route
+                  path="/"
+                  element={<Navigate to="/analytics" replace />}
+                />
+                <Route path="/analytics" element={<AnalyticsPage />} />
+                <Route path="/users" element={<UsersPage />} />
+                <Route path="/stack" element={<StackPage />} />
+                <Route
+                  path="/behavior"
+                  element={<Navigate to="/analytics" replace />}
+                />
+                <Route
+                  path="*"
+                  element={<Navigate to="/analytics" replace />}
+                />
+              </Routes>
+            </Suspense>
+          </ErrorBoundary>
+        </main>
+      </div>
 
       <Toasts toasts={toasts} onDismiss={dismiss} />
     </>
@@ -304,6 +364,4 @@ const NAV_LINKS: { to: string; labelKey: string }[] = [
   { to: '/analytics', labelKey: 'nav.analytics' },
   { to: '/users', labelKey: 'nav.users' },
   { to: '/stack', labelKey: 'nav.stack' },
-  { to: '/state-demo', labelKey: 'nav.state' },
-  { to: '/behavior', labelKey: 'nav.behavior' },
 ];

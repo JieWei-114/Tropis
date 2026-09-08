@@ -18,10 +18,10 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1001      # "nextjs" user baked into the image
+        runAsUser: 1001 # "nextjs" user baked into the image
       containers:
         - name: harbor
-          image: ghcr.io/tropis/harbor:latest  # replace with your image
+          image: ghcr.io/tropis/harbor:latest # replace with your image
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -29,7 +29,7 @@ spec:
               drop:
                 - ALL
           ports:
-            - containerPort: 4000   # Next.js standalone server (PORT=4000)
+            - containerPort: 4000 # Next.js standalone server (PORT=4000)
           # Next writes ISR/fetch cache and temp files at runtime — mount
           # writable emptyDirs so the root filesystem can stay read-only.
           volumeMounts:
@@ -51,11 +51,11 @@ spec:
             periodSeconds: 20
           resources:
             requests:
-              cpu: "100m"      # SSR needs more than static nginx (helm)
-              memory: "128Mi"
+              cpu: '100m' # SSR needs more than static nginx (helm)
+              memory: '128Mi'
             limits:
-              cpu: "500m"
-              memory: "256Mi"
+              cpu: '500m'
+              memory: '256Mi'
       volumes:
         - name: next-cache
           emptyDir: {}

@@ -3,7 +3,7 @@ import { cva, type VariantProps } from 'class-variance-authority';
 
 import { cn } from '@/lib/utils';
 
-/** shadcn/ui Badge on app tokens — pill shape matching the old status/WS badges. */
+/** shadcn/ui Badge, restyled onto the app's design tokens as a status pill. */
 const badgeVariants = cva(
   'inline-flex items-center gap-[5px] rounded-full border px-[9px] py-0.5 text-[11px] font-semibold tracking-[0.3px]',
   {

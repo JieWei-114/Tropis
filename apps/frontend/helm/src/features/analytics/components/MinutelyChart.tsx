@@ -1,4 +1,4 @@
-import { ANALYTICS_EVENT_TYPES } from '@tropis/shared';
+import { useTranslation } from 'react-i18next';
 import {
   LineChart,
   Line,
@@ -10,14 +10,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import type { MinutelyStat } from '../../../lib/api';
-
-const COLORS: Record<string, string> = {
-  [ANALYTICS_EVENT_TYPES.PAGE_VIEW]: '#6366f1',
-  [ANALYTICS_EVENT_TYPES.BUTTON_CLICK]: '#22c55e',
-  [ANALYTICS_EVENT_TYPES.API_CALL]: '#f59e0b',
-  [ANALYTICS_EVENT_TYPES.ERROR]: '#ef4444',
-  [ANALYTICS_EVENT_TYPES.PURCHASE]: '#14b8a6',
-};
+import { eventColor } from '../eventColors';
 
 interface Props {
   data: MinutelyStat[];
@@ -29,11 +22,11 @@ interface ChartRow {
 }
 
 export function MinutelyChart({ data }: Props) {
+  const { t } = useTranslation();
   if (data.length === 0) {
     return (
       <div className="flex h-[120px] items-center justify-center rounded-xl border border-border bg-card p-5 text-[13px] text-faint max-md:p-3.5">
-        No minutely data yet — fire some events and wait 1 min for the
-        ClickHouse materialized view to populate
+        {t('analytics.minutelyEmpty')}
       </div>
     );
   }
@@ -58,35 +51,36 @@ export function MinutelyChart({ data }: Props) {
   return (
     <div className="rounded-xl border border-border bg-card p-5 max-md:p-3.5">
       <h3 className="mb-4 text-sm font-semibold text-body">
-        Events per Minute — last hour (ClickHouse materialized view)
+        {t('analytics.eventsPerMinute')}
       </h3>
       <ResponsiveContainer width="100%" height={260}>
         <LineChart
           data={chartData}
           margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
         >
-          <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3a" />
-          <XAxis dataKey="time" tick={{ fill: '#a0a0b8', fontSize: 11 }} />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-soft)" />
+          <XAxis dataKey="time" tick={{ fill: 'var(--muted)', fontSize: 11 }} />
           <YAxis
-            tick={{ fill: '#a0a0b8', fontSize: 11 }}
+            tick={{ fill: 'var(--muted)', fontSize: 11 }}
             allowDecimals={false}
           />
           <Tooltip
+            cursor={{ stroke: 'var(--edge)' }}
             contentStyle={{
-              background: '#1a1a2e',
-              border: '1px solid #2a2a3a',
-              borderRadius: 8,
+              background: 'var(--card)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
             }}
-            labelStyle={{ color: '#e0e0f0' }}
-            itemStyle={{ color: '#a0a0b8' }}
+            labelStyle={{ color: 'var(--heading)' }}
+            itemStyle={{ color: 'var(--muted)' }}
           />
-          <Legend wrapperStyle={{ fontSize: 12, color: '#a0a0b8' }} />
+          <Legend wrapperStyle={{ fontSize: 12, color: 'var(--muted)' }} />
           {[...eventTypes].map((et) => (
             <Line
               key={et}
               type="monotone"
               dataKey={et}
-              stroke={COLORS[et] ?? '#6366f1'}
+              stroke={eventColor(et)}
               dot={false}
               strokeWidth={2}
             />

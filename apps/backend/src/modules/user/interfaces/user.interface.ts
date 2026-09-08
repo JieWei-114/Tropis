@@ -1,17 +1,5 @@
 import { UserRole, UserStatus } from '../schemas/user.schema';
 
-export interface IUser {
-  id: string;
-  name: string;
-  email: string;
-  age?: number;
-  status: UserStatus;
-  roles: UserRole[];
-  loginCount: number;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
 export interface IUserResponse {
   id: string;
   name: string;

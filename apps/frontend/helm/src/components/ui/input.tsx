@@ -2,7 +2,7 @@ import * as React from 'react';
 
 import { cn } from '@/lib/utils';
 
-/** shadcn/ui Input on app tokens — matches the old FIELD_INPUT styling. */
+/** shadcn/ui Input, restyled onto the app's design tokens. */
 const Input = React.forwardRef<
   HTMLInputElement,
   React.InputHTMLAttributes<HTMLInputElement>

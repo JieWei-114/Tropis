@@ -1,7 +1,5 @@
-import { applyDecorators, UseGuards, SetMetadata } from '@nestjs/common';
+import { applyDecorators, UseGuards } from '@nestjs/common';
 import { SignatureGuard } from '../guards/signature.guard';
-
-export const REQUIRE_SIGNATURE_KEY = 'requireSignature';
 
 /**
  * Marks a route as requiring HMAC request signing (server-to-server tier).
@@ -14,8 +12,5 @@ export const REQUIRE_SIGNATURE_KEY = 'requireSignature';
  * The consuming module must provide SignatureGuard + ApiKeyService.
  */
 export function RequireSignature() {
-  return applyDecorators(
-    SetMetadata(REQUIRE_SIGNATURE_KEY, true),
-    UseGuards(SignatureGuard),
-  );
+  return applyDecorators(UseGuards(SignatureGuard));
 }

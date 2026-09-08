@@ -9,6 +9,7 @@ import { UserEventStoreService } from '../event-store/user-event-store.service';
 import { OutboxService } from '../../../infrastructure/outbox/outbox.service';
 import { REDIS_CLIENT } from '../../../infrastructure/redis/redis.module';
 import { UserDocument } from '../schemas/user.schema';
+import { TenantContext } from '../../../common/tenant/tenant.context';
 
 export class DeleteUserCommand implements ICommand {
   constructor(public readonly id: string) {}
@@ -26,6 +27,7 @@ export class DeleteUserHandler implements ICommandHandler<
     private readonly outboxService: OutboxService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     @InjectConnection() private readonly connection: Connection,
+    private readonly tenantCtx: TenantContext,
   ) {}
 
   async execute(cmd: DeleteUserCommand): Promise<string> {
@@ -34,7 +36,11 @@ export class DeleteUserHandler implements ICommandHandler<
 
     try {
       await session.withTransaction(async () => {
-        user = await this.userRepo.deleteWithSession(cmd.id, session);
+        user = await this.userRepo.deleteWithSession(
+          cmd.id,
+          session,
+          this.tenantCtx.tenantId,
+        );
         if (!user) throw new NotFoundException(USER_ERROR_CODES.NOT_FOUND);
 
         await this.eventStore.appendWithSession(

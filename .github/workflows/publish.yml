@@ -20,11 +20,11 @@ on:
   workflow_dispatch:
     inputs:
       publish_npm:
-        description: "Publish @tropis/sdk to npm"
+        description: 'Publish @tropis/sdk to npm'
         type: boolean
         default: true
       push_bsr:
-        description: "Push proto module to the Buf Schema Registry"
+        description: 'Push proto module to the Buf Schema Registry'
         type: boolean
         default: true
 
@@ -57,7 +57,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          registry-url: "https://registry.npmjs.org" # or https://npm.pkg.github.com for GitHub Packages
+          registry-url: 'https://registry.npmjs.org' # or https://npm.pkg.github.com for GitHub Packages
 
       - name: Install
         if: steps.npm-token.outputs.present == 'true'

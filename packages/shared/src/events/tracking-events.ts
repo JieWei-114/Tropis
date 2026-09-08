@@ -1,5 +1,5 @@
 /**
- * Tracking (埋点) event dictionary — the single source of truth for
+ * Tracking event dictionary — the single source of truth for
  * user-behavior event names sent through the SDK tracker
  * (packages/sdk/src/tracking) to POST /api/v1/track → Pulsar → ClickHouse
  * `logs.user_behavior`.
@@ -100,14 +100,3 @@ export const TRACKING_EVENTS = {
     description: 'A Core Web Vitals metric (LCP/INP/CLS/FCP/TTFB) settled.',
   },
 } as const satisfies Record<string, TrackingEventDef>;
-
-export type TrackingEventKey = keyof typeof TRACKING_EVENTS;
-
-/** Union of all registered wire names, e.g. 'page.view' | 'nav.click' | ... */
-export type TrackingEventName =
-  (typeof TRACKING_EVENTS)[TrackingEventKey]['name'];
-
-/** Flat list of registered wire names (useful for validation/queries). */
-export const TRACKING_EVENT_NAMES: readonly string[] = Object.values(
-  TRACKING_EVENTS,
-).map((e) => e.name);

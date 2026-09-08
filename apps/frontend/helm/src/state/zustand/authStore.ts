@@ -12,7 +12,7 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { getToken, setToken, clearTokens } from '../../lib/api';
+import { getToken, setToken, logout as apiLogout } from '../../lib/api';
 
 interface AuthState {
   // ── State ──────────────────────────────────────────
@@ -21,7 +21,7 @@ interface AuthState {
 
   // ── Actions ────────────────────────────────────────
   login: (token: string) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -35,9 +35,13 @@ export const useAuthStore = create<AuthState>()(
         set({ token, authed: true }, false, 'auth/login');
       },
 
-      logout: () => {
-        clearTokens();
+      logout: async () => {
+        // Clear local state first so the UI never sits on a signed-in screen
+        // waiting for the network, then revoke server-side. api.logout()
+        // revokes the access + refresh tokens and clears the token store; it
+        // swallows its own network errors, so this cannot leave the user stuck.
         set({ token: null, authed: false }, false, 'auth/logout');
+        await apiLogout();
       },
     }),
     { name: 'AuthStore' },

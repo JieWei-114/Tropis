@@ -10,7 +10,7 @@ metadata:
   name: default-deny-ingress
   namespace: tropis
 spec:
-  podSelector: {}          # applies to all pods
+  podSelector: {} # applies to all pods
   policyTypes:
     - Ingress
 ---
@@ -33,7 +33,7 @@ spec:
               kubernetes.io/metadata.name: ingress-nginx
       ports:
         - protocol: TCP
-          port: 8080   # nginx runs as non-root, listens on 8080
+          port: 8080 # nginx runs as non-root, listens on 8080
 ---
 # 2b. Allow the ingress controller to reach harbor (the public Next.js site).
 apiVersion: networking.k8s.io/v1
@@ -54,7 +54,7 @@ spec:
               kubernetes.io/metadata.name: ingress-nginx
       ports:
         - protocol: TCP
-          port: 4000   # Next.js standalone server
+          port: 4000 # Next.js standalone server
 ---
 # 3. Allow the backend to be reached by the frontend + harbor pods and by the
 #    ingress controller (for direct /api routing) on its HTTP + gRPC ports.
@@ -79,6 +79,11 @@ spec:
         - podSelector:
             matchLabels:
               app: harbor
+        # envoy terminates gRPC-Web from the browser and proxies to
+        # backend-svc:50051 — without this the admin SPA cannot reach gRPC.
+        - podSelector:
+            matchLabels:
+              app: envoy
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: ingress-nginx
@@ -107,7 +112,7 @@ spec:
     - Ingress
   ingress:
     - from:
-        - podSelector: {}   # any pod in the "tropis" namespace
+        - podSelector: {} # any pod in the "tropis" namespace
       ports:
         - protocol: TCP
           port: 50061
@@ -127,7 +132,7 @@ spec:
     - Egress
   egress:
     - to:
-        - namespaceSelector: {}   # kube-dns can live in kube-system; allow cluster-wide DNS
+        - namespaceSelector: {} # kube-dns can live in kube-system; allow cluster-wide DNS
       ports:
         - protocol: UDP
           port: 53

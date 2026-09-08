@@ -44,7 +44,9 @@ async function main(): Promise<void> {
   });
 
   socket.on('connect', () => {
-    console.log(`[${ts()}] ✓ connected to ${WS_URL}/ws (id=${socket.id}) — listening for all events…`);
+    console.log(
+      `[${ts()}] ✓ connected to ${WS_URL}/ws (id=${socket.id}) — listening for all events…`,
+    );
   });
   socket.on('connect_error', (err) => {
     console.error(`[${ts()}] ✗ connect_error: ${err.message}`);
@@ -53,7 +55,9 @@ async function main(): Promise<void> {
     console.log(`[${ts()}] disconnected: ${reason}`);
   });
   socket.onAny((event, ...args) => {
-    console.log(`[${ts()}] ${event} ${args.map((a) => JSON.stringify(a)).join(' ')}`);
+    console.log(
+      `[${ts()}] ${event} ${args.map((a) => JSON.stringify(a)).join(' ')}`,
+    );
   });
 
   process.on('SIGINT', () => {

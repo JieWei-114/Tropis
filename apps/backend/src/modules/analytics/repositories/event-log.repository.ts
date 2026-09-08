@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import type { ClientSession, Model } from 'mongoose';
 import { EventLog, EventLogDocument } from '../schemas/event-log.schema';
+import { DEFAULT_TENANT } from '../../user/constants/user.enums';
 
 @Injectable()
 export class EventLogRepository {
@@ -21,11 +22,16 @@ export class EventLogRepository {
     return doc;
   }
 
-  findAll(limit = 50): Promise<EventLogDocument[]> {
-    return this.model.find().sort({ timestamp: -1 }).limit(limit).exec();
+  /** Newest events for one tenant. The tenant filter is not optional. */
+  findAll(limit = 50, tenantId = DEFAULT_TENANT): Promise<EventLogDocument[]> {
+    return this.model
+      .find({ tenantId })
+      .sort({ timestamp: -1 })
+      .limit(limit)
+      .exec();
   }
 
-  countAll(): Promise<number> {
-    return this.model.countDocuments().exec();
+  countAll(tenantId = DEFAULT_TENANT): Promise<number> {
+    return this.model.countDocuments({ tenantId }).exec();
   }
 }

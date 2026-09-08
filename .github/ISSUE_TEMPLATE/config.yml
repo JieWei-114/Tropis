@@ -1,6 +1,6 @@
 blank_issues_enabled: false
 contact_links:
   - name: Local-dev troubleshooting guide
-# TODO: adjust tropis/tropis to the real GitHub org/repo once the remote exists — contact_links require absolute URLs.
+    # Note: the `tropis/tropis` org/repo in the URLs below is a placeholder and must be set to the real GitHub org/repo before this repo is published (contact_links require absolute URLs).
     url: https://github.com/tropis/tropis/blob/main/docs/troubleshooting.md
     about: Common local-dev issues (docker compose, ports, health checks) and their fixes — check here before filing a bug.

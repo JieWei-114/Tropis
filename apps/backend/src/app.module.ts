@@ -1,13 +1,16 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { APP_GUARD } from '@nestjs/core';
+import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from './infrastructure/database/database.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { LoggerModule } from 'nestjs-pino';
 import {
+  API_PREFIX,
   appConfig,
   dbConfig,
   authConfig,
@@ -31,6 +34,8 @@ import { NotificationModule } from './modules/notification/notification.module';
 import { MetricsModule } from './modules/metrics/metrics.module';
 import { VaultModule } from './infrastructure/vault/vault.module';
 import { TemporalModule } from './infrastructure/temporal/temporal.module';
+import { TemporalWorkerModule } from './infrastructure/temporal/temporal-worker.module';
+import { WorkflowsModule } from './modules/workflows/workflows.module';
 import { OpaModule } from './infrastructure/opa/opa.module';
 import { OutboxModule } from './infrastructure/outbox/outbox.module';
 import { FeatureFlagsModule } from './common/feature-flags/feature-flags.module';
@@ -71,7 +76,42 @@ import { AuditModule } from './modules/audit/audit.module';
 
     DatabaseModule,
 
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    // Named throttlers, resolved through ConfigService so the limits are
+    // environment-tunable. The decorators reference a NAME only: a decorator
+    // runs at class-definition time, so putting process.env reads in
+    // @Throttle() would silently bypass the validated config.
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        throttlers: [
+          {
+            name: 'default',
+            ttl: config.get<number>('RATE_LIMIT_TTL_MS', 60_000),
+            limit: config.get<number>('RATE_LIMIT_DEFAULT', 100),
+          },
+          {
+            // Credential endpoints are deliberately much tighter than the
+            // global limit; raise it only for load tests and browser E2E,
+            // which drive many real sign-ins from one IP.
+            name: 'auth',
+            ttl: config.get<number>('RATE_LIMIT_TTL_MS', 60_000),
+            limit: config.get<number>('RATE_LIMIT_AUTH', 10),
+            // A named throttler otherwise applies to EVERY route, which would
+            // cap /api/health and /api/metrics at the credential limit and
+            // break liveness probes and scraping. Scope it to the auth routes;
+            // @Throttle({ auth: {} }) then selects it there.
+            skipIf: (ctx) => {
+              if (ctx.getType() !== 'http') return true;
+              const req = ctx
+                .switchToHttp()
+                .getRequest<{ originalUrl?: string; url?: string }>();
+              const path = req?.originalUrl ?? req?.url ?? '';
+              return !path.startsWith(`/${API_PREFIX}/auth/`);
+            },
+          },
+        ],
+      }),
+    }),
     ScheduleModule.forRoot(),
     EventEmitterModule.forRoot({
       wildcard: false,
@@ -106,6 +146,8 @@ import { AuditModule } from './modules/audit/audit.module';
 
     // Workflow orchestration
     TemporalModule,
+    TemporalWorkerModule,
+    WorkflowsModule,
 
     // Transport
     QueueModule,
@@ -125,6 +167,13 @@ import { AuditModule } from './modules/audit/audit.module';
     {
       provide: APP_GUARD,
       useClass: ThrottlerBehindProxyGuard,
+    },
+    // HTTP routes are authenticated by default; @Public() is the explicit
+    // opt-out. Without this, forgetting @UseGuards on a new controller silently
+    // published it to the internet.
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
     },
   ],
 })

@@ -1,11 +1,9 @@
 {
   "common": {
     "loading": "Loading…",
-    "refresh": "↺ Refresh",
+    "refresh": "Refresh",
     "checking": "Checking…",
-    "save": "Save",
     "saving": "Saving…",
-    "create": "Create",
     "cancel": "Cancel",
     "confirm": "Confirm",
     "edit": "Edit",
@@ -13,11 +11,9 @@
     "genericError": "Something went wrong"
   },
   "nav": {
-    "analytics": "📊 Analytics",
-    "users": "👤 Users",
-    "stack": "🛠 Stack",
-    "state": "⚡ State",
-    "behavior": "🧭 Behavior",
+    "analytics": "Analytics",
+    "users": "Users",
+    "stack": "Stack",
     "wsLive": "live",
     "wsConnecting": "connecting…",
     "language": "Change language",
@@ -41,27 +37,30 @@
   },
   "analytics": {
     "title": "Analytics Dashboard",
+    "eventChartEmpty": "No ClickHouse data yet — fire some events and wait ~5s",
+    "eventsByType": "Events by Type — last 24h (ClickHouse)",
+    "eventsPerMinute": "Events per Minute — last hour (ClickHouse materialized view)",
+    "minutelyEmpty": "No minutely data yet — fire some events and wait 1 min for the ClickHouse materialized view to populate",
     "subtitle": "End-to-end: MongoDB → Pulsar → Processor → ClickHouse → Redis Cache → gRPC → Frontend",
-    "refreshStats": "↺ Refresh Stats",
     "fireEvents": "Fire Events",
     "userId": "User ID",
     "userIdPlaceholder": "user_123",
     "sending": "Sending…",
     "sent": "Sent:",
     "events": {
-      "pageView": "📄 Page View",
-      "buttonClick": "🖱️ Button Click",
-      "apiCall": "⚡ API Call",
-      "error": "🔴 Error",
-      "purchase": "💳 Purchase"
+      "pageView": "Page View",
+      "buttonClick": "Button Click",
+      "apiCall": "API Call",
+      "error": "Error",
+      "purchase": "Purchase"
     },
     "stats": {
       "totalEvents": "Total Events (24h)",
       "uniqueTypes": "Unique Event Types",
       "lastEvent": "Last Event",
       "redisCache": "Redis Cache",
-      "hit": "✅ HIT",
-      "miss": "🔄 MISS",
+      "hit": "HIT",
+      "miss": "MISS",
       "cachedAt": "cached at {{time}}"
     },
     "liveFeed": "Live Feed",
@@ -80,7 +79,7 @@
     "validation": {
       "nameRequired": "Name is required",
       "emailInvalid": "Enter a valid email address",
-      "passwordMin6": "Password must be at least 6 characters",
+      "passwordMin8": "Password must be at least 8 characters",
       "ageRange": "Age must be between 1 and 120"
     }
   },
@@ -91,14 +90,15 @@
     "searchPlaceholder": "Search by name or email (Elasticsearch fuzzy)…",
     "noUsers": "No users found.",
     "showingSimilar": "Showing similar users",
-    "clearSimilar": "✕ clear",
+    "clearSimilar": "clear",
     "similarFooter": "pgvector cosine similarity — {{total}} nearest neighbours found",
     "actions": {
       "created": "Created {{name}}",
       "updated": "Updated {{name}}",
       "deleted": "Deleted {{name}}",
-      "avatarUploaded": "🖼 Avatar uploaded for {{name}}",
-      "showingSimilarTo": "≈ Showing users similar to {{name}}"
+      "avatarUploaded": "Avatar uploaded for {{name}}",
+      "showingSimilarTo": "≈ Showing users similar to {{name}}",
+      "roleChanged": "{{name}} is now {{role}}"
     },
     "table": {
       "avatar": "Avatar",
@@ -107,12 +107,18 @@
       "age": "Age",
       "status": "Status",
       "logins": "Logins",
+      "role": "Role",
+      "onboarding": "Onboarding",
       "actions": "Actions",
       "similar": "≈ Similar",
       "findSimilarTitle": "Find similar users (pgvector)",
       "changeAvatarTitle": "Click to change avatar",
       "uploadAvatarTitle": "Upload avatar (MinIO)",
       "avatarAlt": "{{name}}'s avatar"
+    },
+    "onboarding": {
+      "sent": "Follow-up sent",
+      "scheduled": "Scheduled"
     },
     "modal": {
       "newTitle": "New user",
@@ -132,36 +138,38 @@
       "emailInvalid": "Enter a valid email address",
       "passwordMin8": "Password must be at least 8 characters",
       "ageRange": "Age must be between 1 and 120"
-    }
+    },
+    "adminRequired": "Managing the user directory requires an admin account. Ask an admin to grant you the role (make promote-admin EMAIL=<your email>), then sign in again."
   },
   "stack": {
     "title": "Stack",
     "subtitle": "Infrastructure status + observability links",
     "lastChecked": "last checked {{time}}",
-    "allOperational": "✅ All systems operational",
-    "upDown": "⚠️ {{up}} up · {{down}} down"
+    "categories": {
+      "services": "Application services",
+      "data": "Databases & storage",
+      "streaming": "Streaming & workflows",
+      "observability": "Observability",
+      "security": "Security & networking",
+      "delivery": "Delivery & tooling"
+    },
+    "builtWith": "Built with",
+    "statusUnknown": "unknown"
   },
   "behavior": {
-    "title": "User Behavior",
-    "subtitle": "埋点 pipeline: SDK tracker → REST /api/v1/track → Pulsar → Processor → ClickHouse → gRPC GetInsights",
-    "loadFailed": "Failed to load insights — are you logged in? (GetInsights requires auth)",
+    "funnelTitle": "Conversion funnel",
+    "funnelEmpty": "No funnel data yet.",
     "topPages": "Top Pages (7d)",
     "eventsByName": "Events by Name (7d)",
     "dailyUniques": "Daily Unique Visitors (uniq anonymous_id)",
-    "recentEvents": "Recent Events",
     "table": {
       "page": "Page",
       "views": "Views",
       "day": "Day",
-      "uniques": "Uniques",
-      "event": "Event",
-      "user": "User",
-      "session": "Session",
-      "when": "When"
+      "uniques": "Uniques"
     },
     "noPageViews": "No page views yet — browse around and come back.",
     "noEvents": "No events yet.",
-    "noData": "No data yet.",
-    "noRecent": "No recent events."
+    "noData": "No data yet."
   }
 }

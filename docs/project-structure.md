@@ -6,9 +6,10 @@ Where everything goes, and why. This describes both the **current code** and the
 
 ```
 apps/backend/          NestJS API (gRPC + REST + WS)
-apps/frontend/helm/         Admin console — React + Vite SPA (后台, CSR, noindex)
-apps/frontend/harbor/       Public site — Next.js App Router (前台, SSR/SSG, full SEO)
-apps/temporal-worker/  Temporal workflows + activities
+apps/frontend/helm/         Admin console — React + Vite SPA (backend console, CSR, noindex)
+apps/frontend/harbor/       Public site — Next.js App Router (public frontend, SSR/SSG, full SEO)
+apps/temporal-worker/  Legacy standalone worker (unused; the live worker runs in-process:
+                       apps/backend/src/infrastructure/temporal/temporal-worker.module.ts)
 packages/shared/       Cross-app types, DTOs, event contracts
 packages/sdk/          TypeScript client SDK (gRPC-Web client, REST, realtime, tracking, request signing; generated types in src/gen/)
 e2e/                   Playwright browser E2E suite (@tropis/e2e)
@@ -189,11 +190,11 @@ modules/feature/
 
 > **Start at the smallest scope; promote when a second consumer appears.**
 
-| Tier | Where                                                   | When                                                                        |
-| ---- | ------------------------------------------------------- | --------------------------------------------------------------------------- |
-| 1    | `modules/<feature>/constants/`, `interfaces/`, `utils/` | Used by a single module                                                     |
-| 2    | `apps/backend/src/common/`                              | Used by 2+ backend modules                                                  |
-| 3    | `packages/shared/src/`                                  | Shared with frontend / SDK / Flink (e.g. event contracts, `ApiResponse<T>`) |
+| Tier | Where                                                   | When                                                                     |
+| ---- | ------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 1    | `modules/<feature>/constants/`, `interfaces/`, `utils/` | Used by a single module                                                  |
+| 2    | `apps/backend/src/common/`                              | Used by 2+ backend modules                                               |
+| 3    | `packages/shared/src/`                                  | Shared with frontend / SDK / Flink (e.g. event contracts, `ERROR_CODES`) |
 
 Never put something in `packages/shared` "just in case" — promote on the second real consumer.
 
@@ -203,13 +204,15 @@ Cross-module backend concerns:
 
 ```
 common/
-├── guards/            # e.g. roles guard (auth guard lives in modules/auth/)
+├── guards/            # signature.guard + api-key.service + throttler-behind-proxy
+│                      #   (auth guard lives in modules/auth/; role checks go through
+│                      #   infrastructure/opa/, not a guard)
 ├── filters/           # http-exception.filter + grpc-exception.filter —
 │                      #   both map to the unified error-code table in
 │                      #   packages/shared/src/errors/
-├── interceptors/      # logging, response transform, audit (writes to modules/audit/)
+├── interceptors/      # audit (writes to modules/audit/) — no response-transform interceptor
 ├── middleware/        # correlation-id middleware
-├── decorators/        # @CurrentUser(), @Audited(), @Roles(), @Public() etc.
+├── decorators/        # @CurrentUser(), @Audited(), @Public(), @RequireSignature()
 ├── tenant/            # tenant context + middleware + module
 ├── circuit-breaker/
 └── feature-flags/
@@ -219,7 +222,7 @@ common/
 
 ## `src/infrastructure/` — one module per external system
 
-Each external system gets exactly one NestJS module that owns its client/driver, under `src/infrastructure/`: `database/` (Mongo root connection), `redis/`, `pulsar/` (client lifecycle), `messaging/` (broker-agnostic `MessageBrokerPort` + Pulsar adapter — business code injects `MESSAGE_BROKER`, not the Pulsar client), `clickhouse/`, `postgres/`, `aerospike/`, `elasticsearch/`, `storage/` (MinIO), `vault/`, `opa/`, `temporal/`, `outbox/` (cross-cutting outbox relay), `queue/` (BullMQ root + queue producer/processors + bull-board), and `grpc/` (proto server plumbing: GrpcModule wiring, health gRPC service, tenant interceptor, metadata utils — per-feature gRPC handlers live in each module's `controllers/`). **Business code never imports drivers directly** — it injects the infrastructure module's service. This is what makes swapping/mocking a datastore a one-module change.
+Each external system gets exactly one NestJS module that owns its client/driver, under `src/infrastructure/`: `database/` (Mongo root connection), `redis/`, `pulsar/` (client lifecycle), `messaging/` (broker-agnostic `MessageBrokerPort` + Pulsar adapter — business code injects `MESSAGE_BROKER`, not the Pulsar client), `clickhouse/`, `postgres/`, `aerospike/`, `elasticsearch/`, `storage/` (MinIO), `vault/`, `opa/`, `temporal/`, `outbox/` (cross-cutting outbox relay), `queue/` (BullMQ root + queue producer/processors + bull-board), and `grpc/` (proto server plumbing: `grpc.module.ts` wiring, `grpc-health.service.ts`, `grpc-tenant.interceptor.ts`, `grpc-error.interceptor.ts` (domain errors → gRPC status codes), `grpc-authz.service.ts` (OPA authorization for gRPC handlers), `grpc.utils.ts` metadata helpers — per-feature gRPC handlers live in each module's `controllers/`). **Business code never imports drivers directly** — it injects the infrastructure module's service. This is what makes swapping/mocking a datastore a one-module change.
 
 ## `src/config/`
 
@@ -239,7 +242,8 @@ Feature-first — the frontend mirror of the backend's module anatomy. **CI-enfo
 ```
 main.tsx           # entrypoint — the only file allowed to import app/
 app/               # App shell: router (App.tsx), providers (QueryClientProvider),
-│                  # ErrorBoundary, PageTracker, ThemeProvider (dark mode), global layout/nav
+│                  # ErrorBoundary, PageTracker, ThemeProvider (light default / dark /
+│                  # system), sidebar nav + mobile top bar
 features/          # ⭐ one folder per domain feature (mirrors backend modules/)
 ├── <feature>/     # e.g. users, analytics, auth, behavior, stack — see the folder for the current set
 │   ├── components/  # feature-private components
@@ -378,7 +382,7 @@ The structural refactor to this standard is **done**: `user`, `analytics`, `auth
 
 Deliberate deviations:
 
-- `modules/health/` and `modules/metrics/` stay **flat** (`health.module.ts` + `health.controller.ts` + `indicators/`; `metrics.module.ts` + `metrics.controller.ts`) — they are thin, logic-free modules and the full anatomy would be empty folders.
+- `modules/health/`, `modules/metrics/` and `modules/workflows/` stay **flat** (`health.module.ts` + `health.controller.ts` + `indicators/`; `metrics.module.ts` + `metrics.controller.ts`; `workflows.module.ts` + `workflows.controller.ts`) — they are thin, logic-free modules and the full anatomy would be empty folders.
 - `modules/audit/` is deliberately slim (`audit.module.ts` + `services/` + `constants/` + `interfaces/` + `__tests__/`) — its entry point is the cross-cutting `AuditInterceptor` in `common/interceptors/` driven by the `@Audited()` decorator, so it has no controllers/repositories of its own.
 - `modules/user/` additionally keeps its CQRS folders (`commands/`, `queries/`, `events/`, `event-store/`) alongside the standard anatomy.
 - The websocket gateway is its own `modules/websocket/` (with `gateways/`) rather than folded into `modules/notification/`, matching the existing module boundary (`NotificationModule` = email sender, `WebsocketModule` = realtime push).

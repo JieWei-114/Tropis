@@ -59,9 +59,15 @@ export interface IRecentTrackingEvent {
   timestamp: number;
 }
 
+export interface IFunnelStep {
+  step: string; // event name for this step, e.g. page.view
+  users: number; // anonymous users who reached this step within the window
+}
+
 export interface ITrackingInsights {
   topPages: IPageCount[];
   eventsByName: IEventCount[];
   dailyUniques: IDailyUnique[];
   recent: IRecentTrackingEvent[];
+  funnel: IFunnelStep[];
 }

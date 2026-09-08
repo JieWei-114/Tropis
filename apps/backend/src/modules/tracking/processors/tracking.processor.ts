@@ -11,6 +11,7 @@ import type {
   MessageSubscription,
 } from '../../../infrastructure/messaging/message-broker.port';
 import { TrackingRepository } from '../repositories/tracking.repository';
+import { NotificationGateway } from '../../websocket/gateways/notification.gateway';
 import {
   TRACKING_TOPIC,
   TRACKING_SUBSCRIPTION,
@@ -38,6 +39,7 @@ export class TrackingProcessor implements OnModuleInit, OnModuleDestroy {
     private readonly logger: PinoLogger,
     private readonly trackingRepo: TrackingRepository,
     @Inject(MESSAGE_BROKER) private readonly broker: MessageBrokerPort,
+    private readonly gateway: NotificationGateway,
   ) {}
 
   async onModuleInit() {
@@ -87,5 +89,12 @@ export class TrackingProcessor implements OnModuleInit, OnModuleDestroy {
       { count: events.length },
       'TrackingProcessor: batch written to ClickHouse',
     );
+
+    // Nudge connected dashboards that fresh behavior data landed, so the
+    // behavior insights refresh live (throttled client-side).
+    this.gateway.broadcast('tracking.event', {
+      count: events.length,
+      at: Date.now(),
+    });
   }
 }

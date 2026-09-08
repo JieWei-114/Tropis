@@ -18,8 +18,7 @@ import { initReactI18next } from 'react-i18next';
 import en from '../locales/en/common.json';
 import zh from '../locales/zh/common.json';
 
-export const SUPPORTED_LANGUAGES = ['en', 'zh'] as const;
-export type AppLanguage = (typeof SUPPORTED_LANGUAGES)[number];
+const SUPPORTED_LANGUAGES = ['en', 'zh'] as const;
 
 void i18n
   .use(LanguageDetector)
@@ -45,5 +44,3 @@ i18n.on('languageChanged', (lng) => {
 if (typeof document !== 'undefined' && i18n.resolvedLanguage) {
   document.documentElement.lang = i18n.resolvedLanguage;
 }
-
-export default i18n;

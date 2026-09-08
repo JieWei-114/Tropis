@@ -8,11 +8,11 @@ technology → tool map is in [docs/dev-tools.md](../docs/dev-tools.md).
 
 ## Tools
 
-| Tool                   | What it does                                                                                      | Run                  |
-| ---------------------- | ------------------------------------------------------------------------------------------------- | -------------------- |
-| `src/ws-listen.ts`     | Prints every Socket.io `/ws` event live (auto-logs-in as the seeded admin, or pass `TOKEN=<jwt>`) | `make ws-listen`     |
-| `src/outbox-status.ts` | Outbox snapshot straight from MongoDB: counts by status + oldest pending/failed rows              | `make outbox-status` |
-| `src/sdk-repl.ts`      | Node REPL with the `@tropis/sdk` facade preloaded + logged in (`await api.fetchUsers()`)          | `make sdk-repl`      |
+| Tool                   | What it does                                                                                                    | Run                  |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `src/ws-listen.ts`     | Prints every Socket.io `/ws` event live (auto-logs-in as the seeded `admin@example.com`, or pass `TOKEN=<jwt>`) | `make ws-listen`     |
+| `src/outbox-status.ts` | Outbox snapshot straight from MongoDB: counts by status + oldest pending/failed rows                            | `make outbox-status` |
+| `src/sdk-repl.ts`      | Node REPL with the `@tropis/sdk` facade preloaded + logged in (`await api.fetchUsers()`)                        | `make sdk-repl`      |
 
 **Local Kubernetes views** (the `kind-tropis` cluster — see [deployment.md](../docs/deployment.md)):
 `make k8s` opens **k9s** (terminal UI) and `make k8s-ui` opens **Headlamp**

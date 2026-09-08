@@ -13,6 +13,7 @@
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { JwtModule, JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
@@ -77,6 +78,18 @@ describeWithDocker('AuthService (integration)')(
           AuthService,
           LoginLockoutService,
           UserRepository,
+          // AuthService reads JWT_SECRET through ConfigService for the refresh
+          // HMAC; without this the module cannot be constructed at all.
+          {
+            provide: ConfigService,
+            useValue: {
+              getOrThrow: (key: string) => {
+                if (key === 'JWT_SECRET') return JWT_SECRET;
+                throw new Error(`Unexpected config key: ${key}`);
+              },
+              get: () => undefined,
+            },
+          },
           // Real SessionService in degraded (null-client) mode — Aerospike is
           // not part of this integration harness, and the service no-ops.
           { provide: SessionService, useValue: new SessionService(null) },

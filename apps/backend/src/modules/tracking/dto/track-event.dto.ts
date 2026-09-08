@@ -9,6 +9,8 @@ import {
   IsString,
   MaxLength,
   ValidateNested,
+  IsUUID,
+  Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
@@ -16,10 +18,19 @@ import {
   TRACKING_MAX_FIELD_LEN,
 } from '../constants/tracking.constants';
 
+/**
+ * Lower bound for a client timestamp (2020-01-01 in epoch ms). Anything below
+ * this is almost certainly seconds mistaken for milliseconds.
+ */
+const TIMESTAMP_MIN_MS = 1_577_836_800_000;
+
 export class TrackEventDto {
+  // Must be a UUID: the ClickHouse column is UUID, and JSONEachRow rejects the
+  // WHOLE batch on a single malformed value. An SDK sending a nanoid would cost
+  // up to TRACKING_MAX_BATCH events per message, after the client has already
+  // been given its 202.
   @ApiProperty({ example: 'c0ffee00-0000-4000-8000-000000000001' })
-  @IsString()
-  @MaxLength(64)
+  @IsUUID()
   eventId: string;
 
   @ApiProperty({ example: 'button_click' })
@@ -71,8 +82,12 @@ export class TrackEventDto {
   @IsObject()
   props?: Record<string, unknown>;
 
+  // Range-checked because it is client-supplied and lands in DateTime64(3): an
+  // SDK sending seconds rather than ms produces rows dated 1970, which every
+  // `now() - INTERVAL n DAY` query ignores — accepted, stored, invisible.
   @ApiProperty({ example: 1735689600000, description: 'Client epoch ms' })
   @IsNumber()
+  @Min(TIMESTAMP_MIN_MS)
   timestamp: number;
 }
 

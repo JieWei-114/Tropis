@@ -7,6 +7,11 @@
 -- Parameters to edit: experiment name ('new-onboarding') and the
 -- conversion event name ('user.login').
 
+-- TENANT SCOPE: set this to the tenant you are analysing. logs.user_behavior
+-- is multi-tenant and tenant_id is its leading key column, so leaving the
+-- filter out aggregates every tenant together (and reads the whole table).
+SET param_tenant_id = 'default';
+
 WITH
     exposures AS
     (
@@ -15,7 +20,8 @@ WITH
             JSONExtractString(props, 'variant') AS variant,
             min(timestamp)                      AS first_exposed_at
         FROM logs.user_behavior
-        WHERE event_name = 'experiment.exposed'
+        WHERE tenant_id = {tenant_id:String}
+          AND event_name = 'experiment.exposed'
           AND JSONExtractString(props, 'experiment') = 'new-onboarding'
         GROUP BY anonymous_id, variant
     ),
@@ -23,7 +29,8 @@ WITH
     (
         SELECT anonymous_id, min(timestamp) AS converted_at
         FROM logs.user_behavior
-        WHERE event_name = 'user.login'
+        WHERE tenant_id = {tenant_id:String}
+          AND event_name = 'user.login'
         GROUP BY anonymous_id
     )
 SELECT

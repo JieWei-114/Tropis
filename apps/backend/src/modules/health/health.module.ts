@@ -10,6 +10,7 @@ import { ElasticsearchHealthIndicator } from './indicators/elasticsearch.health'
 import { MinioHealthIndicator } from './indicators/minio.health';
 import { TemporalHealthIndicator } from './indicators/temporal.health';
 import { OpaHealthIndicator } from './indicators/opa.health';
+import { AerospikeHealthIndicator } from './indicators/aerospike.health';
 
 @Module({
   imports: [TerminusModule, TypeOrmModule],
@@ -23,6 +24,7 @@ import { OpaHealthIndicator } from './indicators/opa.health';
     MinioHealthIndicator,
     TemporalHealthIndicator,
     OpaHealthIndicator,
+    AerospikeHealthIndicator,
   ],
 })
 export class HealthModule {}

@@ -17,7 +17,7 @@ Optional services sit behind compose profiles and are **not** started by a plain
 
 Which containers belong to which profile (and their ports): `infra/docker/docker-compose.yml` — or `docker compose -f infra/docker/docker-compose.yml --profile <name> config --services`.
 
-Under the `observability` profile, Grafana auto-provisions its datasources (Prometheus, Jaeger, ClickHouse via the `grafana-clickhouse-datasource` plugin) and two dashboards from `infra/grafana/dashboards/` (**Backend Overview** and **Tracking & Analytics**) — no manual import needed. Prometheus loads alert rules from `infra/prometheus/alerts.yml` (instance down, event-loop lag, heap/RSS, HTTP 5xx/latency); check them at http://localhost:9090/alerts. Firing alerts are routed by Alertmanager (http://localhost:9093) per `infra/prometheus/alertmanager.yml` — replace the placeholder Slack webhook URL there to actually receive notifications.
+Under the `observability` profile, Grafana auto-provisions its datasources (Prometheus, Jaeger, ClickHouse via the `grafana-clickhouse-datasource` plugin) and two dashboards from `infra/grafana/dashboards/` (**Backend Overview** and **Tracking & Analytics**) — no manual import needed. The **Backend Overview** dashboard ends with a _Reliability: Outbox & Dead Letters_ row (DEAD row count, backlog by status, relay poll age, Pulsar DLQ backlog, tracking duplicate drops). Prometheus loads alert rules from `infra/prometheus/alerts.yml` (instance down, event-loop lag, heap/RSS, HTTP 5xx/latency, outbox DEAD/FAILED/PENDING backlog, outbox relay stalled, Pulsar dead-letter backlog and rate); check them at http://localhost:9090/alerts. The outbox and Pulsar rules read `tropis_outbox_*` from the backend (`nestjs` job) and `pulsar_*` from the broker's own `:8080/metrics` (`pulsar` job) — a stalled relay shows up as `OutboxRelayStalled` because the heartbeat gauge is only written by the instance that holds the Redis lock. Firing alerts are routed by Alertmanager (http://localhost:9093) per `infra/prometheus/alertmanager.yml` — replace the placeholder Slack webhook URL there to actually receive notifications.
 
 `make up-all` enables every profile. Core is exactly what `GET /api/health` probes (plus mailhog
 for the Temporal worker's emails), so `make up` is sufficient for `make dev`, login and the users page.
@@ -75,6 +75,50 @@ lsof -i :3100        # who owns the port
 ```
 
 Fix by stopping the other process or changing the host-side mapping in docker-compose.yml / `.env`.
+
+## harbor dev server 500s with `ENOENT .next/routes-manifest.json`
+
+`next dev` and `next build` share the same `.next` directory, so running a
+build while the harbor dev server is up pulls the manifest out from under it.
+The usual trigger is a repo-wide `pnpm -r build` (or `make build`) in another
+terminal, which runs `next build` in `apps/frontend/harbor`.
+
+Symptoms, in order of how far the build got: missing stylesheets
+(`GET /_next/static/css/app/layout.css` → 404, page renders unstyled), then
+`500` on every route with `ENOENT: .next/routes-manifest.json`.
+
+Fix: stop the dev server, `rm -rf apps/frontend/harbor/.next`, start it again.
+To verify harbor's rendered output while builds are running, use the
+production output instead (`npm run build && npm start` in that workspace) —
+that path does not race with `next dev`.
+
+## A container cannot reach MongoDB, or mongo-express crash-loops
+
+The single-node replica set must advertise `mongodb:27017`, the compose service
+name. `mongo-rs-init.js` can only seed `localhost:27017` — the initdb mongod is
+bound to loopback, so any other host fails its isSelf check and the container
+exits — and a set advertising `localhost` is unusable by any client that
+performs topology discovery: it resolves the member to its own container's
+loopback and gets `ECONNREFUSED ::1:27017`. `mongo-express` is such a client,
+because it drops query options and so cannot be told `directConnection=true`.
+
+The one-shot `mongo-rs-reconfig` service moves the member after mongod is
+listening. Check it ran:
+
+```bash
+docker logs tropis_mongo_rs_reconfig     # "member now advertises mongodb:27017"
+docker exec tropis_mongodb mongosh --quiet --eval 'rs.conf().members[0].host'
+```
+
+If the host is still `localhost:27017`, run it again — it is idempotent:
+
+```bash
+docker compose -f infra/docker/docker-compose.yml up mongo-rs-reconfig
+```
+
+Clients on the **host** are a separate case: `mongodb` is a Docker-network
+name that does not resolve outside it, so `MONGODB_URI` keeps
+`directConnection=true` and talks to the mapped port (27018) directly.
 
 ## pnpm workspace issues
 

@@ -3,7 +3,7 @@ import * as LabelPrimitive from '@radix-ui/react-label';
 
 import { cn } from '@/lib/utils';
 
-/** shadcn/ui Label on app tokens — matches the old FIELD_LABEL styling. */
+/** shadcn/ui Label, restyled onto the app's design tokens. */
 const Label = React.forwardRef<
   React.ElementRef<typeof LabelPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root>

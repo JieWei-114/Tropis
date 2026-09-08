@@ -1,6 +1,6 @@
 name: User story
 description: A planned unit of user-facing value with acceptance criteria
-labels: ["story"]
+labels: ['story']
 body:
   - type: input
     id: as-a

@@ -2,15 +2,16 @@ import { Controller } from '@nestjs/common';
 import { Audited } from '../../../common/decorators/audited.decorator';
 import { GrpcMethod, RpcException } from '@nestjs/microservices';
 import { status as GrpcStatus } from '@grpc/grpc-js';
-import { ConfigService } from '@nestjs/config';
-import * as jwt from 'jsonwebtoken';
 import { UserService } from '../services/user.service';
 import { IUserResponse } from '../interfaces/user.interface';
-import { UserRole, UserStatus } from '../schemas/user.schema';
+import { UserRole, UserStatus } from '../constants/user.enums';
 import { UpdateUserDto } from '../dto/update-user.dto';
 import { ReplaceUserDto } from '../dto/replace-user.dto';
-import { OpaService } from '../../../infrastructure/opa/opa.service';
 import { extractToken } from '../../../infrastructure/grpc/grpc.utils';
+import {
+  GrpcAuthzService,
+  type GrpcCaller,
+} from '../../../infrastructure/grpc/grpc-authz.service';
 
 interface CreateUserRequest {
   name: string;
@@ -100,47 +101,44 @@ function toGrpcUser(u: IUserResponse): UserResponse {
  */
 @Controller()
 export class GrpcUserService {
-  private readonly jwtSecret: string;
-
   constructor(
     private readonly userService: UserService,
-    private readonly config: ConfigService,
-    private readonly opaService: OpaService,
-  ) {
-    this.jwtSecret = this.config.getOrThrow<string>('JWT_SECRET');
+    private readonly authz: GrpcAuthzService,
+  ) {}
+
+  private assertOpa(token: string, action: string): Promise<GrpcCaller> {
+    return this.authz.assert(token, 'user', action);
   }
 
-  private verifyToken(token: string): {
-    sub: string;
-    email: string;
-    roles?: UserRole[];
-  } {
-    try {
-      return jwt.verify(token, this.jwtSecret) as {
-        sub: string;
-        email: string;
-        roles?: UserRole[];
-      };
-    } catch {
-      throw new RpcException({
-        code: GrpcStatus.UNAUTHENTICATED,
-        message: 'Invalid or expired token',
-      });
-    }
-  }
-
-  private async assertOpa(token: string, action: string): Promise<void> {
-    const payload = this.verifyToken(token);
-    const allowed = await this.opaService.allow({
-      roles: payload.roles ?? [],
-      resource: 'user',
-      action,
-    });
-    if (!allowed)
+  /**
+   * Role permission PLUS record ownership.
+   *
+   * OPA answers "may this role perform this action?" — never "on whose record?".
+   * `editor` holds `update`, so a role-only check let any signed-in user modify
+   * anyone, including resetting an admin's password. Owner-or-admin closes that.
+   */
+  private async assertCanActOn(
+    token: string,
+    targetUserId: string,
+    action: string,
+  ): Promise<GrpcCaller> {
+    const caller = await this.assertOpa(token, action);
+    if (!caller.roles.includes(UserRole.ADMIN) && caller.sub !== targetUserId) {
       throw new RpcException({
         code: GrpcStatus.PERMISSION_DENIED,
-        message: `Permission denied: ${action} on user`,
+        message: 'You may only modify your own account',
       });
+    }
+    return caller;
+  }
+
+  private static assertMayWriteStatus(caller: GrpcCaller): void {
+    if (!caller.roles.includes(UserRole.ADMIN)) {
+      throw new RpcException({
+        code: GrpcStatus.PERMISSION_DENIED,
+        message: 'Only an admin can change account status',
+      });
+    }
   }
 
   @Audited('user.create')
@@ -157,10 +155,15 @@ export class GrpcUserService {
   }
 
   @GrpcMethod('UserService', 'FindAll')
-  async findAll(data: FindAllRequest): Promise<UsersResponse> {
+  async findAll(
+    data: FindAllRequest,
+    metadata: unknown,
+  ): Promise<UsersResponse> {
+    // `list`, not `read`: enumeration is admin-only (see infra/opa/authz.rego).
+    await this.assertOpa(extractToken(data, metadata), 'list');
     const result = await this.userService.findAll(
       data.page ?? 1,
-      data.limit ?? 20,
+      GrpcAuthzService.clampLimit(data.limit, 20, 100),
     );
     return {
       users: result.data.map(toGrpcUser),
@@ -172,17 +175,21 @@ export class GrpcUserService {
   }
 
   @GrpcMethod('UserService', 'FindById')
-  async findById(data: FindByIdRequest): Promise<UserResponse> {
+  async findById(
+    data: FindByIdRequest,
+    metadata: unknown,
+  ): Promise<UserResponse> {
+    // Owner-or-admin: `read` alone would let any signed-in user pull an
+    // arbitrary record (including its email) by id.
+    await this.assertCanActOn(extractToken(data, metadata), data.id, 'read');
     const user = await this.userService.findById(data.id);
     return toGrpcUser(user);
   }
 
   @GrpcMethod('UserService', 'GetMe')
   async getMe(data: TokenRequest, metadata: unknown): Promise<UserResponse> {
-    const token = extractToken(data, metadata);
-    await this.assertOpa(token, 'read');
-    const payload = this.verifyToken(token);
-    const user = await this.userService.findById(payload.sub);
+    const caller = await this.assertOpa(extractToken(data, metadata), 'read');
+    const user = await this.userService.findById(caller.sub);
     return toGrpcUser(user);
   }
 
@@ -193,13 +200,19 @@ export class GrpcUserService {
     metadata: unknown,
   ): Promise<UserResponse> {
     const token = extractToken(data, metadata);
-    await this.assertOpa(token, 'update');
+    const caller = await this.assertCanActOn(token, data.id, 'update');
     const dto = new UpdateUserDto();
     if (data.name) dto.name = data.name;
     if (data.email) dto.email = data.email;
     if (data.password) dto.password = data.password;
     if (data.age) dto.age = data.age;
-    if (data.status) dto.status = data.status as UserStatus;
+    // status is an access-control field (a suspended user cannot log in), so
+    // only an admin may write it — otherwise anyone could lift their own
+    // suspension by PATCHing themselves back to active.
+    if (data.status) {
+      GrpcUserService.assertMayWriteStatus(caller);
+      dto.status = data.status as UserStatus;
+    }
     const user = await this.userService.update(data.id, dto);
     return toGrpcUser(user);
   }
@@ -211,10 +224,24 @@ export class GrpcUserService {
     metadata: unknown,
   ): Promise<UserResponse> {
     const token = extractToken(data, metadata);
-    await this.assertOpa(token, 'update');
+    const caller = await this.assertCanActOn(token, data.id, 'update');
+    // proto3 sends an omitted string as '', which would otherwise be written
+    // verbatim and drop the user out of every status filter.
+    if (!Object.values(UserStatus).includes(data.status as UserStatus)) {
+      throw new RpcException({
+        code: GrpcStatus.INVALID_ARGUMENT,
+        message: `status must be one of: ${Object.values(UserStatus).join(', ')}`,
+      });
+    }
     const dto = new ReplaceUserDto();
     dto.name = data.name;
     dto.email = data.email;
+    // Replace always carries a status, so a non-admin may only restate the one
+    // the record already has.
+    const current = await this.userService.findById(data.id);
+    if ((data.status as UserStatus) !== current.status) {
+      GrpcUserService.assertMayWriteStatus(caller);
+    }
     dto.status = data.status as UserStatus;
     if (data.password) dto.password = data.password;
     if (data.age) dto.age = data.age;
@@ -228,15 +255,23 @@ export class GrpcUserService {
     data: DeleteUserRequest,
     metadata: unknown,
   ): Promise<DeleteResponse> {
-    const token = extractToken(data, metadata);
-    await this.assertOpa(token, 'delete');
+    // Deliberately admin-only (OPA grants `delete` to admin alone) — a user
+    // cannot delete their own account through this RPC.
+    await this.assertOpa(extractToken(data, metadata), 'delete');
     await this.userService.delete(data.id);
     return { success: true };
   }
 
   @GrpcMethod('UserService', 'Search')
-  async search(data: SearchUsersRequest): Promise<UsersResponse> {
-    const users = await this.userService.search(data.query, data.size || 10);
+  async search(
+    data: SearchUsersRequest,
+    metadata: unknown,
+  ): Promise<UsersResponse> {
+    await this.assertOpa(extractToken(data, metadata), 'list');
+    const users = await this.userService.search(
+      data.query,
+      GrpcAuthzService.clampLimit(data.size, 10, 50),
+    );
     return {
       users: users.map(toGrpcUser),
       total: users.length,
@@ -247,10 +282,14 @@ export class GrpcUserService {
   }
 
   @GrpcMethod('UserService', 'FindSimilar')
-  async findSimilar(data: FindSimilarRequest): Promise<UsersResponse> {
+  async findSimilar(
+    data: FindSimilarRequest,
+    metadata: unknown,
+  ): Promise<UsersResponse> {
+    await this.assertOpa(extractToken(data, metadata), 'list');
     const users = await this.userService.findSimilar(
       data.user_id,
-      data.limit || 5,
+      GrpcAuthzService.clampLimit(data.limit, 5, 50),
     );
     return {
       users: users.map(toGrpcUser),

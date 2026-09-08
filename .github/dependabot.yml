@@ -7,19 +7,19 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: '09:00'
     open-pull-requests-limit: 10
     groups:
       nestjs:
-        patterns: ["@nestjs/*"]
+        patterns: ['@nestjs/*']
       opentelemetry:
-        patterns: ["@opentelemetry/*"]
+        patterns: ['@opentelemetry/*']
       devtools:
-        patterns: ["eslint*", "prettier*", "typescript*", "ts-jest", "jest*"]
+        patterns: ['eslint*', 'prettier*', 'typescript*', 'ts-jest', 'jest*']
     ignore:
       # Major version bumps require manual review
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
 
   # ── Flink / Java (Maven) ───────────────────────────────────────────
   - package-ecosystem: maven
@@ -27,7 +27,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: '09:00'
     open-pull-requests-limit: 5
 
   # ── GitHub Actions ─────────────────────────────────────────────────
@@ -36,7 +36,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: '09:00'
     open-pull-requests-limit: 5
 
   # ── Rust — signing service workspace ───────────────────────────────
@@ -45,11 +45,11 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: '09:00'
     open-pull-requests-limit: 5
     ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
 
   # ── Rust — Tauri desktop shell ─────────────────────────────────────
   - package-ecosystem: cargo
@@ -57,11 +57,11 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: '09:00'
     open-pull-requests-limit: 5
     ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
 
   # ── Docker base images (backend + frontend) ────────────────────────
   - package-ecosystem: docker
@@ -69,12 +69,12 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: '09:00'
     open-pull-requests-limit: 3
   - package-ecosystem: docker
     directory: /apps/frontend/helm
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
+      time: '09:00'
     open-pull-requests-limit: 3

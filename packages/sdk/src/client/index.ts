@@ -43,7 +43,12 @@ export interface Sdk {
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 export function createSdk(options: SdkOptions): Sdk {
-  const { baseUrl, getToken, timeoutMs = DEFAULT_TIMEOUT_MS, refresh } = options;
+  const {
+    baseUrl,
+    getToken,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    refresh,
+  } = options;
 
   const authInterceptor: Interceptor = (next) => (req) => {
     const token = getToken?.();

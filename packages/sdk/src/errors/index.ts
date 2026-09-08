@@ -22,7 +22,8 @@ export function parseApiError(err: unknown): ApiError {
     return {
       code: err.code,
       message: grpcMessage(err.code, err.rawMessage),
-      isAuth: err.code === Code.Unauthenticated || err.code === Code.PermissionDenied,
+      isAuth:
+        err.code === Code.Unauthenticated || err.code === Code.PermissionDenied,
       isNetwork: err.code === Code.Unavailable,
     };
   }
@@ -34,13 +35,20 @@ export function parseApiError(err: unknown): ApiError {
       err.message.includes('net::');
     return {
       code: -1,
-      message: isNetwork ? 'Network error — check your connection' : err.message,
+      message: isNetwork
+        ? 'Network error — check your connection'
+        : err.message,
       isAuth: false,
       isNetwork,
     };
   }
 
-  return { code: -1, message: 'An unexpected error occurred', isAuth: false, isNetwork: false };
+  return {
+    code: -1,
+    message: 'An unexpected error occurred',
+    isAuth: false,
+    isNetwork: false,
+  };
 }
 
 /** Map gRPC status codes to user-friendly messages. */

@@ -8,10 +8,10 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+'
 
 env:
-  REGISTRY: ghcr.io                          # GitHub Container Registry — free for public repos
+  REGISTRY: ghcr.io # GitHub Container Registry — free for public repos
   IMAGE_BACKEND: ghcr.io/${{ github.repository }}/backend
-  IMAGE_FRONTEND: ghcr.io/${{ github.repository }}/frontend   # helm — admin console
-  IMAGE_HARBOR: ghcr.io/${{ github.repository }}/harbor       # public Next.js site
+  IMAGE_FRONTEND: ghcr.io/${{ github.repository }}/frontend # helm — admin console
+  IMAGE_HARBOR: ghcr.io/${{ github.repository }}/harbor # public Next.js site
 
 jobs:
   # ── Gate: the tagged commit must pass the core checks before we build/deploy.
@@ -45,12 +45,12 @@ jobs:
 
   deploy:
     name: Build, push, deploy
-    needs: verify          # ← deploy only runs if verify (CI gate) passed
+    needs: verify # ← deploy only runs if verify (CI gate) passed
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write      # push to GHCR
-      id-token: write      # OIDC — used if you switch to cloud IAM auth
+      packages: write # push to GHCR
+      id-token: write # OIDC — used if you switch to cloud IAM auth
 
     steps:
       - uses: actions/checkout@v4
@@ -95,7 +95,7 @@ jobs:
       - name: Build and push frontend image
         uses: docker/build-push-action@v5
         with:
-          context: .                     # repo root — Dockerfile needs the pnpm workspace
+          context: . # repo root — Dockerfile needs the pnpm workspace
           file: apps/frontend/helm/Dockerfile
           push: true
           tags: |
@@ -109,7 +109,7 @@ jobs:
       - name: Build and push harbor image
         uses: docker/build-push-action@v5
         with:
-          context: .                     # repo root — Dockerfile needs the pnpm workspace
+          context: . # repo root — Dockerfile needs the pnpm workspace
           file: apps/frontend/harbor/Dockerfile
           push: true
           tags: |

@@ -1,1 +1,44 @@
-pnpm lint-staged
+#!/usr/bin/env sh
+# Formats and lints staged files before the commit lands.
+#
+# The hook bootstraps its own toolchain instead of assuming one. A commit
+# started from an editor, IDE or git GUI runs with a minimal PATH — no shell
+# profile is read, so a Node managed by nvm/fnm/asdf/volta is not on it and the
+# hook dies with "pnpm: command not found" and exit 127, taking the commit with
+# it.
+#
+# `corepack pnpm` is the preferred entry point: corepack ships with Node, and it
+# runs the exact version pinned in package.json's `packageManager` field, so it
+# works even when no global pnpm is installed (or when one is installed under a
+# different Node version than the active one).
+
+# 1. Get Node onto PATH. Shell-init managers first, then plain bin directories.
+if ! command -v node >/dev/null 2>&1; then
+  for init in "$HOME/.nvm/nvm.sh" "$HOME/.asdf/asdf.sh"; do
+    # shellcheck disable=SC1090
+    if [ -s "$init" ]; then . "$init" >/dev/null 2>&1 && break; fi
+  done
+  if command -v nvm >/dev/null 2>&1; then
+    nvm use --silent >/dev/null 2>&1 || nvm use --silent default >/dev/null 2>&1
+  fi
+  for dir in "$HOME/.volta/bin" "$HOME/.local/state/fnm_multishells" "$HOME/.local/share/fnm"; do
+    [ -d "$dir" ] && PATH="$dir:$PATH"
+  done
+  export PATH
+fi
+
+# 2. Pick a package-manager entry point.
+if command -v pnpm >/dev/null 2>&1; then
+  set -- pnpm
+elif command -v corepack >/dev/null 2>&1; then
+  set -- corepack pnpm
+else
+  echo "pre-commit: no pnpm and no corepack on PATH." >&2
+  echo "  PATH=$PATH" >&2
+  echo "  Node is expected at the version in .nvmrc. If you commit from an" >&2
+  echo "  editor or GUI, point it at a shell that loads your Node setup, or" >&2
+  echo "  add your Node bin directory to this hook." >&2
+  exit 1
+fi
+
+exec "$@" lint-staged

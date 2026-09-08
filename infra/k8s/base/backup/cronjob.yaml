@@ -33,7 +33,7 @@ metadata:
   name: mongodb-backup
   namespace: tropis
 spec:
-  schedule: '0 3 * * *'   # daily 03:00 (cluster TZ, usually UTC)
+  schedule: '0 3 * * *' # daily 03:00 (cluster TZ, usually UTC)
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -106,7 +106,7 @@ spec:
                 - name: PGPASSWORD
                   valueFrom:
                     secretKeyRef:
-                      name: backend-secret   # or a dedicated backup credentials secret
+                      name: backend-secret # or a dedicated backup credentials secret
                       key: POSTGRES_PASSWORD
               volumeMounts:
                 - name: backups

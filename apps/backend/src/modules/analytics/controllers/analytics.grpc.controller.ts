@@ -1,11 +1,13 @@
 import { Controller } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
-import * as jwt from 'jsonwebtoken';
-import { ConfigService } from '@nestjs/config';
 import { AnalyticsService } from '../services/analytics.service';
-import { resolveAuthorizationHeader } from '../../../infrastructure/grpc/grpc.utils';
+import { extractToken } from '../../../infrastructure/grpc/grpc.utils';
+import {
+  GrpcAuthzService,
+  type GrpcCaller,
+} from '../../../infrastructure/grpc/grpc-authz.service';
 import { IEventLog, IAnalyticsStats } from '../interfaces/analytics.interface';
-import { AnalyticsEventType } from '../schemas/event-log.schema';
+import { AnalyticsEventType } from '../constants/analytics.enums';
 
 // ── Request / Response shapes (mirror proto messages) ────────────────────────
 
@@ -67,7 +69,10 @@ function toGrpcStats(s: IAnalyticsStats): StatsResponse {
 /**
  * Implements the AnalyticsService defined in proto/analytics/v1/analytics.proto.
  *
- * All methods are public (no auth required).
+ * Every method requires a valid token and an OPA `analytics` permission —
+ * `read` for the three queries, `write` for CreateEvent. An unauthorized method
+ * here lets anyone on the network dump event rows (with userIds and metadata)
+ * and inject events straight into the ClickHouse pipeline.
  *
  * Test with grpcurl:
  *   # Fire an event
@@ -83,28 +88,27 @@ function toGrpcStats(s: IAnalyticsStats): StatsResponse {
  *   grpcurl -plaintext -proto proto/analytics/v1/analytics.proto \
  *     localhost:50051 tropis.analytics.v1.AnalyticsService/GetRecent
  */
+/** Upper bound on the minutely-stats window a single call may request. */
+const MAX_MINUTES = 24 * 60;
+
 @Controller()
 export class GrpcAnalyticsService {
-  private readonly jwtSecret: string;
-
   constructor(
     private readonly analyticsService: AnalyticsService,
-    config: ConfigService,
-  ) {
-    this.jwtSecret = config.getOrThrow<string>('JWT_SECRET');
-  }
+    private readonly authz: GrpcAuthzService,
+  ) {}
 
-  private resolveTenantId(metadata: unknown): string {
-    const token = resolveAuthorizationHeader(metadata);
-    if (!token) return 'default';
-    try {
-      const payload = jwt.verify(token, this.jwtSecret) as {
-        tenantId?: string;
-      };
-      return payload.tenantId ?? 'default';
-    } catch {
-      return 'default';
-    }
+  /**
+   * Authenticates and authorizes, and returns the caller so the tenant comes
+   * from the verified token. It must never fall back to a default tenant for an
+   * absent or invalid token: that hands anonymous callers real tenant data.
+   */
+  private authorize(
+    data: unknown,
+    metadata: unknown,
+    action: 'read' | 'write',
+  ): Promise<GrpcCaller> {
+    return this.authz.assert(extractToken(data, metadata), 'analytics', action);
   }
 
   @GrpcMethod('AnalyticsService', 'CreateEvent')
@@ -112,38 +116,47 @@ export class GrpcAnalyticsService {
     data: CreateEventRequest,
     metadata: unknown,
   ): Promise<EventResponse> {
+    const caller = await this.authorize(data, metadata, 'write');
     const event = await this.analyticsService.create({
       eventType: data.event_type as AnalyticsEventType,
       userId: data.user_id,
       metadata: data.metadata ? JSON.parse(data.metadata) : {},
-      tenantId: this.resolveTenantId(metadata),
+      tenantId: caller.tenantId,
     });
     return toGrpcEvent(event);
   }
 
   @GrpcMethod('AnalyticsService', 'GetStats')
   async getStats(
-    _data: StatsRequest,
+    data: StatsRequest,
     metadata: unknown,
   ): Promise<StatsResponse> {
-    const stats = await this.analyticsService.getStats(
-      this.resolveTenantId(metadata),
-    );
+    const caller = await this.authorize(data, metadata, 'read');
+    const stats = await this.analyticsService.getStats(caller.tenantId);
     return toGrpcStats(stats);
   }
 
   @GrpcMethod('AnalyticsService', 'GetRecent')
-  async getRecent(_data: RecentRequest): Promise<RecentResponse> {
-    const events = await this.analyticsService.getRecent();
+  async getRecent(
+    data: RecentRequest,
+    metadata: unknown,
+  ): Promise<RecentResponse> {
+    const caller = await this.authorize(data, metadata, 'read');
+    const events = await this.analyticsService.getRecent(caller.tenantId);
     return { events: events.map(toGrpcEvent) };
   }
 
   @GrpcMethod('AnalyticsService', 'GetMinutelyStats')
-  async getMinutelyStats(data: { minutes?: number }): Promise<{
+  async getMinutelyStats(
+    data: { minutes?: number },
+    metadata: unknown,
+  ): Promise<{
     stats: { window_ms: number; event_type: string; count: number }[];
   }> {
+    const caller = await this.authorize(data, metadata, 'read');
     const rows = await this.analyticsService.getMinutelyStats(
-      data.minutes ?? 60,
+      GrpcAuthzService.clampLimit(data.minutes, 60, MAX_MINUTES),
+      caller.tenantId,
     );
     return {
       stats: rows.map((r) => ({

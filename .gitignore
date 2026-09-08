@@ -97,5 +97,8 @@ apps/frontend/helm/ios/capacitor-cordova-ios-plugins/
 e2e/report/
 e2e/test-results/
 
+# Local database dumps written by infra/backup/backup.sh (make backup)
+backups/
+
 # Claude Code local settings/memory
 .claude/

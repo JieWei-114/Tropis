@@ -8,14 +8,37 @@ import { io, Socket } from 'socket.io-client';
 
 let socket: Socket | null = null;
 
-export type WsEventName = 'user.created' | 'user.updated' | 'notification';
+/**
+ * Every active subscriber. The socket is a singleton shared by all callers, so
+ * the set is what makes each caller's handler reachable when it joins an
+ * already-open socket, and what tells a cleanup whether anyone is still
+ * listening before it disconnects.
+ */
+const listeners = new Set<(e: WsEvent) => void>();
+
+function fanOut(e: WsEvent): void {
+  for (const listener of listeners) listener(e);
+}
+
+export type WsEventName =
+  | 'user.created'
+  | 'user.updated'
+  | 'notification'
+  | 'analytics.event'
+  | 'tracking.event';
 
 export interface WsEvent {
   name: WsEventName;
   data: Record<string, unknown>;
 }
 
-const WATCHED: WsEventName[] = ['user.created', 'user.updated', 'notification'];
+const WATCHED: WsEventName[] = [
+  'user.created',
+  'user.updated',
+  'notification',
+  'analytics.event',
+  'tracking.event',
+];
 
 export interface RealtimeOptions {
   /** Socket.io gateway origin, e.g. http://localhost:3100 (namespace /ws is appended). */
@@ -35,42 +58,45 @@ export function connectRealtime(
   const { url, token } = options;
   if (!token) return () => {};
 
-  // Reuse the existing socket if it is already connected or mid-handshake —
-  // creating a second one would leak connections and duplicate events.
-  if (socket && (socket.connected || socket.active)) {
-    const existing = socket;
-    return () => {
-      existing.disconnect();
-      if (socket === existing) socket = null;
-    };
+  listeners.add(onEvent);
+
+  // One socket for the whole app; a second connect only registers a listener.
+  if (!socket || !(socket.connected || socket.active)) {
+    // A socket that exhausted its reconnection attempts is inactive but still
+    // holds its handlers — detach it explicitly instead of orphaning it.
+    if (socket) {
+      socket.removeAllListeners();
+      socket.disconnect();
+    }
+    socket = io(`${url}/ws`, {
+      auth: { token },
+      transports: ['websocket'],
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 30_000,
+      randomizationFactor: 0.5,
+    });
+
+    socket.on('connect', () => {
+      // Round-trip probe; the gateway answers with 'pong' from its
+      // @SubscribeMessage('ping') handler, confirming the namespace is live.
+      socket?.emit('ping');
+    });
+
+    for (const ev of WATCHED) {
+      socket.on(ev, (data: Record<string, unknown>) =>
+        fanOut({ name: ev, data }),
+      );
+    }
   }
 
-  socket = io(`${url}/ws`, {
-    auth: { token },
-    transports: ['websocket'],
-    reconnectionAttempts: 10,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 30_000,
-    randomizationFactor: 0.5,
-  });
-
-  socket.on('connect', () => {
-    // Measure round-trip latency on connect
-    socket!.emit('ping');
-  });
-
-  socket.on('pong', ({ ts }: { ts: number }) => {
-    console.debug(`[WS] latency ${Date.now() - ts}ms`);
-  });
-
-  for (const ev of WATCHED) {
-    socket.on(ev, (data: Record<string, unknown>) => onEvent({ name: ev, data }));
-  }
-
-  const created = socket;
   return () => {
-    created.disconnect();
-    if (socket === created) socket = null;
+    listeners.delete(onEvent);
+    // Close only once nobody is listening any more.
+    if (listeners.size === 0 && socket) {
+      socket.disconnect();
+      socket = null;
+    }
   };
 }
 

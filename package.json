@@ -8,7 +8,7 @@
     "backend": "pnpm --filter @tropis/backend start:dev",
     "frontend": "pnpm --filter @tropis/helm dev",
     "worker": "pnpm --filter @tropis/temporal-worker start:dev",
-    "dev": "concurrently \"pnpm backend\" \"pnpm frontend\" \"pnpm worker\"",
+    "dev": "concurrently \"pnpm backend\" \"pnpm frontend\"",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
@@ -31,13 +31,18 @@
   },
   "lint-staged": {
     "apps/backend/**/*.ts": [
-      "pnpm --filter @tropis/backend lint",
+      "apps/backend/node_modules/.bin/eslint --config apps/backend/eslint.config.mjs",
       "prettier --write"
     ],
     "apps/frontend/helm/**/*.{ts,tsx}": [
+      "apps/frontend/helm/node_modules/.bin/eslint --config apps/frontend/helm/eslint.config.js",
       "prettier --write"
     ],
-    "**/*.{json,md}": [
+    "apps/frontend/harbor/**/*.{ts,tsx}": [
+      "apps/frontend/harbor/node_modules/.bin/eslint --config apps/frontend/harbor/eslint.config.mjs",
+      "prettier --write"
+    ],
+    "**/*.{json,md,yml,yaml,css}": [
       "prettier --write"
     ]
   },
@@ -45,21 +50,41 @@
     "onlyBuiltDependencies": [
       "@nestjs/core",
       "@scarf/scarf",
+      "bcrypt",
+      "esbuild",
+      "pg",
       "protobufjs",
       "pulsar-client",
+      "sharp",
       "unrs-resolver"
     ],
     "//overrides": [
       "SECURITY REMEDIATIONS — each override forces a patched version of a",
-      "transitive dependency flagged by `pnpm audit`. All are same-major",
-      "(patch/minor) bumps, so they are safe to force; backend `tsc` + `nest",
-      "build` verified green after applying them. When Dependabot lands a direct",
-      "bump that already satisfies the range, drop the matching line here.",
-      "protobufjs>=7.6.1 / grpc-js>=1.14.4 are on the runtime gRPC decode path;",
-      "the rest (shell-quote, tar, js-yaml) are build-time only.",
-      "NOT covered (left to a reviewed Dependabot PR): nodemailer 6→9 and",
-      "@opentelemetry/* 0.x (major bumps); brace-expansion (a blanket range",
-      "override pulls a major that breaks minimatch@3's expand() API)."
+      "transitive dependency flagged by `pnpm audit`. Every entry is a same-major",
+      "(patch/minor) bump of the version actually installed, so it is safe to",
+      "force; the full verification suite is green after applying them. When",
+      "Dependabot lands a direct bump that already satisfies the range, drop the",
+      "matching line here.",
+      "protobufjs>=7.6.1 / grpc-js>=1.14.4 / fast-uri / qs / body-parser /",
+      "socket.io-parser / axios are on runtime request paths; the rest",
+      "(shell-quote, tar, js-yaml, browserslist, postcss, nanoid, esbuild,",
+      "brace-expansion, ip-address, @babel/core, @humanfs/node, @xmldom/xmldom)",
+      "are build- or test-time only. sharp is next/image's optional native",
+      "encoder — 0.35.x verified by `next build` plus an encode smoke test.",
+      "esbuild is scoped to the tsup 0.27.x line; the 0.21.x copy is pinned by",
+      "vite 5 and only a vite 5→6 bump clears it.",
+      "brace-expansion is scoped to the installed 5.x line on purpose — a",
+      "blanket range override pulls a major that breaks minimatch@3's expand()",
+      "API, and 1.x/2.x are not in any advisory range.",
+      "DONE as direct major bumps, no override needed: nodemailer 6→10 (backend",
+      "+ temporal-worker; bundles its own types now, so @types/nodemailer was",
+      "dropped rather than bumped) and react-router-dom 6→react-router 7 in helm",
+      "(v7 folded the DOM exports back into `react-router`, so the separate",
+      "-dom package is redundant for a declarative SPA).",
+      "NOT covered, each needs a reviewed major bump (see the audit report):",
+      "vite 5→6, vitest 1→3, uuid 10→11, and minio's stream-json 1→3 /",
+      "decode-uri-component 0.2→0.5 (minio 8.0.7 is already latest, so only a",
+      "blanket major override would clear those two)."
     ],
     "overrides": {
       "shell-quote@<1.8.4": ">=1.8.4",
@@ -70,10 +95,27 @@
       "ws@<8.21.0": ">=8.21.0",
       "js-yaml@<4.3.0": ">=4.3.0",
       "form-data@<4.0.6": ">=4.0.6",
-      "multer@<2.2.0": ">=2.2.0"
+      "multer@<2.2.0": ">=2.2.0",
+      "fast-uri@<3.1.6": "^3.1.6",
+      "postcss@<8.5.23": "^8.5.23",
+      "nanoid@<3.3.18": "^3.3.18",
+      "browserslist@<4.28.7": "^4.28.8",
+      "brace-expansion@>=5.0.0 <5.0.9": "^5.0.9",
+      "ip-address@<10.3.1": "^10.3.1",
+      "axios@<1.18.0": "^1.18.0",
+      "socket.io-parser@<4.2.7": "^4.2.7",
+      "qs@<6.16.0": "^6.16.0",
+      "body-parser@>=2.0.0 <2.3.0": "^2.3.0",
+      "@babel/core@<7.29.6": "^7.29.7",
+      "@humanfs/node@<0.16.8": "^0.16.8",
+      "@xmldom/xmldom@>=0.9.0 <0.9.12": "^0.9.12",
+      "esbuild@>=0.27.3 <0.28.1": "^0.28.2",
+      "@opentelemetry/core@<2.8.0": "^2.8.0",
+      "sharp@<0.35.0": "^0.35.0"
     }
   },
   "engines": {
     "node": ">=22"
-  }
+  },
+  "//lint-staged": "Staged-file checks. Commands are workspace-local binaries with an explicit --config rather than `pnpm --filter <ws> lint`, for two reasons: a commit started from an editor or GUI has no package manager on PATH, and the filter form lints the whole workspace on every commit instead of the files being committed. eslint resolves flat config from the cwd, so the config path has to be explicit when it runs from the repo root."
 }

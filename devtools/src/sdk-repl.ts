@@ -6,16 +6,17 @@
  *   > await api.fireEvent('button_click', 'me', { from: 'repl' })
  *
  * Transport note: the SDK's connect-web gRPC-Web transport needs a WHATWG
- * fetch — Node 20 ships one, and unary RPCs work fine over it, so the REPL
- * takes the exact browser path: SDK → Envoy :8090 (gRPC-Web) → backend
- * :50051. That means Envoy must be up (`make up`) as well as the backend
- * (`make dev`). Server-streaming calls (subscribeToStream) may not work
- * under Node's fetch — everything unary does.
+ * fetch — Node 22 ships one, so the REPL takes the exact browser path:
+ * SDK → Envoy :8090 (gRPC-Web) → backend :50051. That means Envoy must be up
+ * (`make up`) as well as the backend (`make dev`). Every RPC the facade
+ * exposes is unary, so all of them work over Node's fetch. Live event streams
+ * are WebSocket, not gRPC — use `make ws-listen` for those.
  *
- * The SDK's token store expects `localStorage`; Node 20 has none, so a tiny
+ * The SDK's token store expects `localStorage`; Node has none, so a tiny
  * in-memory shim is installed before the SDK is imported.
  *
- * Login: admin@example.com / Password123! (the `make seed` admin) — override
+ * Login: admin@example.com / Password123! (the `make seed` user; run
+ * `make promote-admin EMAIL=admin@example.com` for the admin role) — override
  * with SDK_EMAIL / SDK_PASSWORD, or endpoints with GRPC_WEB_URL / REST_URL.
  *
  * Run: `make sdk-repl`  (→ pnpm --filter @tropis/devtools sdk-repl — uses tsx,
@@ -56,7 +57,7 @@ async function main(): Promise<void> {
   } catch (err) {
     console.error(
       `✗ Login failed: ${err instanceof Error ? err.message : String(err)}` +
-        `\n  Checklist: Envoy up? (make up) · backend up? (make dev) · admin seeded? (make seed)`,
+        `\n  Checklist: Envoy up? (make up) · backend up? (make dev) · user seeded? (make seed) · admin role granted? (make promote-admin EMAIL=admin@example.com)`,
     );
     process.exit(1);
   }

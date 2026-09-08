@@ -30,7 +30,7 @@ This is the live layout: `auth`, `user`, `analytics`, `tracking`, `signing`, and
 
 ## REST
 
-- All versioned business routes are prefixed `/api/v1` — the global prefix is `api` (`app.setGlobalPrefix('api')` in `main.ts`) and the version segment lives in the controller path (e.g. `@Controller('v1/track')`). Infrastructure endpoints (`/api/health`, `/api/metrics`, OAuth callbacks) stay unversioned.
+- Versioned routes are prefixed `/api/v1` — the global prefix is `api` (`app.setGlobalPrefix('api')` in `main.ts`) and the version segment lives in the controller path. Today the only versioned controller is tracking ingest (`@Controller('v1/track')`), because it is the one REST surface third parties call. Everything else on REST is unversioned because it is either infrastructure (`/api/health`, `/api/metrics`) or console-only glue consumed solely by our own frontend (`/api/auth/*` incl. the OAuth callbacks, `/api/users/*`, `/api/workflows/onboarding`) — version those the same way if they ever gain an external consumer.
 
 - Same add-only rules as proto: new optional fields OK; removing/renaming/retyping a field ⇒ `/api/v2`.
 

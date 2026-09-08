@@ -42,8 +42,17 @@ interface VaultClient {
     path: string,
     data: Record<string, unknown>,
   ): Promise<{ auth?: { client_token: string; lease_duration: number } }>;
-  token: { renewSelf(body?: Record<string, unknown>): Promise<unknown> };
+  token: {
+    renewSelf(body?: Record<string, unknown>): Promise<{
+      auth?: { lease_duration?: number };
+    }>;
+  };
 }
+
+/** Lease extension requested on each renewal — must match the reschedule. */
+const RENEW_INCREMENT = '1h';
+/** Seconds in RENEW_INCREMENT — the renewal interval must stay below it. */
+const RENEW_INCREMENT_SECONDS = 60 * 60;
 
 @Injectable()
 export class VaultService implements OnModuleInit, OnModuleDestroy {
@@ -95,7 +104,11 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
       }) as VaultClient;
       await this.client.health();
       this.logger.log(`Vault connected via static token at ${addr}`);
-      this.scheduleRenewal(23 * 60); // renew before 24h TTL
+      // A static token's initial TTL is irrelevant: the first renewal resets
+      // the lease to RENEW_INCREMENT, so every later renewal must land inside
+      // that window. Interval is derived from the increment for that reason —
+      // an interval longer than it lets the token expire between renewals.
+      this.scheduleRenewal(this.renewIntervalFor(RENEW_INCREMENT_SECONDS));
     } else {
       throw new Error(
         'No Vault credentials — set VAULT_TOKEN or VAULT_ROLE_ID + VAULT_SECRET_ID',
@@ -125,10 +138,15 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Vault authenticated via AppRole (TTL: ${ttlSecs}s)`);
 
     // Renew at 1/3 of TTL so we never get close to expiry
-    this.scheduleRenewal(Math.floor(ttlSecs / 3));
+    this.scheduleRenewal(this.renewIntervalFor(ttlSecs));
   }
 
   // ── Token renewal (keeps the app running past the initial TTL) ────────────
+
+  /** Renew at 1/3 of the lease, clamped so we always renew well before expiry. */
+  private renewIntervalFor(ttlSecs: number): number {
+    return Math.max(30, Math.floor(ttlSecs / 3));
+  }
 
   private scheduleRenewal(intervalSecs: number) {
     if (this.renewalTimer) clearInterval(this.renewalTimer);
@@ -136,8 +154,22 @@ export class VaultService implements OnModuleInit, OnModuleDestroy {
     this.renewalTimer = setInterval(async () => {
       if (!this.client) return;
       try {
-        await this.client.token.renewSelf({ increment: '1h' });
+        const res = await this.client.token.renewSelf({
+          increment: RENEW_INCREMENT,
+        });
         this.logger.debug('Vault token renewed');
+
+        // Reschedule from the ACTUAL renewed lease, not the initial TTL:
+        // renewSelf resets the lease to RENEW_INCREMENT, so an interval pinned
+        // to a longer initial TTL (e.g. 6h → every 2h) would fire on a token
+        // that only lives 1h. The token then expires unnoticed and every
+        // Vault-dependent path degrades — encryptEmail starts writing plaintext
+        // PII into the audit log.
+        const renewedTtl = res?.auth?.lease_duration;
+        if (typeof renewedTtl === 'number' && renewedTtl > 0) {
+          const next = this.renewIntervalFor(renewedTtl);
+          if (next !== intervalSecs) this.scheduleRenewal(next);
+        }
       } catch (err) {
         this.logger.warn(
           `Vault token renewal failed: ${(err as Error).message}`,

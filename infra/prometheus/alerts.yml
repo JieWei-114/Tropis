@@ -64,3 +64,61 @@ groups:
         annotations:
           summary: 'HTTP p95 latency above 1s'
           description: 'p95 request duration is {{ $value | humanizeDuration }} over the last 5 minutes.'
+
+  - name: outbox
+    rules:
+      - alert: OutboxDeadRows
+        expr: tropis_outbox_rows{job="nestjs", status="dead"} > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Outbox has {{ $value }} dead-lettered row(s)'
+          description: 'Rows reached the terminal DEAD status after exhausting all publish attempts — those domain events will NEVER be delivered without manual intervention, so downstream read models (Elasticsearch, pgvector, ClickHouse) are permanently out of sync. Query the outbox collection for status "dead" and read lastError to find the failing topic, then replay the rows once the cause is fixed.'
+
+      - alert: OutboxFailedBacklogSustained
+        expr: min_over_time(tropis_outbox_rows{job="nestjs", status="failed"}[15m]) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Outbox FAILED backlog has not cleared in 30 minutes'
+          description: '{{ $value }} row(s) have been stuck in FAILED for half an hour, meaning the exponential retry backoff is not winning — the broker or a topic is rejecting publishes. Rows in this state also hold back every later event for the same aggregate. They become DEAD after 5 attempts; check the relay error logs and Pulsar health now.'
+
+      - alert: OutboxPendingBacklogGrowing
+        expr: min_over_time(tropis_outbox_rows{job="nestjs", status="pending"}[10m]) > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Outbox PENDING backlog above 100 and not draining'
+          description: 'The relay publishes 50 rows every 5 seconds, so a floor of {{ $value }} PENDING rows over 10 minutes means it is not keeping up or not running. Check OutboxRelayStalled, the relay Redis lock, and whether writes are outpacing the batch size.'
+
+      - alert: OutboxRelayStalled
+        expr: time() - max(tropis_outbox_relay_last_poll_timestamp_seconds{job="nestjs"}) > 60
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Outbox relay has not polled for over a minute'
+          description: 'No instance has acquired the outbox relay lock for more than 60 seconds (it should poll every 5s). Nothing is being published: every domain event is piling up as PENDING. Usual cause is Redis being unreachable, so the lock can never be taken — check Redis and the relay logs for "lock unavailable".'
+
+  - name: messaging
+    rules:
+      - alert: PulsarDeadLetterBacklog
+        expr: pulsar_msg_backlog{job="pulsar", topic=~".*-DLQ"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Pulsar dead-letter topic {{ $labels.topic }} has a backlog'
+          description: '{{ $value }} message(s) sit in {{ $labels.topic }}. A consumer failed the same message 5 times (maxRedeliverCount in pulsar-broker.adapter.ts) and it was routed here instead of blocking the subscription — the work in it was never done. Inspect the payloads and the handler error logs for the parent topic.'
+
+      - alert: PulsarDeadLetterRateHigh
+        expr: sum by (topic) (rate(pulsar_in_messages_total{job="pulsar", topic=~".*-DLQ"}[10m])) > 0.1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Messages are entering {{ $labels.topic }} continuously'
+          description: 'Dead-lettering at {{ $value }} msg/s over 10 minutes is not one poison message — a consumer handler is failing broadly (bad deploy, a down sink). Fix the handler before the backlog grows past what is practical to replay.'

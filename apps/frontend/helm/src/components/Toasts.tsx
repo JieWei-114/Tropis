@@ -1,9 +1,9 @@
 import { useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
-export type ToastType = 'success' | 'info' | 'warning' | 'error';
+type ToastType = 'success' | 'info' | 'warning' | 'error';
 
-export interface Toast {
+interface Toast {
   id: string;
   title: string;
   message?: string;
@@ -46,7 +46,6 @@ function ToastItem({
       className={`pointer-events-auto flex max-w-[380px] min-w-[280px] animate-toast-in items-start gap-2.5 rounded-[10px] border p-3 backdrop-blur-md ${TYPE_CLASSES[toast.type]}`}
       role="alert"
     >
-      <div className="shrink-0 text-base leading-none">{ICONS[toast.type]}</div>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="text-[13px] font-semibold text-foreground">
           {toast.title}
@@ -61,7 +60,7 @@ function ToastItem({
         onClick={dismiss}
         aria-label={t('toasts.dismiss')}
       >
-        ✕
+        ×
       </button>
     </div>
   );
@@ -73,29 +72,3 @@ const TYPE_CLASSES: Record<ToastType, string> = {
   warning: 'border-warning/25 bg-warning/10',
   error: 'border-danger/25 bg-danger/10',
 };
-
-const ICONS: Record<ToastType, string> = {
-  success: '✅',
-  info: '💬',
-  warning: '⚠️',
-  error: '🔴',
-};
-
-// ── Hook ──────────────────────────────────────────────────────────────────────
-
-import { useState } from 'react';
-
-export function useToasts() {
-  const [toasts, setToasts] = useState<Toast[]>([]);
-
-  const push = useCallback((toast: Omit<Toast, 'id'>) => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    setToasts((prev) => [...prev.slice(-4), { ...toast, id }]); // max 5
-  }, []);
-
-  const dismiss = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, []);
-
-  return { toasts, push, dismiss };
-}

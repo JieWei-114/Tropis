@@ -1,10 +1,10 @@
-# Tracking plan (埋点 event dictionary & governance)
+# Tracking plan (event-tracking dictionary & governance)
 
 The contract for every user-behavior tracking event this system emits.
 Code source of truth: [`packages/shared/src/events/tracking-events.ts`](../packages/shared/src/events/tracking-events.ts)
 (`TRACKING_EVENTS`). This doc is the human-readable registry and the rules.
 
-Pipeline recap (details in [tech-decisions.md → Tracking](tech-decisions.md#tracking-user-behavior--埋点)):
+Pipeline recap (details in [tech-decisions.md → Tracking](tech-decisions.md#tracking-user-behavior-instrumentation)):
 SDK tracker (`packages/sdk/src/tracking`) → `POST /api/v1/track` → Pulsar
 `tracking-events` → `tracking.processor.ts` → ClickHouse `logs.user_behavior`.
 Analysis: [`infra/clickhouse/queries/`](../infra/clickhouse/queries/README.md),
@@ -61,7 +61,7 @@ string in ClickHouse — query with `JSONExtractString(props, 'key')`.
 | Name                 | When fired                                                                        | Props                                                                                   | Owner    |
 | -------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | -------- |
 | `page.view`          | Auto on every SPA route change (`<PageTracker />` → `tracker.page`)               | `{ path: string }`                                                                      | frontend |
-| `nav.click`          | Top-nav link clicked (`App.tsx`)                                                  | `{ to: string; label: string }`                                                         | frontend |
+| `nav.click`          | Sidebar (or mobile top-bar) nav link clicked (`App.tsx`)                          | `{ to: string; label: string }`                                                         | frontend |
 | `user.login`         | Successful sign-in, after `tracker.identify` (`LoginForm`, both modes)            | `{ mode: 'login' \| 'register' }`                                                       | frontend |
 | `user.register`      | Account created via the register form (`LoginForm`)                               | `{ email: string }`                                                                     | frontend |
 | `button.click`       | Generic UI button click (currently the FireEventPanel demo buttons)               | `{ label: string; eventType: string }`                                                  | frontend |

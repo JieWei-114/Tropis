@@ -25,7 +25,9 @@ function int(name: string, fallback: number): number {
   if (raw === undefined || raw === '') return fallback;
   const n = Number(raw);
   if (!Number.isInteger(n) || n <= 0 || n > 65535) {
-    throw new Error(`Invalid ${name}="${raw}" — expected a port number (1-65535)`);
+    throw new Error(
+      `Invalid ${name}="${raw}" — expected a port number (1-65535)`,
+    );
   }
   return n;
 }
@@ -39,7 +41,11 @@ export function loadEnv(): WorkerEnv {
   return {
     temporalAddress: str('TEMPORAL_ADDRESS', 'localhost:7233'),
     temporalNamespace: str('TEMPORAL_NAMESPACE', 'default'),
-    taskQueue: str('TEMPORAL_TASK_QUEUE', 'main'),
+    // Must NOT default to the backend's queue ('main', see
+    // apps/backend/src/infrastructure/temporal/temporal.constants.ts). Both
+    // processes register different workflow bundles, so sharing a queue means
+    // whichever worker picks up a task may not know the workflow type at all.
+    taskQueue: str('TEMPORAL_TASK_QUEUE', 'notifications'),
     // MailHog dev SMTP trap (docker-compose service `mailhog`)
     smtpHost: str('SMTP_HOST', 'localhost'),
     smtpPort: int('SMTP_PORT', 1025),

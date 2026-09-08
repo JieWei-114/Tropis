@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
-/** shadcn/ui Dialog on app tokens — matches the old UserModal chrome. */
+/** shadcn/ui Dialog, restyled onto the app's design tokens. */
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
 const DialogPortal = DialogPrimitive.Portal;

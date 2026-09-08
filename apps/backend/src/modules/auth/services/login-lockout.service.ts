@@ -11,12 +11,12 @@ const EMAIL_PREFIX = 'login:fail:email:'; // login:fail:email:{email}
 /**
  * Login lockout. Two counters, both sliding 15-min windows:
  *   - email+IP  → LOCKOUT_MAX_ATTEMPTS (5)  — stops targeted brute force.
- *   - email     → LOCKOUT_EMAIL_MAX (30)     — stops an attacker rotating IPs
- *     to reset the per-IP counter (the previous design's bypass).
+ *   - email     → LOCKOUT_EMAIL_MAX (30)     — stops an attacker rotating IPs,
+ *     which on its own resets the per-IP counter.
  * Either threshold reached ⇒ 429 before the password is checked.
  *
- * INCR+EXPIRE run atomically in one Lua script, so a crash between them can no
- * longer leave a TTL-less key that locks an email+IP out forever.
+ * INCR+EXPIRE run atomically in one Lua script: a crash between the two would
+ * leave a TTL-less key and lock an email+IP out forever.
  *
  * Redis failures fail OPEN — an unavailable Redis must not lock everyone out.
  * The per-email counter's DoS risk (an attacker locking a victim) is bounded by

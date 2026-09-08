@@ -18,37 +18,37 @@ metadata:
   name: backend-config
   namespace: tropis
 data:
-  PORT: "3100"
-  GRPC_PORT: "50051"
-  GRPC_INTERNAL_PORT: "50061"
-  NODE_ENV: "production"
-  LOG_LEVEL: "info"
-  CORS_ORIGIN: "http://localhost:8088"
+  PORT: '3100'
+  GRPC_PORT: '50051'
+  GRPC_INTERNAL_PORT: '50061'
+  NODE_ENV: 'production'
+  LOG_LEVEL: 'info'
+  CORS_ORIGIN: 'http://localhost:8088'
   # localhost → host.docker.internal so the Pod reaches the host's Compose ports
-  MONGODB_URI: "mongodb://host.docker.internal:27018/tropis?directConnection=true"
-  REDIS_HOST: "host.docker.internal"
-  REDIS_PORT: "6379"
-  CLICKHOUSE_HOST: "http://host.docker.internal:8123"
-  CLICKHOUSE_USER: "default"
-  CLICKHOUSE_DATABASE: "logs"
-  PULSAR_SERVICE_URL: "pulsar://host.docker.internal:6650"
-  MESSAGE_BROKER: "pulsar"
-  POSTGRES_HOST: "host.docker.internal"
-  POSTGRES_PORT: "5432"
-  POSTGRES_USER: "tropis"
-  POSTGRES_DB: "tropis"
-  POSTGRES_SSL: "false"
-  ELASTICSEARCH_NODE: "http://host.docker.internal:9200"
-  ELASTICSEARCH_USERNAME: ""
-  TEMPORAL_ADDRESS: "host.docker.internal:7233"
-  TEMPORAL_NAMESPACE: "default"
-  MINIO_ENDPOINT: "host.docker.internal"
-  MINIO_PORT: "9900"
-  MINIO_USE_SSL: "false"
-  OPA_URL: "http://host.docker.internal:8181"
-  JWT_EXPIRES_IN: "15m"
-  OTEL_SERVICE_NAME: "nestjs-backend"
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://host.docker.internal:4318/v1/traces"
+  MONGODB_URI: 'mongodb://host.docker.internal:27018/tropis?directConnection=true'
+  REDIS_HOST: 'host.docker.internal'
+  REDIS_PORT: '6379'
+  CLICKHOUSE_HOST: 'http://host.docker.internal:8123'
+  CLICKHOUSE_USER: 'default'
+  CLICKHOUSE_DATABASE: 'logs'
+  PULSAR_SERVICE_URL: 'pulsar://host.docker.internal:6650'
+  MESSAGE_BROKER: 'pulsar'
+  POSTGRES_HOST: 'host.docker.internal'
+  POSTGRES_PORT: '5432'
+  POSTGRES_USER: 'tropis'
+  POSTGRES_DB: 'tropis'
+  POSTGRES_SSL: 'false'
+  ELASTICSEARCH_NODE: 'http://host.docker.internal:9200'
+  ELASTICSEARCH_USERNAME: ''
+  TEMPORAL_ADDRESS: 'host.docker.internal:7233'
+  TEMPORAL_NAMESPACE: 'default'
+  MINIO_ENDPOINT: 'host.docker.internal'
+  MINIO_PORT: '9900'
+  MINIO_USE_SSL: 'false'
+  OPA_URL: 'http://host.docker.internal:8181'
+  JWT_EXPIRES_IN: '15m'
+  OTEL_SERVICE_NAME: 'nestjs-backend'
+  OTEL_EXPORTER_OTLP_ENDPOINT: 'http://host.docker.internal:4318/v1/traces'
 ---
 apiVersion: v1
 kind: Secret
@@ -58,8 +58,8 @@ metadata:
 type: Opaque
 stringData:
   # Dev-only values matching the Compose datastores (no auth on redis/clickhouse).
-  JWT_SECRET: "dev-only-secret-change-in-production-32ch"
-  REDIS_PASSWORD: ""
-  CLICKHOUSE_PASSWORD: ""
-  POSTGRES_PASSWORD: "tropis_dev_password"
-  ELASTICSEARCH_PASSWORD: ""
+  JWT_SECRET: 'dev-only-secret-change-in-production-32ch'
+  REDIS_PASSWORD: ''
+  CLICKHOUSE_PASSWORD: ''
+  POSTGRES_PASSWORD: 'tropis_dev_password'
+  ELASTICSEARCH_PASSWORD: ''

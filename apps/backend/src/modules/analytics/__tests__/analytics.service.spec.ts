@@ -119,21 +119,35 @@ describe('AnalyticsService', () => {
       });
       expect(redis.del).toHaveBeenCalledWith(analyticsStatsKey('tenant-a'));
     });
-
-    it('pushes event to the SSE stream', async () => {
-      const received: unknown[] = [];
-      service.getEventStream().subscribe((e) => received.push(e));
-
-      await service.create({
-        eventType: AnalyticsEventType.BUTTON_CLICK,
-        userId: 'user-456',
-      });
-
-      expect(received).toHaveLength(1);
-    });
   });
 
   describe('getStats', () => {
+    it('filters the ClickHouse query by the same tenant it caches under', async () => {
+      // The cache key was already per tenant while the query was not, so one
+      // tenant's cache entry held the whole cluster's counts — a cross-tenant
+      // leak, not merely a wrong total. The filter and the key must agree.
+      redis.get.mockResolvedValue(null);
+
+      await service.getStats('tenant-b');
+
+      expect(analyticsRepo.getStatsByType).toHaveBeenCalledWith(
+        expect.any(Number),
+        'tenant-b',
+      );
+      const [key] = redis.set.mock.calls[0] as [string];
+      expect(key).toContain('tenant-b');
+    });
+
+    it('never serves one tenant a cache entry written for another', async () => {
+      redis.get.mockResolvedValue(null);
+
+      await service.getStats('tenant-a');
+      await service.getStats('tenant-b');
+
+      const keys = (redis.set.mock.calls as [string][]).map(([k]) => k);
+      expect(new Set(keys).size).toBe(2);
+    });
+
     it('returns cached stats when Redis has a value', async () => {
       const cached = { totalEvents: 3, byType: [], cachedAt: Date.now() };
       redis.get.mockResolvedValue(JSON.stringify(cached));
@@ -177,17 +191,15 @@ describe('AnalyticsService', () => {
   });
 
   describe('getRecent', () => {
+    it('scopes the query to the requested tenant', async () => {
+      await service.getRecent('tenant-b');
+      expect(eventLogRepo.findAll).toHaveBeenCalledWith(20, 'tenant-b');
+    });
+
     it('returns the last 20 events from MongoDB', async () => {
       const result = await service.getRecent();
-      expect(eventLogRepo.findAll).toHaveBeenCalledWith(20);
+      expect(eventLogRepo.findAll).toHaveBeenCalledWith(20, 'default');
       expect(result).toHaveLength(1);
-    });
-  });
-
-  describe('getEventStream', () => {
-    it('returns an observable', () => {
-      const stream = service.getEventStream();
-      expect(typeof stream.subscribe).toBe('function');
     });
   });
 });

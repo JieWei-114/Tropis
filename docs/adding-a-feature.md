@@ -53,7 +53,7 @@ All business logic. Injects the repository, `OutboxService`, queue service — n
 ## 7. Controllers — `controllers/`
 
 - `order.grpc.controller.ts` — implements `tropis.order.v1.OrderService`. Thin: validate → service → transformer.
-- REST controller **only if** the feature hits a REST-only case (upload / OAuth callback / webhook / SSE — see `docs/architecture.md`). Otherwise skip it.
+- REST controller **only if** the feature hits a REST-only case (upload / OAuth callback / webhook — see `docs/architecture.md`). Otherwise skip it.
 
 ## 8. Transformer — `transformers/order.transformer.ts`
 

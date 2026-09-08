@@ -377,6 +377,66 @@ jobs:
       - name: Build
         run: pnpm build
 
+  # ── Formatting ─────────────────────────────────────────────────────
+  # Enforced here as well as in the pre-commit hook: the hook only sees staged
+  # files in the paths it is configured for, so drift in anything else — infra
+  # YAML, docs, JS configs — is otherwise invisible.
+  format:
+    name: Format — prettier
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: npx prettier --check .
+
+  # ── SDK ────────────────────────────────────────────────────────────
+  # The SDK was previously covered by nothing: its type check would have
+  # caught the stale generated code above, and CI never ran it.
+  sdk:
+    name: SDK — type check, build, test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/sdk
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
   # ── Flink ──────────────────────────────────────────────────────────
   flink:
     name: Flink — compile
@@ -403,7 +463,7 @@ jobs:
   e2e:
     name: E2E — full stack integration
     runs-on: ubuntu-latest
-    needs: [backend, frontend, shared]   # only run if all unit tests and builds pass
+    needs: [backend, frontend, shared] # only run if all unit tests and builds pass
 
     steps:
       - uses: actions/checkout@v4
@@ -510,7 +570,7 @@ jobs:
           nohup pnpm --filter @tropis/helm preview --port 5173 --strictPort > frontend-e2e.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://localhost:5173 >/dev/null 2>&1 && break; sleep 1; done
         env:
-          VITE_GRPC_WEB_URL: http://localhost:8090   # Envoy gRPC-Web port from compose
+          VITE_GRPC_WEB_URL: http://localhost:8090 # Envoy gRPC-Web port from compose
           VITE_API_BASE_URL: http://localhost:3100
           VITE_WS_URL: http://localhost:3100
 
@@ -547,7 +607,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # full history so Gitleaks can diff against base branch
+          fetch-depth: 0 # full history so Gitleaks can diff against base branch
 
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
@@ -600,7 +660,7 @@ jobs:
   sonarcloud:
     name: Code quality — SonarCloud
     runs-on: ubuntu-latest
-    needs: [backend, frontend]   # wait for both coverage reports to be uploaded
+    needs: [backend, frontend] # wait for both coverage reports to be uploaded
     # Exposes SONAR_TOKEN at job scope so the scan step can skip cleanly when
     # it isn't configured (a fresh fork has no token) instead of failing CI.
     env:
@@ -609,7 +669,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # full history for accurate blame and new-code analysis
+          fetch-depth: 0 # full history for accurate blame and new-code analysis
 
       - name: Download backend coverage
         uses: actions/download-artifact@v4
@@ -659,6 +719,28 @@ jobs:
       - name: Breaking change check
         if: github.event_name == 'pull_request'
         run: buf breaking --against '.git#branch=main'
+
+      # Codegen drift. `buf lint` says the protos are well formed; it says
+      # nothing about whether packages/sdk/src/gen was regenerated after they
+      # changed. A stale gen is invisible until something reads the new field
+      # at runtime and silently gets nothing, so prove it is in sync.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate the SDK from the protos
+        run: npx @bufbuild/buf generate
+
+      - name: Fail if the committed generated code differs
+        run: git diff --exit-code -- packages/sdk/src/gen
 
   # ── Lighthouse CI ──────────────────────────────────────────────────
   # Scores all five audit categories (Performance, Accessibility, Best

@@ -29,7 +29,7 @@ function makeSchema(mode: Mode, t: TFunction) {
         : z.string(),
     age: optionalAgeString(t('auth.validation.ageRange')),
     email: z.string().email(t('auth.validation.emailInvalid')),
-    password: z.string().min(6, t('auth.validation.passwordMin6')),
+    password: z.string().min(8, t('auth.validation.passwordMin8')),
   });
 }
 
@@ -96,7 +96,7 @@ export function LoginForm({ onLogin }: Props) {
     }`;
 
   return (
-    <div className="flex min-h-[calc(100vh-52px)] items-center justify-center px-4 py-10">
+    <div className="flex min-h-[calc(100dvh-58px)] items-center justify-center px-4 py-10">
       <Card className="w-full max-w-[400px]">
         <form
           className="flex flex-col gap-[18px] px-8 py-9"

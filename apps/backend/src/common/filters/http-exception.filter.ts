@@ -9,12 +9,23 @@ import {
 import { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { ERROR_CODES, HTTP_STATUS_TO_ERROR_CODE } from '@tropis/shared';
+import { GrpcExceptionFilter } from './grpc-exception.filter';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name);
+  /** rpc hosts are mapped by this, not by an HTTP response. */
+  private readonly rpcFilter = new GrpcExceptionFilter();
 
   catch(exception: unknown, host: ArgumentsHost) {
+    // Registered with app.useGlobalFilters as a catch-all, so it also receives
+    // gRPC exceptions. Only one filter ever handles a given exception, so
+    // GrpcExceptionFilter must be invoked directly: re-throwing would escape to
+    // the transport and reach gRPC clients as `Unknown: Internal server error`.
+    if (host.getType() !== 'http') {
+      return this.rpcFilter.catch(exception, host);
+    }
+
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();

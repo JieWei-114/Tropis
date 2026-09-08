@@ -30,12 +30,12 @@ Decision: **if losing or double-counting a row costs money, it goes in PostgreSQ
 
 ## BullMQ vs Temporal
 
-|               | BullMQ                                                                                                                        | Temporal                                                                                                                                                                                |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| What          | Redis-backed job queue                                                                                                        | Durable workflow engine                                                                                                                                                                 |
-| Use for       | Short (< seconds–minutes), retryable, fire-and-forget background jobs: send an email, resize an image, push to DLQ on failure | Long-running (minutes–days), multi-step, stateful workflows: sagas with compensation, human-in-the-loop steps, cron-like durable timers, anything that must survive a deploy mid-flight |
-| Don't use for | Multi-step orchestration where step 3 depends on step 1's result and the process may take hours → Temporal                    | A single retryable task — Temporal's overhead (worker, task queue, versioning) isn't worth it → BullMQ                                                                                  |
-| In code       | `src/infrastructure/queue/` — queue service + processors + Bull Board UI                                                      | `src/infrastructure/temporal/` (client) + `apps/temporal-worker/` (workflows + activities)                                                                                              |
+|               | BullMQ                                                                                                                        | Temporal                                                                                                                                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What          | Redis-backed job queue                                                                                                        | Durable workflow engine                                                                                                                                                                                       |
+| Use for       | Short (< seconds–minutes), retryable, fire-and-forget background jobs: send an email, resize an image, push to DLQ on failure | Long-running (minutes–days), multi-step, stateful workflows: sagas with compensation, human-in-the-loop steps, cron-like durable timers, anything that must survive a deploy mid-flight                       |
+| Don't use for | Multi-step orchestration where step 3 depends on step 1's result and the process may take hours → Temporal                    | A single retryable task — Temporal's overhead (worker, task queue, versioning) isn't worth it → BullMQ                                                                                                        |
+| In code       | `src/infrastructure/queue/` — queue service + processors + Bull Board UI                                                      | `src/infrastructure/temporal/` — client (`temporal.service.ts`), workflows (`workflows.ts`), activities (`activities.ts`) and the **in-process worker** (`temporal-worker.module.ts`), all inside the backend |
 
 Decision question: **"if the process crashes halfway, does partial completion matter?"** Yes → Temporal. No (safe to just retry the whole job) → BullMQ.
 
@@ -147,7 +147,7 @@ The monorepo is proto-first, so services are language-agnostic at the contract l
 
 ---
 
-## Tracking (user behavior / 埋点)
+## Tracking (user behavior instrumentation)
 
 Two deliberate deviations from the defaults above, both scoped to `modules/tracking/`:
 
@@ -180,7 +180,7 @@ gracefully.
 | **Vault**         | Graceful at startup: `VAULT_ADDR` unset → "Vault disabled, using .env values"; unreachable → "falling back to .env". Already-set env vars always win. Down mid-run only affects re-reads. Not in the health check.                                                                                                                                                                                                           | `infrastructure/vault/vault.service.ts`, `vault.module.ts`                                                                                |
 | **OPA**           | **Fails closed**: non-200 or unreachable → "denying by default". Authorization-gated actions are refused until OPA returns. Health 503.                                                                                                                                                                                                                                                                                      | `infrastructure/opa/opa.service.ts` `allow()`                                                                                             |
 | **MinIO**         | Graceful at startup ("file storage unavailable" warning); runtime upload/download calls throw to the caller. Health 503.                                                                                                                                                                                                                                                                                                     | `infrastructure/storage/storage.service.ts` `onModuleInit` catch                                                                          |
-| **Temporal**      | Client connects lazily; today only the health indicator exercises it, so a down Temporal costs health 503 and any future workflow starts.                                                                                                                                                                                                                                                                                    | `infrastructure/temporal/temporal.service.ts`, `health/indicators/temporal.health.ts`                                                     |
+| **Temporal**      | Graceful: the client connects lazily and the in-process worker is skipped when Temporal is unreachable (`available` flag), so the app boots and `GET /api/workflows/onboarding` degrades to empty/zero. Onboarding follow-ups are not started while it is down. Health 503.                                                                                                                                                  | `infrastructure/temporal/temporal.service.ts`, `health/indicators/temporal.health.ts`                                                     |
 
 ## Vendor swap matrix
 
@@ -238,7 +238,8 @@ the active language via a `languageChanged` listener.
 ## Frontend capability map
 
 Where each frontend concern is handled today, and the pre-decided upgrade
-path when it outgrows the current solution (以后的人知道往哪升级):
+path when it outgrows the current solution, so future maintainers know where
+to upgrade:
 
 | Concern           | Current solution                                                                                                                 | When to upgrade / what to                                                                                                  |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
@@ -250,7 +251,7 @@ path when it outgrows the current solution (以后的人知道往哪升级):
 | i18n              | react-i18next, en (default) + zh, bundled JSON, feature-namespaced keys                                                          | >5 locales or heavy content → lazy-load namespaces (`i18next-http-backend`); add ICU only if plural/gender rules demand it |
 | Theming           | class-based dark mode (`html.dark`), pre-paint script in `index.html`, ThemeProvider (light/dark/system)                         | More themes → extend tokens in `index.css`, not per-component styles                                                       |
 | Routing           | React Router v6, route-level `lazy()` code splitting                                                                             | Data-heavy routes → router loaders; file-based routing not worth a migration                                               |
-| Realtime          | socket.io via SDK (`lib/websocket.ts`) for domain events; SSE for the analytics feed                                             | Fan-out growth → server-side rooms/namespaces; client stays as-is                                                          |
+| Realtime          | socket.io via SDK (`lib/websocket.ts`) for domain events and the live analytics feed                                             | Fan-out growth → server-side rooms/namespaces; client stays as-is                                                          |
 | Tracking          | `@tropis/sdk` tracker → REST `/api/v1/track` (see Tracking section)                                                              | Governed by docs/tracking-plan.md — add events there first                                                                 |
 | PWA / offline     | vite-plugin-pwa `autoUpdate`, precache app shell                                                                                 | Offline data → TanStack Query persister + Workbox runtime caching; only with a real offline requirement                    |
 | a11y              | eslint-plugin-jsx-a11y (recommended) in CI lint; skip link; `aria-invalid`/`aria-describedby` form pattern; `<html lang>` synced | Ship-blocker audits → add axe-core to Playwright                                                                           |

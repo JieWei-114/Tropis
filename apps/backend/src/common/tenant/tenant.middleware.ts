@@ -3,7 +3,6 @@ import { Request, Response, NextFunction } from 'express';
 import * as jwt from 'jsonwebtoken';
 import { ConfigService } from '@nestjs/config';
 import type Redis from 'ioredis';
-import { TenantContext } from './tenant.context';
 import { REDIS_CLIENT } from '../../infrastructure/redis/redis.module';
 import { DEFAULT_TENANT } from '../../modules/user/schemas/user.schema';
 
@@ -26,7 +25,6 @@ export class TenantMiddleware implements NestMiddleware {
   private readonly jwtSecret: string;
 
   constructor(
-    private readonly tenantCtx: TenantContext,
     config: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
@@ -67,7 +65,12 @@ export class TenantMiddleware implements NestMiddleware {
       }
     }
 
-    this.tenantCtx.set(tenantId);
+    // Resolution only. Binding into TenantContext happens in the global
+    // interceptor (GrpcTenantInterceptor), which reads this field: an
+    // AsyncLocalStorage store entered here in the middleware does NOT reach the
+    // route handler, because Nest composes the rest of the pipeline in the
+    // async context that existed when the request started.
+    (req as unknown as { tenantId?: string }).tenantId = tenantId;
     next();
   }
 }

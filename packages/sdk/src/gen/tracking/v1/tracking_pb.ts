@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tracking/v1/tracking.proto.
  */
 export const file_tracking_v1_tracking: GenFile = /*@__PURE__*/
-  fileDesc("Chp0cmFja2luZy92MS90cmFja2luZy5wcm90bxISdHJvcGlzLnRyYWNraW5nLnYxIh8KD0luc2lnaHRzUmVxdWVzdBIMCgRkYXlzGAEgASgFIigKCVBhZ2VDb3VudBIMCgRwYWdlGAEgASgJEg0KBWNvdW50GAIgASgFIi8KCkV2ZW50Q291bnQSEgoKZXZlbnRfbmFtZRgBIAEoCRINCgVjb3VudBgCIAEoBSIrCgtEYWlseVVuaXF1ZRILCgNkYXkYASABKAkSDwoHdW5pcXVlcxgCIAEoBSKjAQoQUmVjZW50VHJhY2tFdmVudBIQCghldmVudF9pZBgBIAEoCRISCgpldmVudF9uYW1lGAIgASgJEhQKDGFub255bW91c19pZBgDIAEoCRIPCgd1c2VyX2lkGAQgASgJEhIKCnNlc3Npb25faWQYBSABKAkSDAoEcGFnZRgGIAEoCRINCgVwcm9wcxgHIAEoCRIRCgl0aW1lc3RhbXAYCCABKAMi6gEKEEluc2lnaHRzUmVzcG9uc2USMAoJdG9wX3BhZ2VzGAEgAygLMh0udHJvcGlzLnRyYWNraW5nLnYxLlBhZ2VDb3VudBI2Cg5ldmVudHNfYnlfbmFtZRgCIAMoCzIeLnRyb3Bpcy50cmFja2luZy52MS5FdmVudENvdW50EjYKDWRhaWx5X3VuaXF1ZXMYAyADKAsyHy50cm9waXMudHJhY2tpbmcudjEuRGFpbHlVbmlxdWUSNAoGcmVjZW50GAQgAygLMiQudHJvcGlzLnRyYWNraW5nLnYxLlJlY2VudFRyYWNrRXZlbnQyawoPVHJhY2tpbmdTZXJ2aWNlElgKC0dldEluc2lnaHRzEiMudHJvcGlzLnRyYWNraW5nLnYxLkluc2lnaHRzUmVxdWVzdBokLnRyb3Bpcy50cmFja2luZy52MS5JbnNpZ2h0c1Jlc3BvbnNlYgZwcm90bzM");
+  fileDesc("Chp0cmFja2luZy92MS90cmFja2luZy5wcm90bxISdHJvcGlzLnRyYWNraW5nLnYxIh8KD0luc2lnaHRzUmVxdWVzdBIMCgRkYXlzGAEgASgFIigKCVBhZ2VDb3VudBIMCgRwYWdlGAEgASgJEg0KBWNvdW50GAIgASgFIi8KCkV2ZW50Q291bnQSEgoKZXZlbnRfbmFtZRgBIAEoCRINCgVjb3VudBgCIAEoBSIrCgtEYWlseVVuaXF1ZRILCgNkYXkYASABKAkSDwoHdW5pcXVlcxgCIAEoBSKjAQoQUmVjZW50VHJhY2tFdmVudBIQCghldmVudF9pZBgBIAEoCRISCgpldmVudF9uYW1lGAIgASgJEhQKDGFub255bW91c19pZBgDIAEoCRIPCgd1c2VyX2lkGAQgASgJEhIKCnNlc3Npb25faWQYBSABKAkSDAoEcGFnZRgGIAEoCRINCgVwcm9wcxgHIAEoCRIRCgl0aW1lc3RhbXAYCCABKAMiKQoKRnVubmVsU3RlcBIMCgRzdGVwGAEgASgJEg0KBXVzZXJzGAIgASgFIpoCChBJbnNpZ2h0c1Jlc3BvbnNlEjAKCXRvcF9wYWdlcxgBIAMoCzIdLnRyb3Bpcy50cmFja2luZy52MS5QYWdlQ291bnQSNgoOZXZlbnRzX2J5X25hbWUYAiADKAsyHi50cm9waXMudHJhY2tpbmcudjEuRXZlbnRDb3VudBI2Cg1kYWlseV91bmlxdWVzGAMgAygLMh8udHJvcGlzLnRyYWNraW5nLnYxLkRhaWx5VW5pcXVlEjQKBnJlY2VudBgEIAMoCzIkLnRyb3Bpcy50cmFja2luZy52MS5SZWNlbnRUcmFja0V2ZW50Ei4KBmZ1bm5lbBgFIAMoCzIeLnRyb3Bpcy50cmFja2luZy52MS5GdW5uZWxTdGVwMmsKD1RyYWNraW5nU2VydmljZRJYCgtHZXRJbnNpZ2h0cxIjLnRyb3Bpcy50cmFja2luZy52MS5JbnNpZ2h0c1JlcXVlc3QaJC50cm9waXMudHJhY2tpbmcudjEuSW5zaWdodHNSZXNwb25zZWIGcHJvdG8z");
 
 /**
  * @generated from message tropis.tracking.v1.InsightsRequest
@@ -158,6 +158,32 @@ export const RecentTrackEventSchema: GenMessage<RecentTrackEvent> = /*@__PURE__*
   messageDesc(file_tracking_v1_tracking, 4);
 
 /**
+ * @generated from message tropis.tracking.v1.FunnelStep
+ */
+export type FunnelStep = Message<"tropis.tracking.v1.FunnelStep"> & {
+  /**
+   * event name for this step, e.g. page.view
+   *
+   * @generated from field: string step = 1;
+   */
+  step: string;
+
+  /**
+   * anonymous users who reached this step within the window
+   *
+   * @generated from field: int32 users = 2;
+   */
+  users: number;
+};
+
+/**
+ * Describes the message tropis.tracking.v1.FunnelStep.
+ * Use `create(FunnelStepSchema)` to create a new message.
+ */
+export const FunnelStepSchema: GenMessage<FunnelStep> = /*@__PURE__*/
+  messageDesc(file_tracking_v1_tracking, 5);
+
+/**
  * @generated from message tropis.tracking.v1.InsightsResponse
  */
 export type InsightsResponse = Message<"tropis.tracking.v1.InsightsResponse"> & {
@@ -180,6 +206,11 @@ export type InsightsResponse = Message<"tropis.tracking.v1.InsightsResponse"> & 
    * @generated from field: repeated tropis.tracking.v1.RecentTrackEvent recent = 4;
    */
   recent: RecentTrackEvent[];
+
+  /**
+   * @generated from field: repeated tropis.tracking.v1.FunnelStep funnel = 5;
+   */
+  funnel: FunnelStep[];
 };
 
 /**
@@ -187,7 +218,7 @@ export type InsightsResponse = Message<"tropis.tracking.v1.InsightsResponse"> & 
  * Use `create(InsightsResponseSchema)` to create a new message.
  */
 export const InsightsResponseSchema: GenMessage<InsightsResponse> = /*@__PURE__*/
-  messageDesc(file_tracking_v1_tracking, 5);
+  messageDesc(file_tracking_v1_tracking, 6);
 
 /**
  * ── Tracking (user-behavior analytics reads) ─────────────────────────────────

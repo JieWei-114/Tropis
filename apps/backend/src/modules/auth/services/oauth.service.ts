@@ -9,7 +9,7 @@ import { DEFAULT_TENANT } from '../../user/schemas/user.schema';
  *
  * On first OAuth login:
  *   - Look up user by (provider, providerId, tenantId)
- *   - If not found, look up by email (user may have previously registered with password)
+ *   - If not found, look up by email (the account may already exist with a password)
  *   - If still not found, create a new account (no passwordHash — OAuth-only users)
  *   - Issue a signed app JWT
  *

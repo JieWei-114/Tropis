@@ -23,7 +23,19 @@ import org.slf4j.LoggerFactory;
  *  2. Uses a DIFFERENT subscription name ("flink-clickhouse-sub") than AnalyticsProcessor
  *     ("analytics-processor-sub") — both consumers receive every message independently.
  *  3. Filters out any events missing an eventType
- *  4. Writes every event to ClickHouse table `logs.analytics_events` in micro-batches
+ *  4. Writes every event to ClickHouse table `logs.analytics_events_flink`
+ *     in micro-batches
+ *
+ * WHY ITS OWN TABLE. `logs.analytics_events` is written by AnalyticsProcessor
+ * and read by the console. This job's subscription receives every message
+ * independently and MergeTree does not deduplicate, so writing there would
+ * double every count the dashboard shows whenever both run. A separate table
+ * makes the job safe to submit at any time; compare the two tables to see that
+ * they agree.
+ *
+ * Rows carry `tenant_id`, resolved from the envelope payload (see AppEvent).
+ * It leads the table's sort key, so an unresolved value files the event under
+ * the default tenant and makes it invisible to a per-tenant query.
  *
  * Run locally:
  *   mvn package -f flink/pom.xml
@@ -78,13 +90,16 @@ public class PulsarToClickHouseJob {
 
         // ── ClickHouse sink ────────────────────────────────────────────────
         SinkFunction<AppEvent> clickHouseSink = JdbcSink.sink(
-                "INSERT INTO analytics_events (event_id, event_type, user_id, payload, ts) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO analytics_events_flink "
+                        + "(tenant_id, event_id, event_type, user_id, payload, ts) "
+                        + "VALUES (?, ?, ?, ?, ?, ?)",
                 (stmt, event) -> {
-                    stmt.setString(1, event.getEventId());
-                    stmt.setString(2, event.getEventType());
-                    stmt.setString(3, event.getUserId());
-                    stmt.setString(4, event.getPayload());
-                    stmt.setLong(5, event.getTimestamp());
+                    stmt.setString(1, event.getTenantId());
+                    stmt.setString(2, event.getEventId());
+                    stmt.setString(3, event.getEventType());
+                    stmt.setString(4, event.getUserId());
+                    stmt.setString(5, event.getPayload());
+                    stmt.setLong(6, event.getTimestamp());
                 },
                 JdbcExecutionOptions.builder()
                         .withBatchSize(500)          // flush every 500 rows
@@ -97,7 +112,7 @@ public class PulsarToClickHouseJob {
                         .build()
         );
 
-        validEvents.addSink(clickHouseSink).name("ClickHouse: events");
+        validEvents.addSink(clickHouseSink).name("ClickHouse: events (flink)");
 
         // ── Execute ───────────────────────────────────────────────────────
         env.execute("PulsarToClickHouseJob");

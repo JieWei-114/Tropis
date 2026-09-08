@@ -2,7 +2,7 @@
  * Core Web Vitals reporting.
  *
  * Measures the metrics Google uses for ranking (and that Lighthouse scores) and
- * forwards them to the existing tracking pipeline (埋点 → Pulsar → ClickHouse),
+ * forwards them to the existing tracking pipeline (event tracking -> Pulsar -> ClickHouse),
  * so real-user performance shows up next to behavior events instead of only in
  * a lab Lighthouse run.
  *

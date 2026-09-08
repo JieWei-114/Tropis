@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import type { ClientSession, Model } from 'mongoose';
 import { User, UserDocument, DEFAULT_TENANT } from '../schemas/user.schema';
@@ -21,8 +21,34 @@ export interface CursorPageResult<T> {
 const ACTIVE = { deletedAt: null } as const;
 
 @Injectable()
-export class UserRepository {
+export class UserRepository implements OnModuleInit {
+  private readonly logger = new Logger(UserRepository.name);
+
   constructor(@InjectModel(User.name) private readonly model: Model<User>) {}
+
+  /**
+   * Reconciles the collection's indexes with the schema.
+   *
+   * Mongoose CREATES declared indexes automatically but never DROPS undeclared
+   * ones, and syncIndexes() is what removes them. The email uniqueness
+   * constraint is `{tenantId, email}` with a `partialFilterExpression:
+   * { deletedAt: null }`; any undeclared uniqueness index left on the
+   * collection keeps reserving the email addresses of soft-deleted users.
+   *
+   * Safe to run repeatedly and a no-op once converged; failures are logged,
+   * never fatal, since a stale index degrades behaviour rather than breaking
+   * startup.
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      const dropped = await this.model.syncIndexes();
+      if (dropped.length) {
+        this.logger.log(`Dropped stale user indexes: ${dropped.join(', ')}`);
+      }
+    } catch (err) {
+      this.logger.warn(`User index sync failed: ${(err as Error).message}`);
+    }
+  }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -102,12 +128,29 @@ export class UserRepository {
       .exec();
   }
 
-  /** Hard delete — permanently removes. Use only for GDPR erasure or admin tooling. */
+  /**
+   * Hard delete — permanently removes the document.
+   *
+   * Only reachable from admin tooling and the integration suite; no
+   * application code path calls it. Note before adding one: unlike delete(),
+   * this writes no outbox event, so the downstream copies are NOT cleaned up —
+   * the user's name and email survive in Elasticsearch and their embedding in
+   * pgvector. A GDPR erasure path must emit user.deleted (or purge those
+   * directly), otherwise it defeats its own purpose.
+   */
   hardDelete(
     id: string,
     tenantId = DEFAULT_TENANT,
   ): Promise<UserDocument | null> {
     return this.model.findOneAndDelete({ _id: id, tenantId }).exec();
+  }
+
+  /** Batched lookup — one query for many ids, in place of an N+1 loop. */
+  findByIds(ids: string[], tenantId = DEFAULT_TENANT): Promise<UserDocument[]> {
+    if (!ids.length) return Promise.resolve([]);
+    return this.model
+      .find({ _id: { $in: ids }, ...this.tenant(tenantId) })
+      .exec();
   }
 
   async incrementLoginCount(id: string): Promise<void> {
@@ -130,8 +173,12 @@ export class UserRepository {
     const skip = (page - 1) * limit;
     const filter = this.tenant(tenantId);
 
+    // Sort is required, not cosmetic: skip/limit over an unsorted scan lets a
+    // document appear on two pages or none at all. Newest-first also means a
+    // just-created user shows up at the top of page 1 instead of being invisible
+    // past the limit.
     const [data, total] = await Promise.all([
-      this.model.find(filter).skip(skip).limit(limit).exec(),
+      this.model.find(filter).sort({ _id: -1 }).skip(skip).limit(limit).exec(),
       this.model.countDocuments(filter).exec(),
     ]);
 

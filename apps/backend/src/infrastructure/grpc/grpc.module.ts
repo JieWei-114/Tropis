@@ -11,6 +11,8 @@ import { GrpcAnalyticsService } from '../../modules/analytics/controllers/analyt
 import { GrpcTrackingService } from '../../modules/tracking/controllers/tracking.grpc.controller';
 import { TrackingModule } from '../../modules/tracking/tracking.module';
 import { GrpcTenantInterceptor } from './grpc-tenant.interceptor';
+import { GrpcAuthzService } from './grpc-authz.service';
+import { GrpcErrorInterceptor } from './grpc-error.interceptor';
 import { GrpcExceptionFilter } from '../../common/filters/grpc-exception.filter';
 
 @Module({
@@ -29,8 +31,14 @@ import { GrpcExceptionFilter } from '../../common/filters/grpc-exception.filter'
     GrpcTrackingService,
   ],
   providers: [
+    GrpcAuthzService,
     { provide: APP_FILTER, useClass: GrpcExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: GrpcTenantInterceptor },
+    // Only acts on rpc contexts. Registered as a module-level APP_INTERCEPTOR
+    // (like GrpcTenantInterceptor above) rather than on the microservice
+    // instance: enhancers attached to a connectMicroservice() instance are not
+    // applied to handlers whose module lives in the host app.
+    { provide: APP_INTERCEPTOR, useClass: GrpcErrorInterceptor },
   ],
 })
 export class GrpcModule {}

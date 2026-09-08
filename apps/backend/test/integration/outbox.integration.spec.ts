@@ -14,6 +14,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { MongooseModule, getModelToken } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import type Redis from 'ioredis';
+import type { Gauge } from 'prom-client';
 import type { MessageBrokerPort } from '../../src/infrastructure/messaging/message-broker.port';
 import {
   MongoDBContainer,
@@ -145,7 +146,19 @@ describeWithDocker('Outbox (integration)')('Outbox (integration)', () => {
         set: jest.fn().mockResolvedValue('OK'),
         eval: jest.fn().mockResolvedValue(1),
       } as unknown as Redis;
-      return { relay: new OutboxRelay(outboxService, broker, redis), broker };
+      // Gauge stubs — the relay publishes backlog/heartbeat metrics, which are
+      // not what these tests assert on.
+      const gauge = { set: jest.fn() } as unknown as Gauge<string>;
+      return {
+        relay: new OutboxRelay(
+          outboxService,
+          broker,
+          redis,
+          gauge as Gauge<'status'>,
+          gauge,
+        ),
+        broker,
+      };
     };
 
     it('marks a pending row dispatched exactly once', async () => {
@@ -180,10 +193,44 @@ describeWithDocker('Outbox (integration)')('Outbox (integration)', () => {
       expect(row.attempts).toBe(1);
       expect(row.lastError).toContain('pulsar down');
 
-      // requeue pass puts it back to PENDING for the next relay tick
+      // A failed row is NOT immediately eligible: markFailed schedules
+      // nextAttemptAt with exponential backoff (5s * 2^(attempts-1)), so a
+      // requeue pass right away must leave it alone. That is the point of the
+      // backoff: without it a permanently failing topic is retried at full
+      // rate every minute.
+      expect(row.nextAttemptAt).toBeInstanceOf(Date);
+      await outboxService.requeueFailed(5);
+      [row] = await outboxModel.find().exec();
+      expect(row.status).toBe(OutboxStatus.FAILED);
+
+      // Once the backoff has elapsed, the same pass requeues it.
+      await outboxModel.updateOne(
+        { _id: row._id },
+        { $set: { nextAttemptAt: new Date(Date.now() - 1000) } },
+      );
       await outboxService.requeueFailed(5);
       [row] = await outboxModel.find().exec();
       expect(row.status).toBe(OutboxStatus.PENDING);
+    });
+
+    it('dead-letters a row once its attempts are exhausted', async () => {
+      await outboxService.write('agg-3', 'analytics.event', { c: 3 });
+      let [row] = await outboxModel.find().exec();
+
+      await outboxModel.updateOne(
+        { _id: row._id },
+        { $set: { status: OutboxStatus.FAILED, attempts: 5 } },
+      );
+
+      expect(await outboxService.deadLetterExhausted(5)).toBe(1);
+      [row] = await outboxModel.find().exec();
+      expect(row.status).toBe(OutboxStatus.DEAD);
+      expect(await outboxService.countDead()).toBe(1);
+
+      // A DEAD row is terminal: it must never be requeued again.
+      await outboxService.requeueFailed(5);
+      [row] = await outboxModel.find().exec();
+      expect(row.status).toBe(OutboxStatus.DEAD);
     });
   });
 });

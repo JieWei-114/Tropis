@@ -1,14 +1,12 @@
 import { Controller } from '@nestjs/common';
-import { GrpcMethod, RpcException } from '@nestjs/microservices';
-import { status as GrpcStatus } from '@grpc/grpc-js';
-import * as jwt from 'jsonwebtoken';
-import { ConfigService } from '@nestjs/config';
+import { GrpcMethod } from '@nestjs/microservices';
 import { TrackingService } from '../services/tracking.service';
 import {
   TrackingTransformer,
   GrpcInsightsResponse,
 } from '../transformers/tracking.transformer';
 import { extractToken } from '../../../infrastructure/grpc/grpc.utils';
+import { GrpcAuthzService } from '../../../infrastructure/grpc/grpc-authz.service';
 
 interface InsightsRequest {
   days?: number;
@@ -17,7 +15,10 @@ interface InsightsRequest {
 /**
  * Implements TrackingService from proto/tracking/v1/tracking.proto.
  * Read surface only — ingest is REST (see tracking.controller.ts).
- * GetInsights requires a valid JWT (dashboard data, not public).
+ * GetInsights requires a valid JWT AND the `analytics:read` permission, and
+ * scopes every query to the tenant in that token — the queries read
+ * logs.user_behavior, which carries tenant_id, but none of them filtered on it,
+ * so the behaviour dashboard showed every tenant's traffic to everyone.
  *
  * Test with grpcurl:
  *   grpcurl -plaintext -proto proto/tracking/v1/tracking.proto \
@@ -26,32 +27,25 @@ interface InsightsRequest {
  */
 @Controller()
 export class GrpcTrackingService {
-  private readonly jwtSecret: string;
-
   constructor(
     private readonly trackingService: TrackingService,
-    config: ConfigService,
-  ) {
-    this.jwtSecret = config.getOrThrow<string>('JWT_SECRET');
-  }
+    private readonly authz: GrpcAuthzService,
+  ) {}
 
   @GrpcMethod('TrackingService', 'GetInsights')
   async getInsights(
     data: InsightsRequest,
     metadata: unknown,
   ): Promise<GrpcInsightsResponse> {
-    const token = extractToken(data, metadata);
-    try {
-      jwt.verify(token, this.jwtSecret);
-    } catch {
-      throw new RpcException({
-        code: GrpcStatus.UNAUTHENTICATED,
-        message: 'Invalid authorization token',
-      });
-    }
+    const caller = await this.authz.assert(
+      extractToken(data, metadata),
+      'analytics',
+      'read',
+    );
 
     const insights = await this.trackingService.getInsights(
       data.days || undefined,
+      caller.tenantId,
     );
     return TrackingTransformer.toGrpcInsights(insights);
   }

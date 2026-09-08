@@ -15,12 +15,22 @@ import { config } from 'dotenv';
 import mongoose from 'mongoose';
 
 // Deliberately reads backend's .env: devtools/src → repo root → apps/backend/.env
-config({ path: path.resolve(import.meta.dirname, '..', '..', 'apps', 'backend', '.env') });
+config({
+  path: path.resolve(
+    import.meta.dirname,
+    '..',
+    '..',
+    'apps',
+    'backend',
+    '.env',
+  ),
+});
 
 const MONGODB_URI =
-  process.env.MONGODB_URI ?? 'mongodb://localhost:27018/tropis?directConnection=true';
+  process.env.MONGODB_URI ??
+  'mongodb://localhost:27018/tropis?directConnection=true';
 
-const STATUSES = ['pending', 'dispatched', 'failed'] as const;
+const STATUSES = ['pending', 'dispatched', 'failed', 'dead'] as const;
 
 function age(from: Date): string {
   const s = Math.max(0, Math.floor((Date.now() - from.getTime()) / 1000));
@@ -48,16 +58,18 @@ async function main(): Promise<void> {
 
   console.log(`Outbox @ ${MONGODB_URI}\n`);
   const byStatus = await outbox
-    .aggregate<{ _id: string; count: number }>([
-      { $group: { _id: '$status', count: { $sum: 1 } } },
-    ])
+    .aggregate<{
+      _id: string;
+      count: number;
+    }>([{ $group: { _id: '$status', count: { $sum: 1 } } }])
     .toArray();
   const counts = new Map(byStatus.map((r) => [r._id, r.count]));
   for (const s of STATUSES) {
     console.log(`  ${s.padEnd(11)} ${counts.get(s) ?? 0}`);
   }
   for (const [s, c] of counts) {
-    if (!(STATUSES as readonly string[]).includes(s)) console.log(`  ${s.padEnd(11)} ${c}  (unexpected status)`);
+    if (!(STATUSES as readonly string[]).includes(s))
+      console.log(`  ${s.padEnd(11)} ${c}  (unexpected status)`);
   }
 
   const stuck = await outbox
@@ -71,11 +83,16 @@ async function main(): Promise<void> {
   } else {
     console.log('\n  Oldest pending/failed rows:');
     for (const row of stuck) {
-      const created = row.createdAt instanceof Date ? row.createdAt : new Date(String(row.createdAt));
+      const created =
+        row.createdAt instanceof Date
+          ? row.createdAt
+          : new Date(String(row.createdAt));
       console.log(
         `    [${String(row.status)}] ${String(row.topic)} ${String(row.eventType)} ` +
           `— age ${age(created)}, attempts ${String(row.attempts ?? 0)}` +
-          (row.lastError ? `, lastError: ${String(row.lastError).split('\n')[0]}` : ''),
+          (row.lastError
+            ? `, lastError: ${String(row.lastError).split('\n')[0]}`
+            : ''),
       );
     }
   }

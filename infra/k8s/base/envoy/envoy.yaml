@@ -40,11 +40,37 @@ data:
                   typed_per_filter_config:
                     envoy.filters.http.cors:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.cors.v3.CorsPolicy
+                      # Pinned origins. A ".*" wildcard here lets ANY page a
+                      # victim visits script authenticated gRPC-Web calls
+                      # against this tier and read the responses.
+                      # BEFORE DEPLOYING, uncomment the production entries and
+                      # replace `yourdomain.com` with the real apex domain —
+                      # same placeholder convention as overlays/*/ingress.yaml.
+                      # Envoy does not expand env vars in its static bootstrap,
+                      # so this ConfigMap is the only place to set them. Leaving
+                      # them commented means production browser calls are
+                      # rejected by CORS (fail-closed), not silently allowed.
                       allow_origin_string_match:
-                      - safe_regex:
-                          regex: ".*"
+                      # --- local development ---
+                      - exact: "http://localhost:5173" # helm console (vite dev)
+                      - exact: "http://localhost:4173" # helm console (vite preview)
+                      - exact: "http://localhost:3000" # harbor site (next dev)
+                      # --- packaged clients (fixed custom schemes, not deployment
+                      #     settings): the Tauri desktop shell and the two Capacitor
+                      #     apps do not serve from a network origin, so without these
+                      #     every gRPC-Web call from them is blocked and each app
+                      #     fails at sign-in ---
+                      - exact: "tauri://localhost" # desktop (macOS, Linux)
+                      - exact: "http://tauri.localhost" # desktop (Windows)
+                      - exact: "capacitor://localhost" # iOS
+                      - exact: "http://localhost" # Android (default scheme)
+                      - exact: "https://localhost" # Android (androidScheme: https)
+                      # --- production: uncomment and replace before deploying ---
+                      # - exact: "https://app.yourdomain.com" # ← replace (helm console)
+                      # - exact: "https://yourdomain.com" # ← replace (harbor site, apex)
+                      # - exact: "https://www.yourdomain.com" # ← replace (harbor site, www)
                       allow_methods: GET, PUT, DELETE, POST, OPTIONS
-                      allow_headers: keep-alive,user-agent,cache-control,content-type,content-transfer-encoding,x-accept-content-transfer-encoding,x-accept-response-streaming,x-user-agent,x-grpc-web,grpc-timeout,authorization,x-request-id
+                      allow_headers: keep-alive,user-agent,cache-control,content-type,content-transfer-encoding,x-accept-content-transfer-encoding,x-accept-response-streaming,x-user-agent,x-grpc-web,grpc-timeout,authorization,x-request-id,x-tenant-id
                       max_age: "1728000"
                       expose_headers: grpc-status,grpc-message,grpc-encoding,grpc-accept-encoding
               http_filters:
@@ -95,7 +121,7 @@ spec:
       containers:
         - name: envoy
           image: envoyproxy/envoy:v1.31-latest
-          args: ["-c", "/etc/envoy/envoy.yaml", "-l", "info"]
+          args: ['-c', '/etc/envoy/envoy.yaml', '-l', 'info']
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -109,8 +135,8 @@ spec:
             initialDelaySeconds: 3
             periodSeconds: 10
           resources:
-            requests: { cpu: "50m", memory: "64Mi" }
-            limits: { cpu: "500m", memory: "256Mi" }
+            requests: { cpu: '50m', memory: '64Mi' }
+            limits: { cpu: '500m', memory: '256Mi' }
           volumeMounts:
             - name: config
               mountPath: /etc/envoy

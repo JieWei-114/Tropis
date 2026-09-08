@@ -5,15 +5,18 @@ import { TrackingController } from './controllers/tracking.controller';
 import { TrackingProcessor } from './processors/tracking.processor';
 import { SignatureGuard } from '../../common/guards/signature.guard';
 import { ApiKeyService } from '../../common/guards/api-key.service';
+import { MetricsModule } from '../metrics/metrics.module';
 
 /**
- * User-behavior tracking (埋点).
+ * User-behavior tracking (product analytics instrumentation).
  *   Ingest:  REST POST /api/v1/track → Pulsar (direct, no outbox — lossy-tolerant)
  *   Sink:    TrackingProcessor → ClickHouse logs.user_behavior
  *   Reads:   gRPC TrackingService.GetInsights (registered in GrpcModule,
  *            like the other *.grpc.controller.ts handlers)
  */
 @Module({
+  // For the ingest dedup-drop counter.
+  imports: [MetricsModule],
   controllers: [TrackingController],
   providers: [
     TrackingService,

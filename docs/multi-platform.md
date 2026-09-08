@@ -91,7 +91,8 @@ npx cap open ios               # Xcode → set signing team → Run / Archive
 ```bash
 make desktop
 # or:
-cd apps/desktop && pnpm tauri build      # runs `pnpm --filter @tropis/helm build` first
+cd apps/desktop && pnpm run bundle       # installers; runs the helm build first
+cd apps/desktop && pnpm run build        # binary only, no OS installer tooling needed
 ```
 
 Artifacts land in `apps/desktop/src-tauri/target/release/bundle/`
@@ -99,6 +100,49 @@ Artifacts land in `apps/desktop/src-tauri/target/release/bundle/`
 unsigned — fine for local use; distribution needs codesign + notarization.
 Dev mode against the Vite dev server: `pnpm tauri dev` (add
 `build.devUrl`/`beforeDevCommand` in `src-tauri/tauri.conf.json` if wanted).
+
+## Known gaps to close before shipping a native build
+
+**1. The desktop shell runs with no Content-Security-Policy.**
+`apps/desktop/src-tauri/tauri.conf.json` sets `app.security.csp` to `null`, so
+the webview enforces nothing. It is not hardcoded because the shell loads the
+**built** web app, whose API endpoints are baked in from `VITE_*` at build time
+(see the section above) — any `connect-src` written into the config would be
+wrong for every deployment except the one that authored it. Generate it at
+package time from the same env instead, along the lines of:
+
+```
+default-src 'self';
+connect-src 'self' <VITE_API_BASE_URL> <VITE_GRPC_WEB_URL> <VITE_WS_URL> ws: wss:;
+img-src 'self' data:;
+style-src 'self' 'unsafe-inline'
+```
+
+`'unsafe-inline'` for styles is currently required; drop it once styles are
+fully extracted.
+
+**2. CORS must list the native origins.** The shells serve their bundle from a
+custom scheme, not from a network origin, so they are _not_ covered by
+`CORS_ORIGIN`. Those origins are constants and are already allowed by both the
+backend (`apps/backend/src/config/cors.constants.ts`) and Envoy
+(`infra/envoy/envoy.yaml`, `infra/k8s/base/envoy/envoy.yaml`):
+
+| Client                           | Origin                   |
+| -------------------------------- | ------------------------ |
+| Desktop (macOS, Linux)           | `tauri://localhost`      |
+| Desktop (Windows)                | `http://tauri.localhost` |
+| iOS                              | `capacitor://localhost`  |
+| Android (default scheme)         | `http://localhost`       |
+| Android (`androidScheme: https`) | `https://localhost`      |
+
+If you put a different gateway in front of the API, add the same five entries
+there. An allow-list that omits them lets each app build, launch and show the
+login screen, and then fail at sign-in with a CORS error.
+
+**3. Neither mobile app has been run on a device or simulator** in this
+repository's history, and the desktop shell's window has not been visually
+verified. `cap sync` and `tauri build` succeed; that is not the same as the
+apps working.
 
 ## Store submission (pointers)
 

@@ -4,13 +4,14 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { ConfigService } from '@nestjs/config';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger as NestLogger, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
 import helmet from 'helmet';
 import { json, urlencoded } from 'express';
 import { join } from 'path';
 import { AppModule } from './app.module';
+import { API_PREFIX } from './config/app.config';
 import { corsOriginFromEnv } from './config/cors.constants';
 import {
   addGrpcReflection,
@@ -95,7 +96,7 @@ async function bootstrap() {
   );
 
   // ── Global prefix ─────────────────────────────────────────────────
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix(API_PREFIX);
 
   // ── Swagger ───────────────────────────────────────────────────────
   // Only expose docs outside production — avoids leaking API shape to scanners
@@ -131,49 +132,87 @@ async function bootstrap() {
   // are registered app-wide.
 
   // PUBLIC listener — exposed through Envoy (gRPC-Web) / cluster peers.
-  app.connectMicroservice<MicroserviceOptions>({
-    transport: Transport.GRPC,
-    options: {
-      url: `0.0.0.0:${grpcPort}`,
-      package: [
-        'tropis.auth.v1',
-        'tropis.user.v1',
-        'tropis.analytics.v1',
-        'tropis.tracking.v1',
-        'tropis.health.v1',
-      ],
-      protoPath: [
-        join(PROTO_ROOT, 'auth', 'v1', 'auth.proto'),
-        join(PROTO_ROOT, 'user', 'v1', 'user.proto'),
-        join(PROTO_ROOT, 'analytics', 'v1', 'analytics.proto'),
-        join(PROTO_ROOT, 'tracking', 'v1', 'tracking.proto'),
-        join(PROTO_ROOT, 'health', 'v1', 'health.proto'),
-      ],
-      loader: {
-        keepCase: true, // preserve snake_case field names (access_token, login_count, etc.)
+  const grpcPublic = app.connectMicroservice<MicroserviceOptions>(
+    {
+      transport: Transport.GRPC,
+      options: {
+        url: `0.0.0.0:${grpcPort}`,
+        package: [
+          'tropis.auth.v1',
+          'tropis.user.v1',
+          'tropis.analytics.v1',
+          'tropis.tracking.v1',
+          'tropis.health.v1',
+        ],
+        protoPath: [
+          join(PROTO_ROOT, 'auth', 'v1', 'auth.proto'),
+          join(PROTO_ROOT, 'user', 'v1', 'user.proto'),
+          join(PROTO_ROOT, 'analytics', 'v1', 'analytics.proto'),
+          join(PROTO_ROOT, 'tracking', 'v1', 'tracking.proto'),
+          join(PROTO_ROOT, 'health', 'v1', 'health.proto'),
+        ],
+        loader: {
+          keepCase: true, // preserve snake_case field names (access_token, login_count, etc.)
+        },
+        onLoadPackageDefinition,
       },
-      onLoadPackageDefinition,
     },
-  });
+    // inheritAppConfig is what makes the app's global enhancers apply to gRPC.
+    // Without it, a hybrid app's listeners run with an EMPTY enhancer set:
+    // GrpcExceptionFilter/GrpcErrorInterceptor never see a throw, so every
+    // domain error reaches clients as `Unknown: Internal server error`, and the
+    // @Audited AuditInterceptor never runs, so no gRPC mutation — which is
+    // every mutation this service performs — reaches the audit log.
+    // Registering them on the microservice instance instead does NOT work: the
+    // handler pipeline is built from the host app's configuration.
+    { inheritAppConfig: true },
+  );
 
   // INTERNAL listener — ClusterIP-only in production, never behind Envoy.
   // Also loads tropis.health.v1 so gRPC health probes work against this port
   // (the health handler carries no sensitive data, and probing :50061
   // directly verifies the internal listener itself is actually up).
-  app.connectMicroservice<MicroserviceOptions>({
-    transport: Transport.GRPC,
-    options: {
-      url: `0.0.0.0:${grpcInternalPort}`,
-      package: ['tropis.user.internal.v1', 'tropis.health.v1'],
-      protoPath: [
-        join(PROTO_ROOT, 'user', 'internal', 'v1', 'user_internal.proto'),
-        join(PROTO_ROOT, 'health', 'v1', 'health.proto'),
-      ],
-      loader: {
-        keepCase: true,
+  const grpcInternal = app.connectMicroservice<MicroserviceOptions>(
+    {
+      transport: Transport.GRPC,
+      options: {
+        url: `0.0.0.0:${grpcInternalPort}`,
+        package: ['tropis.user.internal.v1', 'tropis.health.v1'],
+        protoPath: [
+          join(PROTO_ROOT, 'user', 'internal', 'v1', 'user_internal.proto'),
+          join(PROTO_ROOT, 'health', 'v1', 'health.proto'),
+        ],
+        loader: {
+          keepCase: true,
+        },
+        onLoadPackageDefinition,
       },
-      onLoadPackageDefinition,
     },
+    // See the note on the public listener.
+    { inheritAppConfig: true },
+  );
+
+  // ── Last-resort safety net ────────────────────────────────────────
+  // Without these, a single unhandled rejection anywhere (e.g. a fire-and-forget
+  // DB write during a database blip) terminates the process on Node >= 15.
+  // They log loudly rather than hiding the problem: fix the origin, not this.
+  /** Grace period so the log above is flushed before the process exits. */
+  const UNCAUGHT_EXIT_DELAY_MS = 100;
+  const bootstrapLogger = new NestLogger('Bootstrap');
+  process.on('unhandledRejection', (reason) => {
+    const err = reason instanceof Error ? reason : new Error(String(reason));
+    bootstrapLogger.error(
+      `Unhandled promise rejection: ${err.message}`,
+      err.stack,
+    );
+  });
+  // An uncaught exception leaves the process with torn-down state (a half
+  // released Mongo session, a dangling consumer). Unlike a rejection there is
+  // nothing to recover, so log and exit, and let the orchestrator restart a
+  // clean process.
+  process.on('uncaughtException', (err: Error) => {
+    bootstrapLogger.error(`Uncaught exception: ${err.message}`, err.stack);
+    setTimeout(() => process.exit(1), UNCAUGHT_EXIT_DELAY_MS).unref();
   });
 
   // ── Graceful shutdown ─────────────────────────────────────────────

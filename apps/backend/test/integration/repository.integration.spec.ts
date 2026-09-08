@@ -147,5 +147,43 @@ describeWithDocker('UserRepository (integration)')(
         'Bob',
       );
     });
+
+    // README documents findPage() as the keyset-pagination pattern to prefer
+    // at scale, but nothing called it and nothing covered it — so the claim
+    // was unverified. This walks a real collection page by page.
+    it('paginates by cursor, stable and without overlap', async () => {
+      const tenant = 'tenant-page';
+      for (let i = 0; i < 5; i++) {
+        await repo.create({
+          ...base,
+          email: `page-${i}@example.com`,
+          name: `Page ${i}`,
+          tenantId: tenant,
+        });
+      }
+
+      const first = await repo.findPage(2, tenant);
+      expect(first.data).toHaveLength(2);
+      expect(first.hasMore).toBe(true);
+      expect(first.nextCursor).toBeTruthy();
+
+      const second = await repo.findPage(2, tenant, first.nextCursor!);
+      expect(second.data).toHaveLength(2);
+      expect(second.hasMore).toBe(true);
+
+      const third = await repo.findPage(2, tenant, second.nextCursor!);
+      expect(third.data).toHaveLength(1);
+      expect(third.hasMore).toBe(false);
+      expect(third.nextCursor).toBeNull();
+
+      // No document may appear on two pages, and all five must be seen once.
+      const seen = [...first.data, ...second.data, ...third.data].map((d) =>
+        d._id.toString(),
+      );
+      expect(new Set(seen).size).toBe(5);
+
+      // Cursor pages are tenant-scoped like every other read.
+      expect((await repo.findPage(10, 'tenant-other')).data).toHaveLength(0);
+    });
   },
 );

@@ -20,7 +20,8 @@ module.exports = {
     {
       name: 'no-circular',
       severity: 'error',
-      comment: 'Circular dependencies make modules impossible to reason about or extract.',
+      comment:
+        'Circular dependencies make modules impossible to reason about or extract.',
       from: {},
       to: { circular: true, dependencyTypesNot: ['type-only'] },
     },
@@ -38,16 +39,9 @@ module.exports = {
       severity: 'error',
       comment:
         'Schemas never cross the API boundary; controllers must not import them. ' +
-        'TODO: the two exempted gRPC controllers only import enums (AnalyticsEventType, ' +
-        'UserRole/UserStatus) that are declared inside schema files — move those enums to ' +
-        'each module\'s constants/ (three-tier placement rule) and drop the exemptions.',
-      from: {
-        path: '^src/modules/[^/]+/controllers/',
-        pathNot: [
-          '^src/modules/analytics/controllers/analytics\\.grpc\\.controller\\.ts$',
-          '^src/modules/user/controllers/user\\.grpc\\.controller\\.ts$',
-        ],
-      },
+        'Domain enums that controllers legitimately need (UserRole, UserStatus, ' +
+        "AnalyticsEventType) live in each module's constants/ for exactly this reason.",
+      from: { path: '^src/modules/[^/]+/controllers/' },
       to: { path: '^src/modules/[^/]+/schemas/' },
     },
     {
@@ -56,7 +50,7 @@ module.exports = {
       comment:
         'Processors are thin like controllers — delegate to services/. ' +
         'TODO: analytics, tracking and user processors currently write through their own ' +
-        'module\'s repository directly; route them through a service method and drop the exemptions.',
+        "module's repository directly; route them through a service method and drop the exemptions.",
       from: {
         path: '^src/modules/[^/]+/processors/',
         pathNot: [
@@ -71,9 +65,9 @@ module.exports = {
       name: 'no-cross-module-repositories-or-schemas',
       severity: 'error',
       comment:
-        'Cross-module access goes through the other module\'s services (or events) — ' +
+        "Cross-module access goes through the other module's services (or events) — " +
         'never its repositories/ or schemas/. ' +
-        'TODO: auth currently imports user\'s schema (UserRole/UserStatus/DEFAULT_TENANT enums + ' +
+        "TODO: auth currently imports user's schema (UserRole/UserStatus/DEFAULT_TENANT enums + " +
         'UserDocument type) and oauth.service uses UserRepository directly. Promote the shared ' +
         'enums/constants to src/common/ (tier 2) and route oauth through UserService, then drop ' +
         'the exemptions.',
@@ -94,7 +88,7 @@ module.exports = {
       severity: 'error',
       comment:
         'Each external system is owned by exactly one module under src/infrastructure/. ' +
-        'Business code injects that module\'s service/token; it never imports the driver at ' +
+        "Business code injects that module's service/token; it never imports the driver at " +
         'runtime. Type-only imports (import type) are fine for annotations.',
       from: { path: '^src', pathNot: ['^src/infrastructure/', TEST_FILES] },
       to: {

@@ -15,6 +15,7 @@ import { ElasticsearchHealthIndicator } from './indicators/elasticsearch.health'
 import { MinioHealthIndicator } from './indicators/minio.health';
 import { TemporalHealthIndicator } from './indicators/temporal.health';
 import { OpaHealthIndicator } from './indicators/opa.health';
+import { AerospikeHealthIndicator } from './indicators/aerospike.health';
 
 @ApiTags('health')
 @SkipThrottle()
@@ -31,6 +32,7 @@ export class HealthController {
     private readonly minio: MinioHealthIndicator,
     private readonly temporal: TemporalHealthIndicator,
     private readonly opa: OpaHealthIndicator,
+    private readonly aerospike: AerospikeHealthIndicator,
   ) {}
 
   @Public()
@@ -47,6 +49,7 @@ export class HealthController {
       () => this.minio.isHealthy('minio'),
       () => this.opa.isHealthy('opa'),
       () => this.temporal.isHealthy('temporal'),
+      () => this.aerospike.isHealthy('aerospike'),
       // Pulsar probe can be slow if broker is starting — listed last
       () => this.pulsar.isHealthy('pulsar'),
     ]);

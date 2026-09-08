@@ -5,9 +5,9 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 /**
- * shadcn/ui Button, restyled onto the app's design tokens so refactored
- * call sites keep their original look (rounded-[7px], 13px text, the
- * opacity-based hover the old inline buttons used).
+ * shadcn/ui Button, restyled onto the app's design tokens: rounded-[7px],
+ * 13px text and an opacity-based hover, so every button in the app matches
+ * whether or not it goes through this component.
  */
 const buttonVariants = cva(
   'inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap font-medium transition-opacity outline-none focus-visible:ring-2 focus-visible:ring-ring/40 enabled:hover:opacity-85 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:shrink-0',

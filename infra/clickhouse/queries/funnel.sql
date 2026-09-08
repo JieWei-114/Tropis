@@ -5,6 +5,11 @@
 -- windowFunnel returns, per user, the deepest consecutive step reached
 -- within the window. We funnel on anonymous_id so pre-login steps count.
 
+-- TENANT SCOPE: set this to the tenant you are analysing. logs.user_behavior
+-- is multi-tenant and tenant_id is its leading key column, so leaving the
+-- filter out aggregates every tenant together (and reads the whole table).
+SET param_tenant_id = 'default';
+
 SELECT
     level,
     count() AS users,
@@ -20,7 +25,8 @@ FROM
             event_name = 'user.login'
         ) AS level
     FROM logs.user_behavior
-    WHERE timestamp >= now() - INTERVAL 30 DAY
+    WHERE tenant_id = {tenant_id:String}
+      AND timestamp >= now() - INTERVAL 30 DAY
     GROUP BY anonymous_id
 )
 WHERE level >= 1

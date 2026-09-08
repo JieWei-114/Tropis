@@ -15,6 +15,7 @@ export class AnalyticsRepository {
   ) {}
 
   async insertEvent(event: {
+    tenant_id: string;
     event_id: string;
     event_type: string;
     user_id: string;
@@ -33,7 +34,19 @@ export class AnalyticsRepository {
     }
   }
 
-  async getStatsByType(fromMs: number): Promise<IEventTypeStat[]> {
+  /**
+   * Per-type counts for one tenant.
+   *
+   * The tenant filter is not optional: results are cached per tenant
+   * (analyticsStatsKey), so an unfiltered query put the whole cluster's counts
+   * into every tenant's cache entry — a cross-tenant data leak, not just a
+   * wrong number. tenant_id is the leading key column, so this reads only that
+   * tenant's granules.
+   */
+  async getStatsByType(
+    fromMs: number,
+    tenantId: string,
+  ): Promise<IEventTypeStat[]> {
     try {
       const result = await this.ch.query({
         query: `
@@ -42,11 +55,11 @@ export class AnalyticsRepository {
             count()     AS count,
             max(ts)     AS lastSeen
           FROM logs.analytics_events
-          WHERE ts >= {from:Int64}
+          WHERE tenant_id = {tenantId:String} AND ts >= {from:Int64}
           GROUP BY event_type
           ORDER BY count DESC
         `,
-        query_params: { from: fromMs },
+        query_params: { from: fromMs, tenantId },
         format: 'JSONEachRow',
       });
 
@@ -70,7 +83,11 @@ export class AnalyticsRepository {
     }
   }
 
-  async getMinutelyStats(minutes = 60): Promise<IMinutelyStat[]> {
+  /** Per-minute counts for one tenant. See getStatsByType on the filter. */
+  async getMinutelyStats(
+    minutes = 60,
+    tenantId: string,
+  ): Promise<IMinutelyStat[]> {
     try {
       const result = await this.ch.query({
         query: `
@@ -79,11 +96,12 @@ export class AnalyticsRepository {
             event_type                           AS eventType,
             sum(event_count)                     AS count
           FROM logs.analytics_minutely
-          WHERE window_start >= now() - INTERVAL {minutes:Int32} MINUTE
+          WHERE tenant_id = {tenantId:String}
+            AND window_start >= now() - INTERVAL {minutes:Int32} MINUTE
           GROUP BY window_start, event_type
           ORDER BY window_start ASC
         `,
-        query_params: { minutes },
+        query_params: { minutes, tenantId },
         format: 'JSONEachRow',
       });
       const rows = await result.json<{

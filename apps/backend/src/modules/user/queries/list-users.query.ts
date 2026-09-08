@@ -2,6 +2,7 @@ import { IQuery, QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { UserRepository } from '../repositories/user.repository';
 import { UserTransformer } from '../transformers/user.transformer';
 import { IUserResponse } from '../interfaces/user.interface';
+import { TenantContext } from '../../../common/tenant/tenant.context';
 
 export interface PagedUsers {
   data: IUserResponse[];
@@ -23,10 +24,17 @@ export class ListUsersHandler implements IQueryHandler<
   ListUsersQuery,
   PagedUsers
 > {
-  constructor(private readonly userRepo: UserRepository) {}
+  constructor(
+    private readonly userRepo: UserRepository,
+    private readonly tenantCtx: TenantContext,
+  ) {}
 
   async execute(query: ListUsersQuery): Promise<PagedUsers> {
-    const result = await this.userRepo.findAll(query.page, query.limit);
+    const result = await this.userRepo.findAll(
+      query.page,
+      query.limit,
+      this.tenantCtx.tenantId,
+    );
     return {
       data: UserTransformer.toResponseList(result.data),
       total: result.total,

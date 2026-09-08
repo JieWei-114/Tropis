@@ -1,6 +1,8 @@
 import {
   Controller,
   Post,
+  Patch,
+  Body,
   Param,
   Query,
   UploadedFile,
@@ -22,6 +24,10 @@ import { extname, basename } from 'path';
 import { Audited } from '../../../common/decorators/audited.decorator';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { ERROR_CODES } from '@tropis/shared';
+import { OpaService } from '../../../infrastructure/opa/opa.service';
+import { UserRole } from '../constants/user.enums';
+import { UpdateRolesDto } from '../dto/update-roles.dto';
 import { StorageService } from '../../../infrastructure/storage/storage.service';
 import { UserService } from '../services/user.service';
 
@@ -32,7 +38,7 @@ interface AuthUser {
 }
 
 /** Allow the resource owner or an admin; reject everyone else. */
-function assertCanActOn(targetUserId: string, actor: AuthUser): void {
+function assertOwnsAvatar(targetUserId: string, actor: AuthUser): void {
   if (actor.userId !== targetUserId && !actor.roles?.includes('admin')) {
     throw new ForbiddenException('You may only manage your own avatar');
   }
@@ -67,7 +73,63 @@ export class UserController {
   constructor(
     private readonly userService: UserService,
     private readonly storageService: StorageService,
+    private readonly opaService: OpaService,
   ) {}
+
+  /**
+   * GET /api/users/roles
+   * Current roles for every user, keyed by id.
+   *
+   * Admin-only: the id→roles map identifies which account holds admin, which is
+   * exactly the reconnaissance an attacker needs, so it is gated behind the same
+   * `manage_roles` permission as the mutation below.
+   *
+   * Lives on REST rather than gRPC because UserResponse in the proto has no
+   * roles field — adding one would mean regenerating the SDK.
+   */
+  @Get('roles')
+  @ApiOperation({
+    summary: 'Roles of every user, keyed by user id (admin only)',
+  })
+  async listRoles(
+    @CurrentUser() actor: AuthUser,
+  ): Promise<Record<string, UserRole[]>> {
+    await this.assertCanManageRoles(actor);
+    return this.userService.listRoles();
+  }
+
+  /** Throws unless OPA grants the caller `manage_roles` (admin only). */
+  private async assertCanManageRoles(actor: AuthUser): Promise<void> {
+    const allowed = await this.opaService.allow({
+      roles: (actor.roles ?? []) as UserRole[],
+      resource: 'user',
+      action: 'manage_roles',
+    });
+    if (!allowed) {
+      throw new ForbiddenException({
+        code: ERROR_CODES.FORBIDDEN,
+        message: 'Only an admin can view or change roles',
+      });
+    }
+  }
+
+  /**
+   * PATCH /api/users/:id/roles
+   * Replaces a user's roles. Requires the `manage_roles` permission, which the
+   * OPA policy grants to `admin` only (infra/opa/authz.rego).
+   */
+  @Patch(':id/roles')
+  @Audited('user.manage_roles')
+  @ApiOperation({ summary: 'Replace a user’s roles (admin only)' })
+  async updateRoles(
+    @Param('id') id: string,
+    @Body() dto: UpdateRolesDto,
+    @CurrentUser() actor: AuthUser,
+  ): Promise<{ id: string; roles: UserRole[] }> {
+    await this.assertCanManageRoles(actor);
+    const roles = await this.userService.updateRoles(id, dto.roles);
+    return { id, roles };
+  }
 
   /**
    * POST /api/users/:id/avatar
@@ -103,7 +165,7 @@ export class UserController {
       mimetype: string;
     },
   ) {
-    assertCanActOn(userId, actor); // owner or admin only — prevents cross-user IDOR
+    assertOwnsAvatar(userId, actor); // owner or admin only — prevents cross-user IDOR
     if (!file) throw new BadRequestException('No file provided');
 
     const ext = safeImageExt(file.originalname);
@@ -135,7 +197,7 @@ export class UserController {
     @CurrentUser() actor: AuthUser,
     @Query('key') objectName: string,
   ) {
-    assertCanActOn(userId, actor); // owner or admin only
+    assertOwnsAvatar(userId, actor); // owner or admin only
     if (!objectName)
       throw new BadRequestException('Query param ?key= is required');
 

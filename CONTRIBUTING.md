@@ -5,7 +5,7 @@
 ```bash
 make install   # pnpm install (workspace root)
 make up        # core infrastructure via docker compose
-make dev       # backend + frontend + temporal worker in watch mode
+make dev       # backend + frontend in watch mode
 ```
 
 Read `docs/project-structure.md` (where code goes) and `docs/adding-a-feature.md` (how to add a module) before your first PR.

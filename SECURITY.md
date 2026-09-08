@@ -9,7 +9,7 @@ Only the latest release (highest `v*` tag) and the `main` branch receive securit
 **Please do not open public GitHub issues for security vulnerabilities.**
 
 - Preferred: use GitHub's **private vulnerability reporting** ("Report a vulnerability" under the Security tab of this repository).
-- Alternatively, email the maintainers at **jiewei@snsoft.my** with the subject `[SECURITY]`.
+- Alternatively, open a private security advisory via the repository's Security tab.
 
 Please include: affected component/file, reproduction steps or PoC, impact assessment, and any suggested fix.
 

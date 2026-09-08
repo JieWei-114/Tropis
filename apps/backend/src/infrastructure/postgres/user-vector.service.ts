@@ -1,11 +1,14 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
+/** Embedding width — matches the user_vectors.embedding column (vector(384)). */
+const EMBEDDING_DIM = 384;
+
 /**
  * Demonstrates pgvector: store a float embedding per user, query by cosine similarity.
  *
  * In production you'd generate embeddings with an LLM (OpenAI text-embedding-3-small,
- * or a local model via Ollama). Here we derive a deterministic 8-dim vector from the
+ * or a local model via Ollama). Here we derive a deterministic vector from the
  * user's profile so the demo works without any external API calls.
  *
  * Why pgvector over Elasticsearch for this?
@@ -26,10 +29,14 @@ export class UserVectorService implements OnModuleInit {
       await this.dataSource.query(`
         CREATE TABLE IF NOT EXISTS user_vectors (
           user_id    TEXT PRIMARY KEY,
-          embedding  vector(8),
+          embedding  vector(384),
           updated_at TIMESTAMPTZ DEFAULT now()
         )
       `);
+      // CREATE TABLE IF NOT EXISTS is a no-op against an existing table, so it
+      // cannot correct an embedding column of a different width — every upsert
+      // would fail on a dimension mismatch. Reconcile the width before indexing.
+      await this.ensureEmbeddingWidth();
       await this.dataSource.query(`
         CREATE INDEX IF NOT EXISTS user_vectors_embedding_idx
         ON user_vectors
@@ -46,7 +53,37 @@ export class UserVectorService implements OnModuleInit {
   }
 
   /**
-   * Derives a simple 8-dim float vector from user profile fields.
+   * Brings an existing `embedding` column to EMBEDDING_DIM.
+   *
+   * pgvector cannot change a column's dimension in place while data is present,
+   * and the stored vectors are derived (not source data), so the rows are
+   * dropped and repopulated on the next upsert.
+   */
+  private async ensureEmbeddingWidth(): Promise<void> {
+    const rows: { dim: number }[] = await this.dataSource.query(
+      `SELECT atttypmod AS dim
+       FROM   pg_attribute
+       WHERE  attrelid = 'user_vectors'::regclass AND attname = 'embedding'`,
+    );
+
+    const current = rows[0]?.dim;
+    if (current === undefined || current === EMBEDDING_DIM) return;
+
+    this.logger.warn(
+      `user_vectors.embedding is vector(${current}); migrating to vector(${EMBEDDING_DIM})`,
+    );
+    await this.dataSource.query(
+      `DROP INDEX IF EXISTS user_vectors_embedding_idx`,
+    );
+    await this.dataSource.query(`TRUNCATE user_vectors`);
+    await this.dataSource.query(
+      `ALTER TABLE user_vectors ALTER COLUMN embedding TYPE vector(${EMBEDDING_DIM})`,
+    );
+  }
+
+  /**
+   * Derives a deterministic EMBEDDING_DIM-wide vector from profile fields:
+   * 8 real signal features up front, zero-padded to the column width.
    * In production: call an embedding API here instead.
    */
   private buildEmbedding(profile: {
@@ -67,7 +104,10 @@ export class UserVectorService implements OnModuleInit {
     const emailLen = Math.min(profile.email.length / 50, 1.0);
     const composite = (nameHash + emailHash + ageFactor) / 3;
 
-    return [
+    // The table stores vector(384) (matching a real MiniLM-style embedding
+    // width). We place the 8 signal features up front and zero-pad the rest —
+    // cosine ordering depends only on the non-zero dimensions.
+    const signal = [
       nameHash,
       emailHash,
       ageFactor,
@@ -77,6 +117,7 @@ export class UserVectorService implements OnModuleInit {
       emailLen,
       composite,
     ];
+    return [...signal, ...new Array(EMBEDDING_DIM - signal.length).fill(0)];
   }
 
   async upsertVector(
@@ -99,8 +140,10 @@ export class UserVectorService implements OnModuleInit {
            SET embedding = EXCLUDED.embedding, updated_at = now()`,
         [userId, pgVec],
       );
-    } catch {
-      /* non-fatal */
+    } catch (err) {
+      // Non-fatal, but log it: swallowing this hides a dimension mismatch,
+      // which leaves user_vectors empty with no symptom.
+      this.logger.warn(`Vector upsert failed: ${(err as Error).message}`);
     }
   }
 
@@ -124,21 +167,32 @@ export class UserVectorService implements OnModuleInit {
     limit = 5,
   ): Promise<{ userId: string; distance: number }[]> {
     try {
-      const rows = await this.dataSource.query(
-        `SELECT target.user_id,
-                (source.embedding <=> target.embedding) AS distance
-         FROM   user_vectors source
-         JOIN   user_vectors target ON target.user_id != source.user_id
-         WHERE  source.user_id = $1
-         ORDER  BY distance ASC
-         LIMIT  $2`,
-        [userId, limit],
+      // Two steps on purpose: ORDER BY needs a constant probe vector to be
+      // index-eligible, so the vector is fetched first. A self-join comparing
+      // two table columns (`source.embedding <=> target.embedding`) cannot use
+      // the ivfflat index and degenerates into a full nested scan plus a sort
+      // of every pair.
+      const src = await this.dataSource.query(
+        `SELECT embedding FROM user_vectors WHERE user_id = $1`,
+        [userId],
       );
-      return rows.map((r: { user_id: string; distance: string }) => ({
+      if (!src.length) return [];
+
+      const rows = await this.dataSource.query(
+        `SELECT user_id, (embedding <=> $1::vector) AS distance
+         FROM   user_vectors
+         WHERE  user_id <> $2
+         ORDER  BY embedding <=> $1::vector
+         LIMIT  $3`,
+        [src[0].embedding, userId, limit],
+      );
+
+      return rows.map((r) => ({
         userId: r.user_id,
         distance: parseFloat(r.distance),
       }));
-    } catch {
+    } catch (err) {
+      this.logger.warn(`findSimilar failed: ${(err as Error).message}`);
       return [];
     }
   }

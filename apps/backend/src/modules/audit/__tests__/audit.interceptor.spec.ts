@@ -1,10 +1,13 @@
 import { ExecutionContext, CallHandler } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
 import { of, throwError, firstValueFrom } from 'rxjs';
 import * as jwt from 'jsonwebtoken';
 import { AuditInterceptor } from '../../../common/interceptors/audit.interceptor';
 import { AuditLogService } from '../services/audit-log.service';
 import { AUDIT_OUTCOME } from '../constants';
+
+const JWT_SECRET = 'test-secret';
 
 describe('AuditInterceptor', () => {
   let interceptor: AuditInterceptor;
@@ -37,6 +40,7 @@ describe('AuditInterceptor', () => {
     interceptor = new AuditInterceptor(
       reflector as unknown as Reflector,
       auditLog as unknown as AuditLogService,
+      { getOrThrow: () => JWT_SECRET } as unknown as ConfigService,
     );
   });
 
@@ -114,7 +118,7 @@ describe('AuditInterceptor', () => {
 
   it('extracts actor and tenant from the bearer token for gRPC calls', async () => {
     reflector.getAllAndOverride.mockReturnValue('user.update');
-    const token = jwt.sign({ sub: 'user-9', tenantId: 'acme' }, 'irrelevant');
+    const token = jwt.sign({ sub: 'user-9', tenantId: 'acme' }, JWT_SECRET);
     const metadata = {
       get: (k: string) => (k === 'authorization' ? [`Bearer ${token}`] : []),
     };

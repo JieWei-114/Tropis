@@ -27,7 +27,7 @@ const DEFAULT_DESCRIPTION =
 /** Default social-share image; place a 1200×630 PNG at public/og-default.png. */
 const DEFAULT_OG_IMAGE = '/og-default.png';
 
-export interface SeoProps {
+interface SeoProps {
   /** Page title; rendered as "Title · Tropis" (omit for the bare site name). */
   title?: string;
   /** Meta description — aim for 120–160 characters. */

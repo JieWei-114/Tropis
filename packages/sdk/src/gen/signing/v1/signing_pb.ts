@@ -168,7 +168,7 @@ export const VerifySignatureResponseSchema: GenMessage<VerifySignatureResponse> 
  *   canonical = METHOD \n PATH \n timestamp \n nonce \n SHA256(body) hex
  *   signature = hex(HMAC-SHA256(secret, canonical))
  *
- * Implemented by the Rust service in services/signing/ (public tier, so it is
+ * Implemented by the Rust service in services/rust/signing/ (public tier, so it is
  * included in SDK codegen). The service is pure computation — nonce replay
  * dedup (Redis SET NX) stays with the gateway/backend caller.
  *

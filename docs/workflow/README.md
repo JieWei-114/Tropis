@@ -1,4 +1,4 @@
-# Feature Workflow Docs (文档先行)
+# Feature Workflow Docs (docs first)
 
 **Docs before code.** Every non-trivial feature/project gets a folder here.
 The folder captures the _thinking_ — requirements, trade-offs, decisions,
@@ -54,7 +54,7 @@ Add the rest when the feature is big enough to need them.
 4. Contracts in `contracts.yaml` follow [docs/api-versioning.md](../api-versioning.md)
    add-only rules once implemented.
 5. Folders are permanent. Closed features stay here as institutional memory —
-   this is how "以后的人" reads the original thinking.
+   this is how future maintainers read the original thinking.
 6. AI agents: read `prd.md` + `proposal-*.md` + `decisions.md` before touching
    the feature's code; append to `dev-log/`, never rewrite others' entries.
 

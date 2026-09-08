@@ -25,7 +25,11 @@ export {
 } from './api';
 
 // REST helpers
-export { createRestClient, type RestClient, type RestOptions } from './rest/index';
+export {
+  createRestClient,
+  type RestClient,
+  type RestOptions,
+} from './rest/index';
 
 // Realtime (Socket.io)
 export {
@@ -51,7 +55,7 @@ export {
   clearTokens,
 } from './auth/token';
 
-// Tracking (user-behavior 埋点 tracker)
+// Tracking (user-behavior tracker)
 export {
   createTracker,
   type Tracker,

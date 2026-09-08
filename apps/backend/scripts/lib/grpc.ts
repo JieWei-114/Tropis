@@ -43,12 +43,46 @@ export function call<T>(
   client: any,
   method: string,
   request: unknown,
+  metadata?: grpc.Metadata,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
-    client[method](request, (err: grpc.ServiceError | null, res: T) =>
-      err ? reject(err) : resolve(res),
-    );
+    const cb = (err: grpc.ServiceError | null, res: T) =>
+      err ? reject(err) : resolve(res);
+    if (metadata) client[method](request, metadata, cb);
+    else client[method](request, cb);
   });
+}
+
+/**
+ * Bearer metadata for the authenticated RPCs.
+ *
+ * The analytics service requires a token (it used to be fully public, which
+ * let anyone read event rows and inject events), so scripts that write events
+ * have to sign in first.
+ */
+export function bearer(token: string): grpc.Metadata {
+  const md = new grpc.Metadata();
+  md.set('authorization', `Bearer ${token}`);
+  return md;
+}
+
+/** Logs in over REST and returns the access token. */
+export async function loginForToken(
+  email: string,
+  password: string,
+): Promise<string> {
+  const base = HEALTH_URL.replace(/\/health$/, '');
+  const res = await fetch(`${base}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    throw new Error(`login failed for ${email}: HTTP ${res.status}`);
+  }
+  const body = (await res.json()) as { accessToken?: string };
+  if (!body.accessToken) throw new Error('login returned no accessToken');
+  return body.accessToken;
 }
 
 /** Exits with a friendly hint when the backend is not up (`make up && make dev`). */

@@ -5,6 +5,7 @@ import {
   CallHandler,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
 import { Observable, throwError } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
 import * as jwt from 'jsonwebtoken';
@@ -32,10 +33,15 @@ interface HttpAuditRequest {
  */
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
+  private readonly jwtSecret: string;
+
   constructor(
     private readonly reflector: Reflector,
     private readonly auditLog: AuditLogService,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.jwtSecret = config.getOrThrow<string>('JWT_SECRET');
+  }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const action = this.reflector.getAllAndOverride<string | undefined>(
@@ -101,8 +107,12 @@ export class AuditInterceptor implements NestInterceptor {
   }
 
   /**
-   * Best-effort actor extraction for gRPC — decodes (does not verify) the
-   * bearer token; authenticity is enforced separately by the handlers.
+   * Actor extraction for gRPC.
+   *
+   * Verifies the signature rather than decoding it: `jwt.decode` accepts any
+   * token, so an unauthenticated RPC could attach an `alg: none` bearer and
+   * attribute its action to any user in the audit log. An unverifiable token
+   * yields an empty actor, which is at least honest.
    */
   private actorFromToken(token: string | undefined): {
     actorUserId: string;
@@ -110,7 +120,7 @@ export class AuditInterceptor implements NestInterceptor {
   } {
     if (!token) return { actorUserId: '', tenantId: DEFAULT_TENANT };
     try {
-      const payload = jwt.decode(token) as {
+      const payload = jwt.verify(token, this.jwtSecret) as {
         sub?: string;
         tenantId?: string;
       } | null;
