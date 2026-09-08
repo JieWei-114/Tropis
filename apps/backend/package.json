@@ -65,7 +65,7 @@
     "@temporalio/activity": "^1.17.1",
     "@temporalio/client": "^1.17.1",
     "@temporalio/worker": "^1.17.1",
-    "@temporalio/workflow": "^1.17.1",
+    "@temporalio/workflow": "^1.23.0",
     "@tropis/shared": "workspace:*",
     "@types/jsonwebtoken": "^9.0.10",
     "@willsoto/nestjs-prometheus": "^6.0.0",
