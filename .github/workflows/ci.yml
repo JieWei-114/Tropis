@@ -269,7 +269,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - name: Build backend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: apps/backend/Dockerfile
@@ -278,7 +278,7 @@ jobs:
           tags: ci-backend:${{ github.sha }}
 
       - name: Build frontend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: apps/frontend/helm/Dockerfile
