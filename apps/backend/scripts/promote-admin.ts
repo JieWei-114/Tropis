@@ -8,26 +8,19 @@
  * requires host/DB access — a trust level the network API does not have.
  *
  * Usage: pnpm --filter @tropis/backend promote-admin <email> [tenantId]
- *        make promote-admin EMAIL=<email>
+ *        make promote-admin EMAIL=<email> [TENANT_ID=<tenant>]
  *
- * The tenant defaults to 'default'. Emails are unique per tenant, not
- * globally, so matching on email alone could promote the wrong user.
+ * The tenant defaults to 'dev', the tenant the seeder and helm use. Emails
+ * are unique per tenant, not globally, so matching on email alone could
+ * promote the wrong user.
  */
-import mongoose from 'mongoose';
-
-const URI =
-  process.env.MONGODB_URI ??
-  'mongodb://127.0.0.1:27018/tropis?replicaSet=rs0&directConnection=true';
+import { grantAdmin, withDb } from './lib/db';
 
 async function main(): Promise<void> {
   const email = (process.argv[2] ?? process.env.EMAIL ?? '')
     .trim()
     .toLowerCase();
-  const tenantId = (
-    process.argv[3] ??
-    process.env.TENANT_ID ??
-    'default'
-  ).trim();
+  const tenantId = (process.argv[3] ?? process.env.TENANT_ID ?? 'dev').trim();
   if (!email) {
     console.error(
       'Usage: promote-admin <email> [tenantId]   (or EMAIL=<email> TENANT_ID=<tenant>)',
@@ -35,34 +28,19 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  await mongoose.connect(URI);
-  try {
-    const users = mongoose.connection.collection('users');
-
-    const existing = await users.findOne({ email, tenantId });
-    if (!existing) {
-      console.error(
-        `No user with email ${email} in tenant ${tenantId}. Register or seed first.`,
-      );
-      process.exit(1);
-    }
-    if ((existing.roles as string[] | undefined)?.includes('admin')) {
-      console.log(`${email} already has the admin role.`);
-      return;
-    }
-
-    // $addToSet, not $set: $set would replace the array and silently drop the
-    // roles the user already has (e.g. the default `editor`).
-    await users.updateOne(
-      { email, tenantId },
-      { $addToSet: { roles: 'admin' } },
+  const outcome = await withDb(() => grantAdmin(tenantId, email));
+  if (outcome === 'missing') {
+    console.error(
+      `No user with email ${email} in tenant ${tenantId}. Register or seed first.`,
     );
-    console.log(
-      `${email} is now an admin. Sign out and back in — the role is read from the JWT.`,
-    );
-  } finally {
-    await mongoose.disconnect();
+    process.exit(1);
   }
+  console.log(
+    outcome === 'already'
+      ? `${email} already has the admin role.`
+      : `${email} is now an admin. Roles are read from the member record, so ` +
+          `it applies on the next request.`,
+  );
 }
 
 main().catch((err: Error) => {

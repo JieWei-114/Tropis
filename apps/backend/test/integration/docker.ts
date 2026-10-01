@@ -17,7 +17,7 @@ function isDockerAvailable(): boolean {
 export function describeWithDocker(name: string): jest.Describe {
   if (isDockerAvailable()) return describe;
 
-  console.warn(
+  process.emitWarning(
     `[integration] Docker is not available — skipping suite "${name}". ` +
       'Start Docker to run integration tests.',
   );

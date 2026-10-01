@@ -9,7 +9,7 @@
 #                                        follow-up still fires after a fresh restart
 #
 # Assumes: docker stack up, backend running as `node dist/main` on :3100,
-# MailHog on :8025, Temporal on :7233 (+ UI on :8233).
+# Mailpit on :8025, Temporal on :7233 (+ UI on :8233).
 #
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -17,7 +17,7 @@ cd "$(dirname "$0")/.."
 MODE="${1:-happy}"
 DELAY_MS="${DELAY_MS:-40000}"
 API=http://localhost:3100
-MAILHOG=http://localhost:8025
+MAILPIT=http://localhost:8025
 TEMPORAL_UI=http://localhost:8233
 
 say()  { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
@@ -39,11 +39,11 @@ create_user() {
 }
 
 followups_for() { # $1 = email — count "Getting started" mails to that address
-  curl -s "$MAILHOG/api/v2/messages" | node -e '
+  curl -s "$MAILPIT/api/v1/messages?limit=500" | node -e '
     let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
       const to=process.argv[1];let n=0;
-      try{for(const m of (JSON.parse(s).items||[])){
-        const t=(m.Content.Headers.To||[])[0]||"", sub=(m.Content.Headers.Subject||[])[0]||"";
+      try{for(const m of (JSON.parse(s).messages||[])){
+        const t=(m.To||[]).map(a=>a.Address).join(","), sub=m.Subject||"";
         if(t.includes(to)&&sub.includes("Getting started"))n++;
       }}catch(e){}
       console.log(n);
@@ -54,11 +54,11 @@ say "Starting a fresh backend (follow-up delay = ${DELAY_MS}ms)"
 # Always (re)start so the delay is deterministic and the crash window is precise.
 pkill -9 -f 'dist/main' 2>/dev/null || true; sleep 1
 restart_backend
-tick "backend healthy, Temporal worker polling task queue \"main\""
+tick "backend healthy, Temporal worker polling task queue \"user-onboarding\""
 
 say "Step 1 — a user signs up"
-# create_user prints '<workflowId> <email>' — the id already carries the
-# 'onboarding-' prefix the processor uses.
+# create_user prints '<workflowId> <email>' — the engine-side id, with the
+# tenant prefix and the 'onboarding-' prefix the processor uses.
 read -r WFID EMAIL <<<"$(create_user)"
 T0=$(date '+%H:%M:%S')
 tick "created $EMAIL"
@@ -88,9 +88,9 @@ if [ "$(followups_for "$EMAIL")" -ge 1 ]; then
   tick "signup at $T0, delivered at $(date '+%H:%M:%S')"
   [ "$MODE" = "--crash" ] && tick "…and it survived a full crash + restart in between"
 else
-  say "RESULT ❌  no follow-up email (check that Temporal + MailHog are up)"; exit 1
+  say "RESULT ❌  no follow-up email (check that Temporal + Mailpit are up)"; exit 1
 fi
 
 echo
 echo "  See the workflow history:  $TEMPORAL_UI  (search: $WFID)"
-echo "  See both emails:           $MAILHOG"
+echo "  See both emails:           $MAILPIT"
