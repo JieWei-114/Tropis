@@ -21,9 +21,9 @@ updates:
       - dependency-name: '*'
         update-types: ['version-update:semver-major']
 
-  # ── Flink / Java (Maven) ───────────────────────────────────────────
+  # ── Stream analytics — Flink job (Maven) ───────────────────────────
   - package-ecosystem: maven
-    directory: /flink
+    directory: /services/flink
     schedule:
       interval: weekly
       day: monday
@@ -39,9 +39,9 @@ updates:
       time: '09:00'
     open-pull-requests-limit: 5
 
-  # ── Rust — signing service workspace ───────────────────────────────
+  # ── Rust — root Cargo workspace (services/rust/signing) ─────────────────
   - package-ecosystem: cargo
-    directory: /services/rust
+    directory: /
     schedule:
       interval: weekly
       day: monday
@@ -63,7 +63,7 @@ updates:
       - dependency-name: '*'
         update-types: ['version-update:semver-major']
 
-  # ── Docker base images (backend + frontend) ────────────────────────
+  # ── Docker base images (backend, helm, harbor, signing) ────────────
   - package-ecosystem: docker
     directory: /apps/backend
     schedule:
@@ -73,6 +73,20 @@ updates:
     open-pull-requests-limit: 3
   - package-ecosystem: docker
     directory: /apps/frontend/helm
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+    open-pull-requests-limit: 3
+  - package-ecosystem: docker
+    directory: /apps/frontend/harbor
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+    open-pull-requests-limit: 3
+  - package-ecosystem: docker
+    directory: /services/rust/signing
     schedule:
       interval: weekly
       day: monday

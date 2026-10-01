@@ -14,7 +14,7 @@ body:
     id: solution
     attributes:
       label: Proposed solution
-      description: What you want to happen. Sketch the API/UX if relevant (gRPC-first — see docs/architecture.md).
+      description: What you want to happen. Sketch the API/UX if relevant (RPC-first — see docs/architecture.md).
     validations:
       required: true
   - type: textarea

@@ -61,14 +61,15 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 *.sln
 *.sw?
 
-# Java / Flink
-flink/target
+# Java / Flink (Maven build output)
+services/flink/target/
+services/flink/dependency-reduced-pom.xml
 *.class
 
-# Rust (Cargo workspace at services/rust/ — single shared target dir)
-services/rust/target/
+# Rust (Cargo workspace at the repo root — single shared target dir)
+/target/
 
-# Tauri desktop shell (its own crate at apps/desktop/src-tauri, not in services/rust)
+# Tauri desktop shell (its own crate and workspace, not in the root workspace)
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
 

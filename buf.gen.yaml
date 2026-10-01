@@ -1,16 +1,26 @@
 version: v2
 clean: true
 plugins:
-  # Generates TypeScript message/service schemas for @bufbuild/protobuf v2 +
-  # @connectrpc/connect v2 (see packages/sdk).
+  # Public SDK (packages/sdk): TypeScript message/service schemas for
+  # @bufbuild/protobuf v2 + @connectrpc/connect v2. Public tier only: the
+  # internal tier (tropis.user.internal.v1) and the vendored gRPC
+  # infrastructure contracts are not part of the client surface
+  # (docs/api-conventions.md).
   - local: packages/sdk/node_modules/.bin/protoc-gen-es
     out: packages/sdk/src/gen
     opt:
       - target=ts
+    exclude_types:
+      - tropis.user.internal.v1
+      - grpc.health.v1
+      - grpc.reflection.v1
+      - grpc.reflection.v1alpha
+  # Backend (apps/backend): every contract it serves, both tiers plus the
+  # standard health and reflection services, so handlers compile against the
+  # same generated types as the SDK.
+  - local: packages/sdk/node_modules/.bin/protoc-gen-es
+    out: apps/backend/src/gen
+    opt:
+      - target=ts
 inputs:
-  # Public tier only: internal protos (proto/**/internal/**) are deliberately
-  # excluded from the public SDK — internal service clients generate their own
-  # types from the proto files directly (docs/api-conventions.md).
   - directory: .
-    exclude_paths:
-      - proto/user/internal

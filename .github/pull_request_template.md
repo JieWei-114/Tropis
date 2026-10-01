@@ -8,7 +8,7 @@ Closes #
 
 ## What & why
 
-<!-- What changed, and why. Link design context (docs/tech-decisions.md, ADR, story) where relevant. -->
+<!-- What changed, and why. Link design context (the owning doc under docs/, the feature README, the story) where relevant. -->
 
 ## Type of change
 
@@ -40,5 +40,5 @@ Closes #
 - [ ] PR title is a valid conventional commit (it becomes the squash commit and feeds the changelog)
 - [ ] Tests added/updated — **bug fix ⇒ repro test that fails without the fix** (docs/testing.md)
 - [ ] Docs updated (README / docs/ / .env.example) where behavior or setup changed
-- [ ] Breaking change → [docs/api-versioning.md](../blob/main/docs/api-versioning.md) rules followed (`buf breaking` passes, new version introduced instead of mutating v1)
+- [ ] Breaking change → [docs/api-conventions.md](../blob/main/docs/api-conventions.md#versioning-and-compatibility) rules followed (`buf breaking` passes, new version introduced instead of mutating v1)
 - [ ] No secrets, credentials, or internal URLs in the diff

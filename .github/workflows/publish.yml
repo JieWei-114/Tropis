@@ -37,7 +37,7 @@ jobs:
     if: ${{ inputs.publish_npm }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Guard: skip everything if the npm token isn't configured yet.
       - name: Check NPM_TOKEN
@@ -49,10 +49,10 @@ jobs:
             echo "::notice::NPM_TOKEN secret not set — skipping npm publish. Add the secret (and remove 'private: true' from packages/sdk/package.json) to enable."
           fi
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         if: steps.npm-token.outputs.present == 'true'
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: steps.npm-token.outputs.present == 'true'
         with:
           node-version: 22
@@ -79,7 +79,7 @@ jobs:
     if: ${{ inputs.push_bsr }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Guard: skip if the BSR token isn't configured yet.
       - name: Check BUF_TOKEN
@@ -91,7 +91,7 @@ jobs:
             echo "::notice::BUF_TOKEN secret not set — skipping buf push. Add the secret and confirm the module name in buf.yaml (buf.build/tropis/tropis — adjust to your org) to enable."
           fi
 
-      - uses: bufbuild/buf-action@v1
+      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1.5.0
         if: steps.buf-token.outputs.present == 'true'
         with:
           token: ${{ secrets.BUF_TOKEN }}

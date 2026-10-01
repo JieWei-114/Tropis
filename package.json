@@ -7,7 +7,6 @@
     "prepare": "husky",
     "backend": "pnpm --filter @tropis/backend start:dev",
     "frontend": "pnpm --filter @tropis/helm dev",
-    "worker": "pnpm --filter @tropis/temporal-worker start:dev",
     "dev": "concurrently \"pnpm backend\" \"pnpm frontend\"",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
@@ -31,15 +30,15 @@
   },
   "lint-staged": {
     "apps/backend/**/*.ts": [
-      "apps/backend/node_modules/.bin/eslint --config apps/backend/eslint.config.mjs",
+      "pnpm --dir apps/backend exec eslint",
       "prettier --write"
     ],
     "apps/frontend/helm/**/*.{ts,tsx}": [
-      "apps/frontend/helm/node_modules/.bin/eslint --config apps/frontend/helm/eslint.config.js",
+      "pnpm --dir apps/frontend/helm exec eslint",
       "prettier --write"
     ],
     "apps/frontend/harbor/**/*.{ts,tsx}": [
-      "apps/frontend/harbor/node_modules/.bin/eslint --config apps/frontend/harbor/eslint.config.mjs",
+      "pnpm --dir apps/frontend/harbor exec eslint",
       "prettier --write"
     ],
     "**/*.{json,md,yml,yaml,css}": [
@@ -76,8 +75,8 @@
       "brace-expansion is scoped to the installed 5.x line on purpose — a",
       "blanket range override pulls a major that breaks minimatch@3's expand()",
       "API, and 1.x/2.x are not in any advisory range.",
-      "DONE as direct major bumps, no override needed: nodemailer 6→10 (backend",
-      "+ temporal-worker; bundles its own types now, so @types/nodemailer was",
+      "DONE as direct major bumps, no override needed: nodemailer 6→10 (backend;",
+      "bundles its own types now, so @types/nodemailer was",
       "dropped rather than bumped) and react-router-dom 6→react-router 7 in helm",
       "(v7 folded the DOM exports back into `react-router`, so the separate",
       "-dom package is redundant for a declarative SPA).",

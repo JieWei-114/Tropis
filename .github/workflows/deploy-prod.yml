@@ -9,23 +9,26 @@ on:
 
 env:
   REGISTRY: ghcr.io # GitHub Container Registry — free for public repos
-  IMAGE_BACKEND: ghcr.io/${{ github.repository }}/backend
-  IMAGE_FRONTEND: ghcr.io/${{ github.repository }}/frontend # helm — admin console
-  IMAGE_HARBOR: ghcr.io/${{ github.repository }}/harbor # public Next.js site
+
+permissions:
+  contents: read
+
+# One production deploy at a time; a newer tag waits instead of racing.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
 
 jobs:
   # ── Gate: the tagged commit must pass the core checks before we build/deploy.
-  # Prevents a `v*` tag on broken code from shipping to prod (the header's
-  # "CI must pass first" is now actually enforced, not just documented).
+  # Prevents a `v*` tag on broken code from shipping to prod.
   verify:
     name: Verify (lint · type · test · build)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -47,53 +50,55 @@ jobs:
     name: Build, push, deploy
     needs: verify # ← deploy only runs if verify (CI gate) passed
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write # push to GHCR
-      id-token: write # OIDC — used if you switch to cloud IAM auth
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # ── Image tag from git tag (e.g. v1.2.3) ──────────────────────────
       - name: Extract version tag
         id: tag
         run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
+      # Registry paths must be lowercase; github.repository keeps the owner's
+      # and the repository's case.
+      - name: Image names
+        run: |
+          repo="${GITHUB_REPOSITORY,,}"
+          {
+            echo "IMAGE_BACKEND=${REGISTRY}/${repo}/backend"
+            echo "IMAGE_FRONTEND=${REGISTRY}/${repo}/frontend"
+            echo "IMAGE_HARBOR=${REGISTRY}/${repo}/harbor"
+          } >> "$GITHUB_ENV"
+
       # ── Log in to GitHub Container Registry ───────────────────────────
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # ── Build + push backend ───────────────────────────────────────────
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build and push backend image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: apps/backend/Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_BACKEND }}:${{ steps.tag.outputs.version }}
-            ${{ env.IMAGE_BACKEND }}:latest
+      - name: Build and push the backend role images
+        run: |
+          for role in public private worker scheduler; do
+            docker buildx build . \
+              --file apps/backend/Dockerfile \
+              --target "$role" \
+              --tag "${{ env.IMAGE_BACKEND }}-$role:${{ steps.tag.outputs.version }}" \
+              --tag "${{ env.IMAGE_BACKEND }}-$role:latest" \
+              --push
+          done
 
       # ── Build + push frontend ──────────────────────────────────────────
       - name: Build and push frontend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: . # repo root — Dockerfile needs the pnpm workspace
           file: apps/frontend/helm/Dockerfile
@@ -101,13 +106,20 @@ jobs:
           tags: |
             ${{ env.IMAGE_FRONTEND }}:${{ steps.tag.outputs.version }}
             ${{ env.IMAGE_FRONTEND }}:latest
+          # Vite bakes these into the static bundle. They are public URLs, so
+          # they come from repository variables (Settings → Variables → Actions).
+          # VITE_SITE_URL is the console's own origin (its canonical/OG URLs),
+          # which is the same URL harbor links to as the console.
           build-args: |
-            VITE_API_BASE_URL=${{ secrets.PROD_API_BASE_URL }}
-            VITE_WS_URL=${{ secrets.PROD_WS_URL }}
+            VITE_API_BASE_URL=${{ vars.PROD_API_BASE_URL }}
+            VITE_RPC_URL=${{ vars.PROD_RPC_URL }}
+            VITE_WS_URL=${{ vars.PROD_WS_URL }}
+            VITE_SITE_URL=${{ vars.PROD_CONSOLE_URL }}
+            VITE_TENANT_ID=${{ vars.PROD_TENANT_ID }}
 
       # ── Build + push harbor (public Next.js SSR site) ──────────────────
       - name: Build and push harbor image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: . # repo root — Dockerfile needs the pnpm workspace
           file: apps/frontend/harbor/Dockerfile
@@ -115,6 +127,10 @@ jobs:
           tags: |
             ${{ env.IMAGE_HARBOR }}:${{ steps.tag.outputs.version }}
             ${{ env.IMAGE_HARBOR }}:latest
+          # Next.js prerenders pages with these, so they are fixed per image.
+          build-args: |
+            NEXT_PUBLIC_SITE_URL=${{ vars.PROD_SITE_URL }}
+            NEXT_PUBLIC_CONSOLE_URL=${{ vars.PROD_CONSOLE_URL }}
 
       # ── Deploy to Kubernetes ───────────────────────────────────────────
       # Requires a KUBE_CONFIG secret in repo settings:
@@ -126,17 +142,21 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
 
       - name: Install kubectl
-        uses: azure/setup-kubectl@v3
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4.0.1
 
-      - name: Pin image tags in Kustomize overlay
+      - name: Pin image tags and SERVICE_VERSION in the Kustomize overlay
         working-directory: infra/k8s/overlays/prod
         run: |
-          kustomize edit set image \
-            ghcr.io/tropis/backend=${{ env.IMAGE_BACKEND }}:${{ steps.tag.outputs.version }}
+          for role in public private worker scheduler; do
+            kustomize edit set image \
+              ghcr.io/tropis/backend-$role=${{ env.IMAGE_BACKEND }}-$role:${{ steps.tag.outputs.version }}
+          done
           kustomize edit set image \
             ghcr.io/tropis/frontend=${{ env.IMAGE_FRONTEND }}:${{ steps.tag.outputs.version }}
           kustomize edit set image \
             ghcr.io/tropis/harbor=${{ env.IMAGE_HARBOR }}:${{ steps.tag.outputs.version }}
+          kustomize edit set configmap backend-config --namespace tropis \
+            --from-literal=SERVICE_VERSION=${{ steps.tag.outputs.version }}
 
       # ── GitOps alternative (Argo CD) ───────────────────────────────────
       # For true GitOps, don't kubectl apply from CI. Instead COMMIT the
@@ -163,20 +183,26 @@ jobs:
       - name: Wait for rollout
         id: rollout
         run: |
-          kubectl rollout status deployment/backend  -n tropis --timeout=120s
+          for role in public private worker scheduler; do
+            kubectl rollout status deployment/backend-$role -n tropis --timeout=180s
+          done
           kubectl rollout status deployment/frontend -n tropis --timeout=60s
           kubectl rollout status deployment/harbor   -n tropis --timeout=90s
 
-      # If the rollout fails, revert both deployments to the previous
+      # If the rollout fails, revert every deployment to the previous
       # revision and fail the job so the broken tag is flagged.
       - name: Rollback on rollout failure
         if: failure() && steps.rollout.outcome == 'failure'
         run: |
           echo "Rollout failed — rolling back to previous revision"
-          kubectl rollout undo deployment/backend  -n tropis
+          for role in public private worker scheduler; do
+            kubectl rollout undo deployment/backend-$role -n tropis
+          done
           kubectl rollout undo deployment/frontend -n tropis
           kubectl rollout undo deployment/harbor   -n tropis
-          kubectl rollout status deployment/backend  -n tropis --timeout=120s
+          for role in public private worker scheduler; do
+            kubectl rollout status deployment/backend-$role -n tropis --timeout=180s
+          done
           kubectl rollout status deployment/frontend -n tropis --timeout=60s
           kubectl rollout status deployment/harbor   -n tropis --timeout=90s
           exit 1

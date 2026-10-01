@@ -2,6 +2,7 @@
 # files, and CI proves they are in sync by regenerating and diffing — a
 # prettier pass would make that diff fail on every run.
 packages/sdk/src/gen/
+apps/backend/src/gen
 
 # Build output.
 **/dist/

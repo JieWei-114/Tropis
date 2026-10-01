@@ -3,20 +3,27 @@ modules:
   - path: proto
     # PLACEHOLDER — adjust org to your BSR org before
     # running `buf push`. Harmless until then; only used as the module identity
-    # on the BSR (see docs/api-versioning.md → "Distributing contracts").
+    # on the BSR (see docs/api-conventions.md → "Distributing contracts").
     name: buf.build/tropis/tropis
 lint:
   use:
     - STANDARD
   except:
-    # Legacy naming carried over from the pre-versioned app.proto —
-    # revisit when generating SDKs.
+    # RPCs share response messages (e.g. UserResponse, UsersResponse) and some
+    # requests (EmptyRequest), so the per-RPC naming rules are off.
     - RPC_REQUEST_RESPONSE_UNIQUE
     - RPC_REQUEST_STANDARD_NAME
     - RPC_RESPONSE_STANDARD_NAME
-    # docs/api-versioning.md mandates proto/<domain>/v1/<domain>.proto with
-    # package app.<domain>.v1 (no leading "app/" directory).
+    # docs/api-conventions.md mandates proto/<domain>/v1/<domain>.proto with
+    # package tropis.<domain>.v1 (no leading "tropis/" directory).
     - PACKAGE_DIRECTORY_MATCH
+  # Vendored upstream contracts keep their canonical names and file paths:
+  # gRPC (grpc.health.v1, grpc.reflection.*), which clients such as grpcurl
+  # and grpc-health-probe depend on, and google.rpc error details, which every
+  # gRPC/Connect client decodes by type name. The house style does not apply.
+  ignore:
+    - proto/grpc
+    - proto/google
 breaking:
   use:
     - WIRE_JSON

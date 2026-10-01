@@ -6,29 +6,41 @@ on:
   pull_request:
     branches: [main, develop]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # ── Backend ────────────────────────────────────────────────────────
   backend:
     name: Backend — lint, test, build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: apps/backend
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      # The backend imports @tropis/shared, whose entry points resolve from its
+      # gitignored dist/, so a clean runner must build it before the type check.
+      - name: Build shared package
+        run: pnpm --filter @tropis/shared build
         working-directory: .
 
       - name: Lint
@@ -44,7 +56,7 @@ jobs:
         run: pnpm test --coverage
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: backend-coverage
@@ -63,22 +75,40 @@ jobs:
   integration:
     name: Backend — integration tests (Testcontainers)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: backend
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm --filter @tropis/shared build
+
+      # The native signing conformance suite spawns target/debug/signing and
+      # skips when it is missing.
+      - name: Install protoc (tonic-prost-build shells out to it)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: .
+
+      - name: Build the native signing service
+        run: cargo build -p signing
 
       - name: Run integration tests
         run: pnpm --filter @tropis/backend test:int
@@ -88,18 +118,17 @@ jobs:
   frontend:
     name: Frontend helm — lint, type check, test, build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: apps/frontend/helm
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -126,7 +155,7 @@ jobs:
         run: pnpm test:coverage
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: frontend-coverage
@@ -140,20 +169,19 @@ jobs:
 
   # ── Frontend: harbor (public Next.js site) ─────────────────────────
   harbor:
-    name: Frontend harbor — lint, arch, type check, build
+    name: Frontend harbor — lint, arch, type check, test, build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: apps/frontend/harbor
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -171,6 +199,9 @@ jobs:
       - name: Type check
         run: pnpm typecheck
 
+      - name: Unit tests
+        run: pnpm test
+
       - name: Build
         run: pnpm build
 
@@ -180,14 +211,15 @@ jobs:
   # a full compile is enough to catch regressions and keeps the job fast.
   # An Android scaffold-check job is deliberately NOT added: `cap sync`
   # alone is near-trivial (asset copy) and a real Gradle build needs the
-  # Android SDK — poor signal per CI minute. See docs/multi-platform.md.
+  # Android SDK — poor signal per CI minute. See docs/deployment.md#native-distribution.
   desktop:
     name: Desktop — Tauri build (no bundle)
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     needs: frontend
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install Tauri v2 system dependencies (webkit2gtk etc.)
         run: |
@@ -195,18 +227,18 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: apps/desktop/src-tauri
 
@@ -221,30 +253,29 @@ jobs:
         run: pnpm --filter @tropis/desktop exec tauri build --no-bundle
 
   # ── Rust services ──────────────────────────────────────────────────
-  # Polyglot services in the Cargo workspace at services/rust/ — currently the
-  # signing service. Includes the shared HMAC test vector that must stay
-  # in sync with the TS backend guard and SDK signing suites.
+  # Rust services in the Cargo workspace at the repo root (members live under
+  # services/) — currently the signing service. Includes the shared HMAC test
+  # vector that must stay in sync with the TS backend guard and SDK signing
+  # suites. apps/desktop/src-tauri is its own workspace, built by `desktop`.
   rust:
-    name: Rust — fmt, clippy, test (services/rust/ workspace)
+    name: Rust — fmt, clippy, test (root Cargo workspace)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: services/rust
+    timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install protoc (tonic-prost-build shells out to it)
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-        working-directory: .
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: services/rust
+          workspaces: .
 
       - name: Format check
         run: cargo fmt --check
@@ -256,49 +287,87 @@ jobs:
         run: cargo test --workspace
 
   # ── Docker images — build + vulnerability scan ─────────────────────
-  # Builds both production images (no push) and scans them with Trivy.
-  # Fails on CRITICAL/HIGH vulnerabilities that have an available fix.
-  docker:
-    name: Docker — build & Trivy scan
+  # Builds one backend image per role (no push) and scans each with Trivy.
+  # Fails on CRITICAL vulnerabilities that have an available fix.
+  docker-backend:
+    name: Docker — backend ${{ matrix.role }} build & Trivy scan
     runs-on: ubuntu-latest
-    needs: [backend, frontend]
+    timeout-minutes: 30
+    needs: [backend]
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [public, private, worker, scheduler]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - name: Build backend image
-        uses: docker/build-push-action@v5
+      - name: Build backend-${{ matrix.role }} image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: apps/backend/Dockerfile
+          target: ${{ matrix.role }}
           push: false
           load: true
-          tags: ci-backend:${{ github.sha }}
+          tags: ci-backend-${{ matrix.role }}:${{ github.sha }}
 
-      - name: Build frontend image
-        uses: docker/build-push-action@v5
+      - name: Scan backend-${{ matrix.role }} image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          context: .
-          file: apps/frontend/helm/Dockerfile
-          push: false
-          load: true
-          tags: ci-frontend:${{ github.sha }}
-
-      - name: Scan backend image (Trivy)
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          image-ref: ci-backend:${{ github.sha }}
+          image-ref: ci-backend-${{ matrix.role }}:${{ github.sha }}
           format: table
           exit-code: '1'
           severity: CRITICAL
           ignore-unfixed: true
 
-      - name: Scan frontend image (Trivy)
-        uses: aquasecurity/trivy-action@v0.33.1
+      - name: Generate backend-${{ matrix.role }} SBOM (SPDX)
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
-          image-ref: ci-frontend:${{ github.sha }}
+          image: ci-backend-${{ matrix.role }}:${{ github.sha }}
+          format: spdx-json
+          output-file: backend-${{ matrix.role }}-sbom.spdx.json
+          artifact-name: backend-${{ matrix.role }}-sbom.spdx.json
+          upload-release-assets: false
+
+  # Builds the console (helm), harbor and signing images (no push) and scans
+  # each with Trivy.
+  docker:
+    name: Docker — ${{ matrix.image }} build & Trivy scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [frontend, harbor, rust]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: frontend
+            file: apps/frontend/helm/Dockerfile
+          - image: harbor
+            file: apps/frontend/harbor/Dockerfile
+          - image: signing
+            file: services/rust/signing/Dockerfile
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build ${{ matrix.image }} image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          push: false
+          load: true
+          tags: ci-${{ matrix.image }}:${{ github.sha }}
+
+      - name: Scan ${{ matrix.image }} image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ci-${{ matrix.image }}:${{ github.sha }}
           format: table
           exit-code: '1'
           severity: CRITICAL
@@ -307,22 +376,13 @@ jobs:
       # ── SBOM generation (supply-chain transparency) ──────────────────
       # Syft generates an SPDX SBOM for each image; the action uploads
       # them as workflow artifacts automatically.
-      - name: Generate backend SBOM (SPDX)
-        uses: anchore/sbom-action@v0
+      - name: Generate ${{ matrix.image }} SBOM (SPDX)
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
-          image: ci-backend:${{ github.sha }}
+          image: ci-${{ matrix.image }}:${{ github.sha }}
           format: spdx-json
-          output-file: backend-sbom.spdx.json
-          artifact-name: backend-sbom.spdx.json
-          upload-release-assets: false
-
-      - name: Generate frontend SBOM (SPDX)
-        uses: anchore/sbom-action@v0
-        with:
-          image: ci-frontend:${{ github.sha }}
-          format: spdx-json
-          output-file: frontend-sbom.spdx.json
-          artifact-name: frontend-sbom.spdx.json
+          output-file: ${{ matrix.image }}-sbom.spdx.json
+          artifact-name: ${{ matrix.image }}-sbom.spdx.json
           upload-release-assets: false
 
   # ── Dependency license compliance ──────────────────────────────────
@@ -331,15 +391,14 @@ jobs:
   licenses:
     name: Dependency license check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -354,18 +413,17 @@ jobs:
   shared:
     name: Shared — type check, build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: packages/shared
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -384,14 +442,13 @@ jobs:
   format:
     name: Format — prettier
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -403,23 +460,22 @@ jobs:
         run: npx prettier --check .
 
   # ── SDK ────────────────────────────────────────────────────────────
-  # The SDK was previously covered by nothing: its type check would have
-  # caught the stale generated code above, and CI never ran it.
+  # Type-checks, builds and tests the SDK, so stale generated code or a
+  # broken client fails here rather than in an app build.
   sdk:
     name: SDK — type check, build, test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: packages/sdk
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -437,18 +493,19 @@ jobs:
       - name: Test
         run: pnpm test
 
-  # ── Flink ──────────────────────────────────────────────────────────
+  # ── Stream analytics (Flink job) ───────────────────────────────────
   flink:
-    name: Flink — compile
+    name: Stream analytics (Flink) — compile
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
-        working-directory: flink
+        working-directory: services/flink
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           java-version: 11
           distribution: temurin
@@ -458,21 +515,26 @@ jobs:
         run: mvn clean compile -q
 
   # ── E2E tests ──────────────────────────────────────────────────────
-  # Spins up the full infrastructure via docker compose, waits for all
-  # services to be healthy, then runs the e2e suite against the live app.
+  # Mirrors `make test-e2e`: the backend profiles of the compose stack, the
+  # PostgreSQL migrations, the backend e2e suite, then the `all` role
+  # (dist/main) started from the copied .env.example, seeded, and driven by
+  # Playwright through the helm preview.
   e2e:
     name: E2E — full stack integration
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: [backend, frontend, shared] # only run if all unit tests and builds pass
+    env:
+      COMPOSE: docker compose -f infra/docker/docker-compose.yml --profile relational --profile search --profile olap --profile objects --profile workflow --profile secrets --profile kv-scale
+      E2E_RATE_LIMIT_AUTH: 200
+      TENANT_ID: dev
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -480,107 +542,63 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Start everything the backend's /api/health indicators probe (mongo, redis,
-      # postgres, ES, clickhouse, pulsar, minio, temporal, opa, vault) plus envoy so
-      # the browser's gRPC-Web calls (login/users) reach the host backend on :50051
-      # via host.docker.internal (host-gateway extra_hosts in compose).
-      - name: Start infrastructure
-        run: docker compose -f infra/docker/docker-compose.yml up -d mongodb redis postgres elasticsearch clickhouse pulsar minio mailhog vault vault-init aerospike opa postgresql-temporal temporal envoy
+      - name: Build shared package
+        run: pnpm --filter @tropis/shared build
 
-      - name: Wait for core services
+      # Starts everything, then waits for every long-running service to be
+      # healthy (one-shot init containers exit, which --wait treats as failure).
+      - name: Start infrastructure
         run: |
-          echo "Waiting for MongoDB..."
-          until docker exec tropis_mongodb mongosh --eval "db.adminCommand('ping')" >/dev/null 2>&1; do sleep 2; done
-          echo "Waiting for Redis..."
-          until docker exec tropis_redis redis-cli ping >/dev/null 2>&1; do sleep 2; done
-          echo "Waiting for PostgreSQL..."
-          until docker exec tropis_postgres pg_isready -U tropis >/dev/null 2>&1; do sleep 2; done
-          echo "Waiting for Elasticsearch..."
-          until curl -sf http://localhost:9200/_cluster/health >/dev/null 2>&1; do sleep 3; done
-          echo "All core services ready."
+          $COMPOSE up -d
+          # shellcheck disable=SC2046
+          $COMPOSE up -d --wait --wait-timeout 300 $($COMPOSE config --services | grep -vxE 'mongo-rs-reconfig|vault-init')
 
       - name: Copy env
         run: cp apps/backend/.env.example apps/backend/.env
 
-      - name: Run E2E tests
-        working-directory: apps/backend
-        run: pnpm test:e2e
-        env:
-          NODE_ENV: test
-          MONGODB_URI: mongodb://localhost:27018/tropis_test?directConnection=true
-          REDIS_HOST: localhost
-          REDIS_PORT: 6379
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: tropis
-          POSTGRES_PASSWORD: tropis_dev_password
-          POSTGRES_DB: tropis
-          ELASTICSEARCH_NODE: http://localhost:9200
-          JWT_SECRET: ci-test-secret-32-chars-minimum!!
-          PULSAR_SERVICE_URL: pulsar://localhost:6650
+      - name: Apply PostgreSQL migrations
+        run: pnpm --filter @tropis/backend migrate:up
 
-      # ── Playwright browser E2E ─────────────────────────────────────
-      # Assumptions:
-      #  - compose maps mongo to host port 27018; the replica set advertises
-      #    "mongodb:27017" which the host can't resolve, so we connect with
-      #    directConnection=true (single-node RS is fine for this).
-      #  - .env.example (copied above) covers everything else; we only
-      #    override values that differ in CI.
-      #  - frontend is served with `vite preview` on :5173 for determinism;
-      #    Playwright never starts servers itself (no webServer in config).
+      - name: Run backend E2E tests
+        run: pnpm --filter @tropis/backend test:e2e
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
         working-directory: e2e
 
-      - name: Build backend
-        run: pnpm --filter @tropis/backend build
-
-      - name: Start backend (background)
+      - name: Build backend and helm
         run: |
-          nohup pnpm --filter @tropis/backend start > backend-e2e.log 2>&1 &
+          pnpm --filter @tropis/backend build
+          pnpm --filter @tropis/helm build
+
+      - name: Start backend (all role, background)
+        run: |
+          RATE_LIMIT_AUTH=$E2E_RATE_LIMIT_AUTH nohup pnpm --filter @tropis/backend start > backend-e2e.log 2>&1 &
           echo "backend started"
-        env:
-          NODE_ENV: production
-          PORT: 3100
-          GRPC_PORT: 50051
-          CORS_ORIGIN: http://localhost:5173
-          MONGODB_URI: mongodb://localhost:27018/tropis?directConnection=true
-          REDIS_HOST: localhost
-          POSTGRES_HOST: localhost
-          POSTGRES_USER: tropis
-          POSTGRES_PASSWORD: tropis_dev_password
-          POSTGRES_DB: tropis
-          ELASTICSEARCH_NODE: http://localhost:9200
-          CLICKHOUSE_HOST: http://localhost:8123
-          PULSAR_SERVICE_URL: pulsar://localhost:6650
-          JWT_SECRET: ci-test-secret-32-chars-minimum!!
 
-      - name: Wait for backend health
+      - name: Wait for backend readiness
         run: |
-          echo "Waiting for http://localhost:3100/api/health ..."
-          for i in $(seq 1 90); do
-            curl -sf http://localhost:3100/api/health >/dev/null 2>&1 && { echo "backend healthy"; exit 0; }
+          echo "Waiting for http://localhost:9464/readyz ..."
+          for _ in $(seq 1 90); do
+            curl -sf http://localhost:9464/readyz >/dev/null 2>&1 && { echo "backend ready"; exit 0; }
             sleep 2
           done
           echo "backend never became healthy"; tail -100 backend-e2e.log; exit 1
 
-      - name: Build & serve frontend (preview on :5173)
+      - name: Seed (tenant dev and its admin)
+        run: pnpm --filter @tropis/backend seed
+
+      - name: Serve helm (preview on :5173)
         run: |
-          pnpm --filter @tropis/helm build
           nohup pnpm --filter @tropis/helm preview --port 5173 --strictPort > frontend-e2e.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf http://localhost:5173 >/dev/null 2>&1 && break; sleep 1; done
-        env:
-          VITE_GRPC_WEB_URL: http://localhost:8090 # Envoy gRPC-Web port from compose
-          VITE_API_BASE_URL: http://localhost:3100
-          VITE_WS_URL: http://localhost:3100
+          for _ in $(seq 1 30); do curl -sf http://localhost:5173 >/dev/null 2>&1 && exit 0; sleep 1; done
+          echo "helm preview never answered"; tail -50 frontend-e2e.log; exit 1
 
       - name: Run Playwright E2E
         run: pnpm --filter @tropis/e2e exec playwright test
-        env:
-          E2E_BASE_URL: http://localhost:5173
 
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: playwright-report
@@ -594,7 +612,7 @@ jobs:
 
       - name: Stop infrastructure
         if: always()
-        run: docker compose -f infra/docker/docker-compose.yml down
+        run: $COMPOSE down
 
   # ── Secret scanning ────────────────────────────────────────────────
   # Scans every commit in the PR for accidentally committed secrets
@@ -603,16 +621,19 @@ jobs:
   secrets:
     name: Secret scanning — Gitleaks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0 # full history so Gitleaks can diff against base branch
 
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Required when the repository belongs to an organization.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
   # ── SAST ───────────────────────────────────────────────────────────
   # CodeQL analyses TypeScript source for security vulnerabilities —
@@ -621,25 +642,24 @@ jobs:
   codeql:
     name: SAST — CodeQL
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       security-events: write
       actions: read
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Initialise CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3.38.2
         with:
           languages: javascript-typescript
           queries: security-and-quality
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -648,10 +668,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3.38.2
 
       - name: Run CodeQL analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@1190a975f95ce23525efb6a3fc21ea29567c1b52 # v3.38.2
 
   # ── SonarCloud ─────────────────────────────────────────────────────
   # Code quality: smells, duplication, coverage trend, security hotspots.
@@ -660,6 +680,7 @@ jobs:
   sonarcloud:
     name: Code quality — SonarCloud
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [backend, frontend] # wait for both coverage reports to be uploaded
     # Exposes SONAR_TOKEN at job scope so the scan step can skip cleanly when
     # it isn't configured (a fresh fork has no token) instead of failing CI.
@@ -667,18 +688,18 @@ jobs:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0 # full history for accurate blame and new-code analysis
 
       - name: Download backend coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: backend-coverage
           path: apps/backend/coverage/
 
       - name: Download frontend coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: frontend-coverage
           path: apps/frontend/helm/coverage/
@@ -689,7 +710,7 @@ jobs:
         if: ${{ env.SONAR_TOKEN != '' }}
         # sonarcloud-github-action is deprecated/archived; sonarqube-scan-action
         # is the official replacement and works for both SonarCloud and SonarQube.
-        uses: SonarSource/sonarqube-scan-action@v8.2.1
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         with:
           # Fail this job (and CI) when the SonarCloud quality gate fails.
           args: >
@@ -704,31 +725,18 @@ jobs:
   proto:
     name: Proto — buf lint & breaking
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # buf is the SDK's pinned devDependency, the same binary `make proto` runs.
+    env:
+      BUF: packages/sdk/node_modules/.bin/buf
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0 # needed for buf breaking --against the base branch
 
-      - uses: bufbuild/buf-setup-action@v1
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - name: Lint protos
-        run: buf lint
-
-      # Breaking-change detection only makes sense against an existing base;
-      # guard on pull_request so pushes to a fresh repo don't fail.
-      - name: Breaking change check
-        if: github.event_name == 'pull_request'
-        run: buf breaking --against '.git#branch=main'
-
-      # Codegen drift. `buf lint` says the protos are well formed; it says
-      # nothing about whether packages/sdk/src/gen was regenerated after they
-      # changed. A stale gen is invisible until something reads the new field
-      # at runtime and silently gets nothing, so prove it is in sync.
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -736,32 +744,53 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Regenerate the SDK from the protos
-        run: npx @bufbuild/buf generate
+      - name: Lint protos
+        run: $BUF lint
 
+      # Against the branch the pull request targets. The checkout is detached
+      # at the merge commit, so the base branch is fetched as a local branch
+      # for buf's git input to resolve.
+      - name: Breaking change check
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/heads/${BASE_REF}"
+          $BUF breaking --against ".git#branch=${BASE_REF}"
+
+      # Codegen drift. `buf lint` says the protos are well formed; it says
+      # nothing about whether packages/sdk/src/gen was regenerated after they
+      # changed. A stale gen is invisible until something reads the new field
+      # at runtime and silently gets nothing, so prove it is in sync.
+      - name: Regenerate the SDK and backend types from the protos
+        run: $BUF generate
+
+      # git status (not git diff) also catches generated files that exist
+      # but were never committed, e.g. for a newly added proto.
       - name: Fail if the committed generated code differs
-        run: git diff --exit-code -- packages/sdk/src/gen
+        run: |
+          changes=$(git status --porcelain -- packages/sdk/src/gen apps/backend/src/gen)
+          if [ -n "$changes" ]; then echo "$changes"; exit 1; fi
 
   # ── Lighthouse CI ──────────────────────────────────────────────────
-  # Scores all five audit categories (Performance, Accessibility, Best
-  # Practices, SEO, PWA) on the built frontend. Assertions are non-blocking
-  # ('warn') for now — see apps/frontend/helm/.lighthouserc.json to enforce.
+  # Scores Performance, Accessibility, Best Practices and SEO on the built
+  # helm frontend. Assertions are non-blocking ('warn'); thresholds live in
+  # apps/frontend/helm/.lighthouserc.json.
   lighthouse:
     name: Lighthouse CI — perf, a11y, best-practices, SEO
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [frontend]
     defaults:
       run:
         working-directory: apps/frontend/helm
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm

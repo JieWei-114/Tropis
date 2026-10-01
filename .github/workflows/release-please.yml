@@ -2,12 +2,18 @@
 #
 # The flow:
 #   1. Conventional commits land on main (squash-merged PRs whose titles are
-#      valid conventional commits — enforced by commitlint + PR process).
+#      valid conventional commits — checked by reviewers; the commit-msg hook
+#      only warns).
 #   2. release-please maintains a "release PR" that accumulates those commits:
 #      it bumps the version in the root package.json and updates CHANGELOG.md.
 #   3. Merging the release PR creates a vX.Y.Z tag + GitHub release.
-#   4. That tag matches deploy-prod.yml's trigger (`v[0-9]+.[0-9]+.[0-9]+`),
-#      so merging the release PR IS the production deploy button.
+#   4. That tag matches deploy-prod.yml's trigger (`v[0-9]+.[0-9]+.[0-9]+`).
+#      GitHub does not start workflows from events created by the default
+#      GITHUB_TOKEN, so a PAT or GitHub App token stored in the
+#      RELEASE_PLEASE_TOKEN secret is required for the tag to start the
+#      deploy. Without that secret the action falls back to github.token:
+#      it still opens release PRs and creates tags, but the tag does not
+#      start deploy-prod.yml.
 #
 # Release type: `node` against the root package.json.
 # Rationale: this pnpm monorepo is versioned as a whole — one root version,
@@ -32,8 +38,9 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           release-type: node
           # include-component-in-tag defaults to false for single-package
           # setups → tags are plain vX.Y.Z, which deploy-prod.yml expects.
