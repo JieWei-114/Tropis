@@ -5,7 +5,7 @@
 #   docker build -f services/rust/signing/Dockerfile .
 
 # ── Build stage ──────────────────────────────────────────────────────
-FROM rust:1.97-slim-bookworm AS build
+FROM rust:1.98-slim-bookworm AS build
 
 # tonic-prost-build shells out to protoc.
 RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler \
