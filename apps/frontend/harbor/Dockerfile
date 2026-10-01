@@ -6,7 +6,7 @@
 # the runtime image carries a self-contained Next.js "standalone" server.
 
 # ── Stage 1: build ────────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
@@ -43,7 +43,7 @@ RUN [ -n "$NEXT_PUBLIC_SITE_URL" ] || unset NEXT_PUBLIC_SITE_URL; \
     pnpm --filter @tropis/harbor build
 
 # ── Stage 2: production image ──────────────────────────────────────────────────
-FROM node:22-alpine AS runner
+FROM node:26-alpine AS runner
 
 WORKDIR /app
 
