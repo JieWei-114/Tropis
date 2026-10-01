@@ -27,6 +27,26 @@ spec:
       selfHeal: true # revert manual kubectl drift back to git
     syncOptions:
       - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+
+  # The HPAs own these replica counts (overlays/prod/hpa.yaml), so self-heal
+  # must not scale them back.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: backend-public
+      jsonPointers:
+        - /spec/replicas
+    - group: apps
+      kind: Deployment
+      name: backend-worker
+      jsonPointers:
+        - /spec/replicas
+    - group: apps
+      kind: Deployment
+      name: frontend
+      jsonPointers:
+        - /spec/replicas
 
   # Keep the last 10 synced revisions for one-click rollback in the UI
   revisionHistoryLimit: 10

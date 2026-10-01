@@ -8,9 +8,11 @@
 # to datastores that live OUTSIDE the cluster (managed services) — without
 # needing to run Mongo/Redis/ClickHouse/Pulsar inside kind.
 #
-# Prereqs: `make up` (host datastores), Mongo replica set initiated.
+# Prereqs: `make up` (host datastores), Mongo replica set initiated. The
+# adapters below match what `make up` starts; the graph (Neo4j) and Kafka
+# profiles are off, so graph is disabled and Pulsar is the broker.
 # Apply:   kubectl apply -f infra/k8s/local-kind/host-datastores.yaml
-#          kubectl rollout restart deployment/backend -n tropis
+#          kubectl rollout restart deployment -l component=backend -n tropis
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -19,11 +21,14 @@ metadata:
   namespace: tropis
 data:
   PORT: '3100'
-  GRPC_PORT: '50051'
-  GRPC_INTERNAL_PORT: '50061'
+  RPC_PUBLIC_PORT: '50051'
+  RPC_INTERNAL_PORT: '50061'
+  OPS_PORT: '9464'
   NODE_ENV: 'production'
+  COOKIE_SECURE: 'false'
   LOG_LEVEL: 'info'
   CORS_ORIGIN: 'http://localhost:8088'
+  KEYSPACE_ENV: 'kind'
   # localhost → host.docker.internal so the Pod reaches the host's Compose ports
   MONGODB_URI: 'mongodb://host.docker.internal:27018/tropis?directConnection=true'
   REDIS_HOST: 'host.docker.internal'
@@ -32,7 +37,7 @@ data:
   CLICKHOUSE_USER: 'default'
   CLICKHOUSE_DATABASE: 'logs'
   PULSAR_SERVICE_URL: 'pulsar://host.docker.internal:6650'
-  MESSAGE_BROKER: 'pulsar'
+  MESSAGING_ADAPTER: 'pulsar'
   POSTGRES_HOST: 'host.docker.internal'
   POSTGRES_PORT: '5432'
   POSTGRES_USER: 'tropis'
@@ -46,8 +51,26 @@ data:
   MINIO_PORT: '9900'
   MINIO_USE_SSL: 'false'
   OPA_URL: 'http://host.docker.internal:8181'
+  SMTP_HOST: 'host.docker.internal'
+  SMTP_PORT: '1025'
   JWT_EXPIRES_IN: '15m'
-  OTEL_SERVICE_NAME: 'nestjs-backend'
+  CACHE_ADAPTER: 'redis'
+  KV_ADAPTER: 'redis'
+  LOCK_ADAPTER: 'redis'
+  RATE_LIMIT_ADAPTER: 'redis'
+  DEDUP_ADAPTER: 'redis'
+  REALTIME_ADAPTER: 'redis'
+  OLAP_ADAPTER: 'clickhouse'
+  VECTOR_ADAPTER: 'pgvector'
+  SEARCH_ADAPTER: 'elasticsearch'
+  OBJECTS_ADAPTER: 'minio'
+  WORKFLOW_ADAPTER: 'temporal'
+  MAIL_ADAPTER: 'smtp'
+  STREAM_ENGINE: 'node'
+  SIGNING_ADAPTER: 'inprocess'
+  SECRETS_ADAPTER: 'env'
+  GRAPH_ADAPTER: 'disabled'
+  OTEL_SERVICE_NAME: 'tropis-backend'
   OTEL_EXPORTER_OTLP_ENDPOINT: 'http://host.docker.internal:4318/v1/traces'
 ---
 apiVersion: v1

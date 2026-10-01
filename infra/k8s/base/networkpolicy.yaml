@@ -14,7 +14,7 @@ spec:
   policyTypes:
     - Ingress
 ---
-# 2. Allow the ingress controller to reach the frontend (port 80).
+# 2. Allow the ingress controller to reach the frontend (nginx on 8080).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -56,8 +56,13 @@ spec:
         - protocol: TCP
           port: 4000 # Next.js standalone server
 ---
-# 3. Allow the backend to be reached by the frontend + harbor pods and by the
-#    ingress controller (for direct /api routing) on its HTTP + gRPC ports.
+# 3. The public backend role: the ingress controller reaches its HTTP (3100)
+#    and public RPC (50051) ports (api.<domain> -> 3100, rpc.<domain> ->
+#    50051; the browser calls the RPC listener directly over the Connect
+#    protocol). helm and harbor pods get no path here: helm is a static SPA
+#    and harbor renders without calling the backend, so their browsers go
+#    through the ingress. No other backend role accepts traffic from outside
+#    the namespace.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -66,24 +71,11 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: backend
+      app: backend-public
   policyTypes:
     - Ingress
   ingress:
     - from:
-        - podSelector:
-            matchLabels:
-              app: frontend
-        # harbor does server-side rendering — its Node server calls the backend
-        # REST API in-cluster, so it needs the same access as frontend.
-        - podSelector:
-            matchLabels:
-              app: harbor
-        # envoy terminates gRPC-Web from the browser and proxies to
-        # backend-svc:50051 — without this the admin SPA cannot reach gRPC.
-        - podSelector:
-            matchLabels:
-              app: envoy
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: ingress-nginx
@@ -93,11 +85,11 @@ spec:
         - protocol: TCP
           port: 50051
 ---
-# 3b. Internal gRPC tier (port 50061) — reachable ONLY from pods within
-#     this namespace (peer services), never from the ingress controller
-#     or Envoy. Port-level tier separation: the public listener (50051)
-#     stays reachable from frontend/ingress above, while the internal
-#     listener is cluster-internal. Callers must still present a valid
+# 3b. Internal RPC tier (port 50061, the private backend role) — reachable
+#     ONLY from pods labelled tropis.io/internal-rpc-client: "true", never from
+#     the ingress controller, helm or harbor. Give the label to a pod that calls
+#     the internal tier (policy 5b then lets it out). No backend role calls it
+#     today, so none carries the label. Callers must still present a valid
 #     x-service-token (zero-trust — network posture is not identity).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -107,20 +99,48 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: backend
+      app: backend-private
   policyTypes:
     - Ingress
   ingress:
     - from:
-        - podSelector: {} # any pod in the "tropis" namespace
+        - podSelector:
+            matchLabels:
+              tropis.io/internal-rpc-client: 'true'
       ports:
         - protocol: TCP
           port: 50061
 ---
+# 3c. Ops port (9464: /livez, /readyz, /metrics) on every backend role —
+#     reachable only from the monitoring namespace (Prometheus). Kubelet
+#     probes come from the node and are not subject to this policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-ops
+  namespace: tropis
+spec:
+  podSelector:
+    matchLabels:
+      component: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9464
+---
 # 4. Allow DNS egress for all pods (kube-dns / CoreDNS on UDP+TCP 53).
-#    Note: egress is otherwise unrestricted — only Ingress is default-denied
-#    above. This policy keeps DNS working if you later add a default-deny
-#    egress policy.
+#    Selecting every pod with policyTypes: [Egress] makes every pod in the
+#    namespace egress-isolated: a pod may only send traffic that some egress
+#    policy allows. This policy allows DNS for all of them; policies 5 to 6
+#    add the backend's, internal RPC callers' and the backup jobs' outbound
+#    paths. helm (frontend) and harbor can resolve names but open no other
+#    connection.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -138,3 +158,132 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+---
+# 5. Backend egress (every role). Its datastores and services run outside this namespace
+#    (managed services, or host datastores in local-kind), so their addresses
+#    are not known here: egress is allowed to any destination, restricted to
+#    the ports the backend uses (defaults in
+#    apps/backend/src/config/env.validation.ts). Tighten `to:` with ipBlock
+#    CIDRs once the datastore addresses for a cluster are fixed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-egress
+  namespace: tropis
+spec:
+  podSelector:
+    matchLabels:
+      component: backend
+  policyTypes:
+    - Egress
+  egress:
+    # Primary and secondary datastores.
+    - ports:
+        - protocol: TCP
+          port: 27017 # MongoDB
+        - protocol: TCP
+          port: 27018 # MongoDB host-mapped port (local-kind/host-datastores.yaml)
+        - protocol: TCP
+          port: 6379 # Redis (cache, BullMQ, Socket.io adapter)
+        - protocol: TCP
+          port: 6380 # Redis over TLS (managed Redis)
+        - protocol: TCP
+          port: 8123 # ClickHouse HTTP
+        - protocol: TCP
+          port: 8443 # ClickHouse HTTPS (managed ClickHouse)
+        - protocol: TCP
+          port: 5432 # PostgreSQL
+        - protocol: TCP
+          port: 9200 # Elasticsearch
+        - protocol: TCP
+          port: 3000 # Aerospike
+        - protocol: TCP
+          port: 7687 # Neo4j Bolt
+    # Object storage: MinIO API (9000 in-cluster, 9900 host-mapped) and S3 over HTTPS.
+    - ports:
+        - protocol: TCP
+          port: 9000
+        - protocol: TCP
+          port: 9900
+        - protocol: TCP
+          port: 443
+    # Messaging and workflow engines.
+    - ports:
+        - protocol: TCP
+          port: 6650 # Pulsar
+        - protocol: TCP
+          port: 6651 # Pulsar over TLS (managed Pulsar)
+        - protocol: TCP
+          port: 9092 # Kafka
+        - protocol: TCP
+          port: 7233 # Temporal frontend
+    # Signing service (SIGNING_ADAPTER=native, SIGNING_SERVICE_URL).
+    - ports:
+        - protocol: TCP
+          port: 50052
+    # Secrets, policy and telemetry.
+    - ports:
+        - protocol: TCP
+          port: 8200 # Vault
+        - protocol: TCP
+          port: 8181 # OPA
+        - protocol: TCP
+          port: 4318 # OTel collector (OTLP/HTTP)
+    # Outbound mail: SMTP relay, SMTPS, submission, and Mailpit in dev.
+    - ports:
+        - protocol: TCP
+          port: 25
+        - protocol: TCP
+          port: 465
+        - protocol: TCP
+          port: 587
+        - protocol: TCP
+          port: 1025
+    # OAuth providers (token exchange, user info) over HTTPS.
+    - ports:
+        - protocol: TCP
+          port: 443
+---
+# 5b. Internal RPC callers: pods labelled tropis.io/internal-rpc-client: "true"
+#     may reach the private role's internal listener, and nothing else there.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-internal-rpc-client-egress
+  namespace: tropis
+spec:
+  podSelector:
+    matchLabels:
+      tropis.io/internal-rpc-client: 'true'
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: backend-private
+      ports:
+        - protocol: TCP
+          port: 50061
+---
+# 6. Backup CronJob egress (backup/cronjob.yaml): the dump jobs connect only
+#    to the databases they back up. Their pod templates carry `app: backup`.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backup-egress
+  namespace: tropis
+spec:
+  podSelector:
+    matchLabels:
+      app: backup
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - protocol: TCP
+          port: 27017 # MongoDB
+        - protocol: TCP
+          port: 5432 # PostgreSQL
+        - protocol: TCP
+          port: 8123 # ClickHouse HTTP

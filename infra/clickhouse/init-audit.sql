@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS logs.audit_log
     timestamp     DateTime64(3),
     action        LowCardinality(String),      -- e.g. 'user.update', 'auth.login'
     actor_user_id String,                       -- JWT sub, empty if unauthenticated
-    tenant_id     LowCardinality(String) DEFAULT 'default',
+    tenant_id     LowCardinality(String),
     resource      String,                       -- 'POST /api/auth/login' or 'UserService.Update'
     transport     LowCardinality(String),      -- 'http' | 'rpc' | 'ws'
     outcome       LowCardinality(String),      -- 'success' | 'error'

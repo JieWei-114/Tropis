@@ -22,7 +22,7 @@ path "secret/data/tropis/*" {
 }
 
 # Transit encryption + dynamic DB credentials — both used by
-# apps/backend/src/infrastructure/vault/vault.service.ts.
+# apps/backend/src/infrastructure/secrets/adapters/vault/vault-secrets.adapter.ts.
 path "transit/encrypt/user-data" {
   capabilities = ["update"]
 }

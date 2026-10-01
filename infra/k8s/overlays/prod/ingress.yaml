@@ -9,11 +9,8 @@ metadata:
     # NGINX-specific — remove if using a different ingress controller
     nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
     nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
-    # Upgrade WebSocket connections (Socket.io)
-    nginx.ingress.kubernetes.io/proxy-http-version: '1.1'
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection "upgrade";
+    # Avatar uploads are up to 5 MB; ingress-nginx's default body limit is 1 MB.
+    nginx.ingress.kubernetes.io/proxy-body-size: '6m'
 spec:
   ingressClassName: nginx # change to alb / traefik if using a different controller
   tls:
@@ -22,7 +19,7 @@ spec:
         - www.yourdomain.com # ← replace (public site — harbor)
         - app.yourdomain.com # ← replace (admin console — helm)
         - api.yourdomain.com # ← replace
-        - grpc.yourdomain.com # ← replace (browser gRPC-Web endpoint)
+        - rpc.yourdomain.com # ← replace (browser RPC endpoint, Connect protocol)
       secretName: app-tls-cert # cert-manager writes the certificate here
   rules:
     # Public site (harbor — Next.js SSR/SSG). Apex + www.
@@ -57,7 +54,8 @@ spec:
                 name: frontend-svc
                 port:
                   number: 80
-    # Backend REST API + WebSocket (Socket.io)
+    # Backend REST API + WebSocket (Socket.io): the public role only. The
+    # other roles and every ops port (9464: health, metrics) have no route here.
     - host: api.yourdomain.com # ← replace
       http:
         paths:
@@ -68,16 +66,18 @@ spec:
                 name: backend-svc
                 port:
                   number: 3100
-    # Browser gRPC-Web → Envoy → backend gRPC (:50051). The frontend's
-    # VITE_GRPC_WEB_URL points here (https://grpc.yourdomain.com). Envoy does
-    # the gRPC-Web↔gRPC translation, so the ingress just forwards HTTP/1.1.
-    - host: grpc.yourdomain.com # ← replace
+    # Browser RPC → backend RPC listener (:50051). The frontend's VITE_RPC_URL
+    # points here (https://rpc.yourdomain.com). The backend serves gRPC,
+    # gRPC-Web and the Connect protocol on that one port, and the browser uses
+    # Connect over plain HTTP/1.1 requests, so the ingress proxies ordinary
+    # HTTP: no gRPC backend-protocol annotation and no translating proxy.
+    - host: rpc.yourdomain.com # ← replace
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: envoy-svc
+                name: backend-svc
                 port:
-                  number: 8090
+                  number: 50051

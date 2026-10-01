@@ -5,7 +5,14 @@ Reference SQL against the tracking table `logs.user_behavior`
 registered tracking names from `packages/shared/src/events/tracking-events.ts`
 — see [docs/tracking-plan.md](../../../docs/tracking-plan.md).
 
-Run any file against the local container:
+`logs.user_behavior` is multi-tenant with `tenant_id` as its leading key
+column, so every query filters on `{tenant_id:String}`, set by the
+`SET param_tenant_id = '...'` line at the top of each file; edit it to the
+tenant under analysis. Tools without query parameters need the literal in
+place of `{tenant_id:String}`.
+
+Run any file against the local container (`olap` profile, started by
+`make up`):
 
 ```bash
 docker exec -i tropis_clickhouse clickhouse-client < infra/clickhouse/queries/funnel.sql

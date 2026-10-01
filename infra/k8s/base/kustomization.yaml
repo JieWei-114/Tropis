@@ -4,7 +4,12 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - networkpolicy.yaml
-  - backend/deployment.yaml
+  # One Deployment per backend role (apps/backend/src/roles/); Services only
+  # for public and private.
+  - backend/deployment-public.yaml
+  - backend/deployment-private.yaml
+  - backend/deployment-worker.yaml
+  - backend/deployment-scheduler.yaml
   - backend/service.yaml
   - backend/configmap.yaml
   # Placeholder Secret for dev clusters. For production, remove the line
@@ -21,9 +26,6 @@ resources:
   - harbor/deployment.yaml
   - harbor/service.yaml
   - harbor/pdb.yaml
-  # Envoy — gRPC-Web ↔ gRPC translator (browser gRPC-Web path). The prod ingress
-  # routes the gRPC-Web host here; Envoy forwards to backend-svc:50051.
-  - envoy/envoy.yaml
   # Nightly DB backup CronJobs (template — needs PVC/S3 config first, see
   # header of backup/cronjob.yaml, then uncomment):
   # - backup/cronjob.yaml

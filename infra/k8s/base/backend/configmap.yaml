@@ -1,3 +1,8 @@
+# Every capability adapter is selected explicitly. A capability whose backing
+# system this deployment does not run is `disabled`, so it reports `disabled`
+# instead of `down`; /readyz fails only on a role's required dependencies
+# (apps/backend/src/modules/health/health.probes.ts). Enable one by setting
+# its adapter and its connection settings together.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -5,11 +10,20 @@ metadata:
   namespace: tropis
 data:
   PORT: '3100'
-  GRPC_PORT: '50051'
-  GRPC_INTERNAL_PORT: '50061'
+  RPC_PUBLIC_PORT: '50051'
+  RPC_INTERNAL_PORT: '50061'
+  OPS_PORT: '9464'
   NODE_ENV: 'production'
   LOG_LEVEL: 'info'
-  CORS_ORIGIN: 'https://yourdomain.com'
+  # The console's origin (helm, app.<domain>); overlays set their own.
+  CORS_ORIGIN: 'https://app.yourdomain.com'
+  # Prefix of every cache, kv, lock, ratelimit and dedup key; distinct per
+  # environment so two deployments sharing one Redis never collide.
+  KEYSPACE_ENV: 'dev'
+  # The tenant OAuth sign-ins join; empty fails them with TENANT_REQUIRED.
+  OAUTH_TENANT_ID: ''
+  GOOGLE_CALLBACK_URL: 'https://api.yourdomain.com/api/auth/google/callback'
+  GITHUB_CALLBACK_URL: 'https://api.yourdomain.com/api/auth/github/callback'
   MONGODB_URI: 'mongodb://mongodb-svc:27017/tropis'
   REDIS_HOST: 'redis-svc'
   REDIS_PORT: '6379'
@@ -19,5 +33,29 @@ data:
   PULSAR_SERVICE_URL: 'pulsar://pulsar-svc:6650'
   TEMPORAL_ADDRESS: 'temporal-svc:7233'
   TEMPORAL_NAMESPACE: 'default'
-  OTEL_SERVICE_NAME: 'nestjs-backend'
+  OPA_URL: 'http://opa-svc:8181'
+  SMTP_HOST: 'smtp-svc'
+  SMTP_PORT: '587'
+  OTEL_SERVICE_NAME: 'tropis-backend'
   OTEL_EXPORTER_OTLP_ENDPOINT: 'http://otel-collector-svc:4318/v1/traces'
+  # Capabilities this deployment runs.
+  MESSAGING_ADAPTER: 'pulsar'
+  CACHE_ADAPTER: 'redis'
+  KV_ADAPTER: 'redis'
+  LOCK_ADAPTER: 'redis'
+  RATE_LIMIT_ADAPTER: 'redis'
+  DEDUP_ADAPTER: 'redis'
+  REALTIME_ADAPTER: 'redis'
+  OLAP_ADAPTER: 'clickhouse'
+  WORKFLOW_ADAPTER: 'temporal'
+  MAIL_ADAPTER: 'smtp'
+  STREAM_ENGINE: 'node'
+  SIGNING_ADAPTER: 'inprocess'
+  # Secrets arrive as the backend-secret Secret (External Secrets syncs it
+  # from Vault in production), so the app reads them from the environment.
+  SECRETS_ADAPTER: 'env'
+  # Not deployed by this base: no Postgres, Elasticsearch, MinIO or Neo4j.
+  VECTOR_ADAPTER: 'disabled'
+  SEARCH_ADAPTER: 'disabled'
+  OBJECTS_ADAPTER: 'disabled'
+  GRAPH_ADAPTER: 'disabled'

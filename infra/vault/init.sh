@@ -21,25 +21,28 @@ echo ">>> Vault ready."
 vault secrets enable -path=secret kv-v2 2>/dev/null || true
 
 vault kv put secret/tropis \
-  PORT="3100" GRPC_PORT="50051" NODE_ENV="development" \
+  PORT="3100" RPC_PUBLIC_PORT="50051" NODE_ENV="development" \
   CORS_ORIGIN="http://localhost:5173" LOG_LEVEL="info" \
-  JWT_SECRET="dev-jwt-secret-change-in-production" JWT_EXPIRES_IN="7d" \
+  JWT_SECRET="dev-jwt-secret-change-in-production" JWT_EXPIRES_IN="15m" \
   MONGODB_URI="mongodb://mongodb:27017/tropis" \
   REDIS_HOST="redis" REDIS_PORT="6379" REDIS_PASSWORD="" \
   CLICKHOUSE_HOST="http://clickhouse:8123" CLICKHOUSE_USER="default" \
   CLICKHOUSE_PASSWORD="" CLICKHOUSE_DATABASE="logs" \
-  AEROSPIKE_HOST="aerospike" AEROSPIKE_PORT="3000" \
+  AEROSPIKE_HOSTS="aerospike:3000" \
   PULSAR_SERVICE_URL="pulsar://pulsar:6650" \
-  OTEL_SERVICE_NAME="nestjs-app" \
+  OTEL_SERVICE_NAME="tropis-backend" \
   OTEL_EXPORTER_OTLP_ENDPOINT="http://otel-collector:4318/v1/traces" \
   POSTGRES_HOST="postgres" POSTGRES_PORT="5432" \
   POSTGRES_USER="tropis" POSTGRES_PASSWORD="tropis_dev_password" \
   POSTGRES_DB="tropis" POSTGRES_SSL="false" \
   ELASTICSEARCH_NODE="http://elasticsearch:9200" \
-  MINIO_ENDPOINT="minio" MINIO_PORT="9900" MINIO_USE_SSL="false" \
+  MINIO_ENDPOINT="minio" MINIO_PORT="9000" MINIO_USE_SSL="false" \
   MINIO_ACCESS_KEY="minioadmin" MINIO_SECRET_KEY="minioadmin123" MINIO_BUCKET="app-uploads" \
-  SMTP_HOST="mailhog" SMTP_PORT="1025" SMTP_FROM="noreply@tropis.local" \
-  SMS_PROVIDER="stub"
+  SMTP_HOST="mailpit" SMTP_PORT="1025" SMTP_FROM="noreply@tropis.local" \
+  SMTP_USER="" SMTP_PASS="" \
+  API_KEYS="{}" SERVICE_TOKEN="" \
+  GOOGLE_CLIENT_ID="" GOOGLE_CLIENT_SECRET="" \
+  GITHUB_CLIENT_ID="" GITHUB_CLIENT_SECRET=""
 
 # Grouped paths for human browsing in the UI
 vault kv put secret/tropis/db \
@@ -51,17 +54,17 @@ vault kv put secret/tropis/db \
   ELASTICSEARCH_NODE="http://elasticsearch:9200"
 
 vault kv put secret/tropis/auth \
-  JWT_SECRET="dev-jwt-secret-change-in-production" JWT_EXPIRES_IN="7d"
+  JWT_SECRET="dev-jwt-secret-change-in-production" JWT_EXPIRES_IN="15m"
 
 vault kv put secret/tropis/messaging \
   PULSAR_SERVICE_URL="pulsar://pulsar:6650" REDIS_HOST="redis" REDIS_PORT="6379"
 
 vault kv put secret/tropis/storage \
-  MINIO_ENDPOINT="minio" MINIO_PORT="9900" \
+  MINIO_ENDPOINT="minio" MINIO_PORT="9000" \
   MINIO_ACCESS_KEY="minioadmin" MINIO_SECRET_KEY="minioadmin123" MINIO_BUCKET="app-uploads"
 
 vault kv put secret/tropis/smtp \
-  SMTP_HOST="mailhog" SMTP_PORT="1025" SMTP_FROM="noreply@tropis.local"
+  SMTP_HOST="mailpit" SMTP_PORT="1025" SMTP_FROM="noreply@tropis.local"
 
 echo ">>> KV secrets written."
 
@@ -125,11 +128,13 @@ vault write database/config/tropis-postgres \
   username="tropis" \
   password="tropis_dev_password" || echo "WARN: DB secrets engine config failed — PostgreSQL may not be ready. Re-run after postgres starts."
 
-# Create a role that generates temp users with read/write on tropis
+# Temp users with read/write on tropis. Each one is explicitly NOSUPERUSER
+# NOBYPASSRLS (row-level security must apply to it) and a member of
+# tropis_tenant_scope, the role RelationalPort.withTenant() switches to.
 vault write database/roles/tropis-app \
   db_name=tropis-postgres \
-  creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"{{name}}\";" \
-  revocation_statements="DROP ROLE IF EXISTS \"{{name}}\";" \
+  creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT tropis_tenant_scope TO \"{{name}}\"; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"{{name}}\";" \
+  revocation_statements="REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM \"{{name}}\"; REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM \"{{name}}\"; REVOKE tropis_tenant_scope FROM \"{{name}}\"; DROP ROLE IF EXISTS \"{{name}}\";" \
   default_ttl="1h" \
   max_ttl="4h" || echo "WARN: DB role creation failed — will retry on next vault-init run."
 

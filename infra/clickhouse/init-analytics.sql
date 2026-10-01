@@ -11,7 +11,7 @@ CREATE DATABASE IF NOT EXISTS logs;
 
 CREATE TABLE IF NOT EXISTS logs.analytics_events
 (
-    tenant_id   LowCardinality(String) DEFAULT 'default',
+    tenant_id   LowCardinality(String),
     event_id    String,
     event_type  LowCardinality(String),
     user_id     String,
@@ -26,7 +26,7 @@ PARTITION BY toYYYYMM(toDateTime(ts / 1000));
 -- Aggregate table backing the materialized view
 CREATE TABLE IF NOT EXISTS logs.analytics_minutely_agg
 (
-    tenant_id    LowCardinality(String) DEFAULT 'default',
+    tenant_id    LowCardinality(String),
     window_start DateTime,
     event_type   LowCardinality(String),
     event_count  UInt64

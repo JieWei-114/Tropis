@@ -11,11 +11,13 @@ alerting:
         - targets: ['alertmanager:9093'] # compose service (observability profile)
 
 scrape_configs:
-  # NestJS app metrics (prom-client via @willsoto/nestjs-prometheus)
+  # Backend metrics from the ops port every role serves (OPS_PORT, 9464),
+  # never the public HTTP port. Locally one `all` process; in a cluster every
+  # role's pods (prometheus.io/* annotations in infra/k8s/base/backend/).
   - job_name: nestjs
     static_configs:
-      - targets: ['host.docker.internal:3100']
-    metrics_path: /api/metrics # global prefix 'api' + module path '/metrics'
+      - targets: ['host.docker.internal:9464']
+    metrics_path: /metrics
 
   # OTel Collector self-metrics
   - job_name: otel-collector

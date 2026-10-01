@@ -1,0 +1,96 @@
+# backend-worker: Message consumers, outbox relay, BullMQ job workers and the Temporal
+# worker. No inbound API and no Service. The grace period covers the relay
+# and consumer drains on SIGTERM.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-worker
+  namespace: tropis
+  labels:
+    app: backend-worker
+    component: backend
+spec:
+  replicas: 2
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: backend-worker
+  template:
+    metadata:
+      labels:
+        app: backend-worker
+        component: backend
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '9464'
+        prometheus.io/path: /metrics
+    spec:
+      # No Service, so no preStop. Covers an in-flight outbox publish (at most
+      # 30s, OUTBOX_PUBLISH_TIMEOUT_MS) plus the consumer and job drains.
+      terminationGracePeriodSeconds: 60
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001 # matches the numeric uid baked into the backend images
+        runAsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: backend-worker
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: backend-worker
+      containers:
+        - name: backend
+          image: ghcr.io/tropis/backend-worker:latest # docker build --target worker
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            # Ops listener: /livez, /readyz, /metrics. No Service or ingress routes it.
+            - containerPort: 9464
+              name: ops
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: backend-secret
+          # Readiness: this role's dependency probes. Liveness: the process
+          # only, so a dependency outage never restarts the pod.
+          # The ops listener opens once boot finishes (connection retries can
+          # take minutes), so the startup probe holds liveness off for up to
+          # 180s instead of a fixed initial delay.
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: ops
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: ops
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: ops
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: '100m'
+              memory: '256Mi'
+            limits:
+              cpu: '1000m'
+              memory: '1Gi'

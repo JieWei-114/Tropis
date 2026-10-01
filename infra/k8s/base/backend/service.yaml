@@ -1,3 +1,5 @@
+# Services exist only for the roles with an inbound API. Neither routes the
+# ops port (9464); Prometheus scrapes pods directly.
 apiVersion: v1
 kind: Service
 metadata:
@@ -5,7 +7,7 @@ metadata:
   namespace: tropis
 spec:
   selector:
-    app: backend
+    app: backend-public
   ports:
     - name: http
       port: 3100
@@ -14,11 +16,10 @@ spec:
       port: 50051
       targetPort: 50051
 ---
-# Internal gRPC tier — deliberately a SEPARATE Service so the public
-# backend-svc can never accidentally route to the internal listener
-# (e.g. via a mistaken port addition or ingress annotation). ClusterIP
-# only; combined with NetworkPolicy (namespace-only ingress on 50061)
-# and the x-service-token check in the app itself.
+# Internal RPC tier — a SEPARATE Service over the private role, so the public
+# backend-svc can never route to the internal listener. ClusterIP only;
+# combined with NetworkPolicy (namespace-only ingress on 50061) and the
+# x-service-token check in the app itself.
 apiVersion: v1
 kind: Service
 metadata:
@@ -27,7 +28,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: backend
+    app: backend-private
   ports:
     - name: grpc-internal
       port: 50061

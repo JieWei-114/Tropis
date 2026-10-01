@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS logs.user_behavior
     anonymous_id String,
     user_id      String,
     session_id   String,
-    tenant_id    LowCardinality(String) DEFAULT 'default',
+    tenant_id    LowCardinality(String),
     page         String,
     referrer     String,
     user_agent   String,

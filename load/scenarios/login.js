@@ -10,7 +10,8 @@
 // separately and excluded from the failure threshold via expected_response.
 //
 // Credentials default to the seeded admin (make seed): admin@example.com /
-// Password123! — override with LOGIN_EMAIL / LOGIN_PASSWORD.
+// Password123! in tenant `dev` — override with LOGIN_EMAIL / LOGIN_PASSWORD /
+// TENANT_ID. A login without X-Tenant-ID is rejected (TENANT_REQUIRED).
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate } from 'k6/metrics';
@@ -18,6 +19,7 @@ import { Rate } from 'k6/metrics';
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:3100';
 const EMAIL = __ENV.LOGIN_EMAIL || 'admin@example.com';
 const PASSWORD = __ENV.LOGIN_PASSWORD || 'Password123!';
+const TENANT_ID = __ENV.TENANT_ID || 'dev';
 
 const throttled = new Rate('login_throttled');
 
@@ -38,7 +40,7 @@ export default function () {
     `${BASE_URL}/api/auth/login`,
     JSON.stringify({ email: EMAIL, password: PASSWORD }),
     {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Tenant-ID': TENANT_ID },
       // 429 (throttled) is an expected outcome under load — don't count it
       // as a protocol failure, track it in its own metric instead.
       responseCallback: http.expectedStatuses(200, 201, 429),

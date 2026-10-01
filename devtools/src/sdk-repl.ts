@@ -5,19 +5,18 @@
  *   > await api.fetchUsers()
  *   > await api.fireEvent('button_click', 'me', { from: 'repl' })
  *
- * Transport note: the SDK's connect-web gRPC-Web transport needs a WHATWG
+ * Transport note: the SDK's connect-web Connect transport needs a WHATWG
  * fetch — Node 22 ships one, so the REPL takes the exact browser path:
- * SDK → Envoy :8090 (gRPC-Web) → backend :50051. That means Envoy must be up
- * (`make up`) as well as the backend (`make dev`). Every RPC the facade
+ * SDK → backend public RPC listener :50051 (Connect protocol), no proxy in
+ * between. Only the backend has to be up (`make dev`). Every RPC the facade
  * exposes is unary, so all of them work over Node's fetch. Live event streams
- * are WebSocket, not gRPC — use `make ws-listen` for those.
+ * are WebSocket, not RPC — use `make ws-listen` for those.
  *
  * The SDK's token store expects `localStorage`; Node has none, so a tiny
  * in-memory shim is installed before the SDK is imported.
  *
- * Login: admin@example.com / Password123! (the `make seed` user; run
- * `make promote-admin EMAIL=admin@example.com` for the admin role) — override
- * with SDK_EMAIL / SDK_PASSWORD, or endpoints with GRPC_WEB_URL / REST_URL.
+ * Login: admin@example.com / Password123! (the `make seed` admin) — override
+ * with SDK_EMAIL / SDK_PASSWORD, or endpoints with RPC_URL / REST_URL.
  *
  * Run: `make sdk-repl`  (→ pnpm --filter @tropis/devtools sdk-repl — uses tsx,
  * not ts-node, because the SDK is an ESM TypeScript workspace package).
@@ -39,25 +38,26 @@ const store = new Map<string, string>();
 import * as repl from 'node:repl';
 import { createApi, getToken } from '@tropis/sdk';
 
-const GRPC_WEB_URL = process.env.GRPC_WEB_URL ?? 'http://localhost:8090';
+const RPC_URL = process.env.RPC_URL ?? 'http://localhost:50051';
 const REST_URL = process.env.REST_URL ?? 'http://localhost:3100';
 const EMAIL = process.env.SDK_EMAIL ?? 'admin@example.com';
 const PASSWORD = process.env.SDK_PASSWORD ?? 'Password123!';
 
 async function main(): Promise<void> {
   const api = createApi({
-    grpcBaseUrl: GRPC_WEB_URL,
+    rpcBaseUrl: RPC_URL,
     restBaseUrl: REST_URL,
     getToken,
+    tenantId: process.env.TENANT_ID ?? 'dev',
   });
 
-  console.log(`Logging in as ${EMAIL} via ${GRPC_WEB_URL} (Envoy gRPC-Web)…`);
+  console.log(`Logging in as ${EMAIL} (RPC ${RPC_URL}, REST ${REST_URL})…`);
   try {
     await api.login(EMAIL, PASSWORD);
   } catch (err) {
     console.error(
       `✗ Login failed: ${err instanceof Error ? err.message : String(err)}` +
-        `\n  Checklist: Envoy up? (make up) · backend up? (make dev) · user seeded? (make seed) · admin role granted? (make promote-admin EMAIL=admin@example.com)`,
+        `\n  Checklist: backend up? (make dev) · user seeded? (make seed)`,
     );
     process.exit(1);
   }

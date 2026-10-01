@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════════════════
-# ⚠️  TEMPLATE — nightly database backup CronJobs (MongoDB + PostgreSQL)
+# ⚠️  TEMPLATE — nightly database backup CronJob (MongoDB + PostgreSQL)
 #
 # NOT registered in kustomization.yaml by default (same pattern as the ESO
 # external-secret.yaml) because it needs environment-specific storage config
@@ -11,6 +11,10 @@
 #      (values below assume services named `mongodb` and `postgres` in the
 #      `tropis` namespace).
 #   3. Uncomment `- backup/cronjob.yaml` in infra/k8s/base/kustomization.yaml.
+#
+# Both dumps run in ONE pod, MongoDB first (init container) then PostgreSQL:
+# backup-pvc is ReadWriteOnce, and two pods mounting it at once can land on
+# different nodes, where the second one never starts.
 #
 # ClickHouse is intentionally omitted here: in K8s use the ClickHouse
 # operator's built-in `BACKUP ... TO S3(...)` or clickhouse-backup sidecar.
@@ -30,7 +34,7 @@ spec:
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: mongodb-backup
+  name: db-backup
   namespace: tropis
 spec:
   schedule: '0 3 * * *' # daily 03:00 (cluster TZ, usually UTC)
@@ -41,11 +45,27 @@ spec:
     spec:
       backoffLimit: 1
       template:
+        metadata:
+          labels:
+            app: backup # selected by allow-backup-egress (networkpolicy.yaml)
         spec:
           restartPolicy: Never
-          containers:
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
             - name: mongodump
               image: mongo:7
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
               command: ['/bin/sh', '-c']
               args:
                 - |
@@ -64,30 +84,14 @@ spec:
               volumeMounts:
                 - name: backups
                   mountPath: /backups
-          volumes:
-            - name: backups
-              persistentVolumeClaim:
-                claimName: backup-pvc
----
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: postgres-backup
-  namespace: tropis
-spec:
-  schedule: '0 3 * * *'
-  concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 3
-  failedJobsHistoryLimit: 3
-  jobTemplate:
-    spec:
-      backoffLimit: 1
-      template:
-        spec:
-          restartPolicy: Never
           containers:
             - name: pg-dump
               image: postgres:16-alpine
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
               command: ['/bin/sh', '-c']
               args:
                 - |

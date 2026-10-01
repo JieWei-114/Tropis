@@ -26,4 +26,22 @@
 #       selfHeal: true
 #     syncOptions:
 #       - CreateNamespace=true
+#       - RespectIgnoreDifferences=true
+#   # The HPAs own these replica counts (overlays/staging/hpa.yaml).
+#   ignoreDifferences:
+#     - group: apps
+#       kind: Deployment
+#       name: backend-public
+#       jsonPointers:
+#         - /spec/replicas
+#     - group: apps
+#       kind: Deployment
+#       name: backend-worker
+#       jsonPointers:
+#         - /spec/replicas
+#     - group: apps
+#       kind: Deployment
+#       name: frontend
+#       jsonPointers:
+#         - /spec/replicas
 #   revisionHistoryLimit: 10

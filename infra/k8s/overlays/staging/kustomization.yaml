@@ -16,9 +16,16 @@ resources:
   - ingress.yaml
 
 # Image tag is set by CI, same mechanism as prod:
-# kustomize edit set image ghcr.io/tropis/backend=ghcr.io/tropis/backend:<tag>
+# kustomize edit set image ghcr.io/tropis/backend-<role>=ghcr.io/tropis/backend-<role>:<tag>
+# for each role (public, private, worker, scheduler)
 images:
-  - name: ghcr.io/tropis/backend
+  - name: ghcr.io/tropis/backend-public
+    newTag: latest
+  - name: ghcr.io/tropis/backend-private
+    newTag: latest
+  - name: ghcr.io/tropis/backend-worker
+    newTag: latest
+  - name: ghcr.io/tropis/backend-scheduler
     newTag: latest
   - name: ghcr.io/tropis/frontend
     newTag: latest
@@ -33,31 +40,51 @@ configMapGenerator:
       - NODE_ENV=production
       - LOG_LEVEL=info
       - CORS_ORIGIN=https://staging.yourdomain.com # ← replace with your domain
+      - KEYSPACE_ENV=staging
+      - GOOGLE_CALLBACK_URL=https://api.staging.yourdomain.com/api/auth/google/callback # ← replace
+      - GITHUB_CALLBACK_URL=https://api.staging.yourdomain.com/api/auth/github/callback # ← replace
 
 patches:
-  # Single replica per service — staging is for verification, not capacity
+  # HPA targets (hpa.yaml) carry no replica count, so an apply never resets
+  # the HPA's choice. The base keeps one for clusters without an HPA.
+  - target:
+      kind: Deployment
+      name: backend-public|backend-worker|frontend
+    patch: |-
+      - op: remove
+        path: /spec/replicas
+  # Single replica for the roles without an HPA — staging is for
+  # verification, not capacity (the scheduler already runs one).
   - patch: |-
       apiVersion: apps/v1
       kind: Deployment
       metadata:
-        name: backend
+        name: backend-private
         namespace: tropis
       spec:
         replicas: 1
+  # Halve base resource requests (base backend public/worker: 100m/256Mi,
+  # frontend: 50m/64Mi)
   - patch: |-
       apiVersion: apps/v1
       kind: Deployment
       metadata:
-        name: frontend
+        name: backend-public
         namespace: tropis
       spec:
-        replicas: 1
-  # Halve base resource requests (base backend: 100m/256Mi, frontend: 50m/64Mi)
+        template:
+          spec:
+            containers:
+              - name: backend
+                resources:
+                  requests:
+                    cpu: "50m"
+                    memory: "128Mi"
   - patch: |-
       apiVersion: apps/v1
       kind: Deployment
       metadata:
-        name: backend
+        name: backend-worker
         namespace: tropis
       spec:
         template:

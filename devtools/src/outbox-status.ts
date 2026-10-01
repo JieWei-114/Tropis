@@ -1,8 +1,9 @@
 /**
  * Outbox health snapshot — connects straight to MongoDB and reports the
  * `outbox` collection (src/infrastructure/outbox): row counts by status
- * (pending / dispatched / failed) plus the 5 oldest non-dispatched rows
- * (topic, eventType, age) so a stuck relay is obvious at a glance.
+ * (pending / dispatched / failed / dead / skipped) plus the 5 oldest open
+ * rows (topic, event type, age) so a stuck relay or a DEAD row blocking its
+ * aggregate is obvious at a glance (act on DEAD rows with outbox-dead.ts).
  *
  * Reads MONGODB_URI from apps/backend/.env (same file the backend loads) so
  * the tool shares backend's config without duplication, falling back to the
@@ -30,7 +31,13 @@ const MONGODB_URI =
   process.env.MONGODB_URI ??
   'mongodb://localhost:27018/tropis?directConnection=true';
 
-const STATUSES = ['pending', 'dispatched', 'failed', 'dead'] as const;
+const STATUSES = [
+  'pending',
+  'dispatched',
+  'failed',
+  'dead',
+  'skipped',
+] as const;
 
 function age(from: Date): string {
   const s = Math.max(0, Math.floor((Date.now() - from.getTime()) / 1000));
@@ -73,22 +80,22 @@ async function main(): Promise<void> {
   }
 
   const stuck = await outbox
-    .find({ status: { $in: ['pending', 'failed'] } })
+    .find({ status: { $in: ['pending', 'failed', 'dead'] } })
     .sort({ createdAt: 1 })
     .limit(5)
     .toArray();
 
   if (stuck.length === 0) {
-    console.log('\n  No pending/failed rows — relay is keeping up. ✓');
+    console.log('\n  No open rows — relay is keeping up. ✓');
   } else {
-    console.log('\n  Oldest pending/failed rows:');
+    console.log('\n  Oldest open rows:');
     for (const row of stuck) {
       const created =
         row.createdAt instanceof Date
           ? row.createdAt
           : new Date(String(row.createdAt));
       console.log(
-        `    [${String(row.status)}] ${String(row.topic)} ${String(row.eventType)} ` +
+        `    [${String(row.status)}] ${String(row.topic)} ${String((row.event as { type?: string } | undefined)?.type)} ` +
           `— age ${age(created)}, attempts ${String(row.attempts ?? 0)}` +
           (row.lastError
             ? `, lastError: ${String(row.lastError).split('\n')[0]}`

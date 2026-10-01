@@ -1,10 +1,34 @@
+# The scheduler runs one replica and has no budget: a drain restarts it, and
+# a missed tick is re-enqueued on the next one.
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: backend
+  name: backend-public
   namespace: tropis
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: backend
+      app: backend-public
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-private
+  namespace: tropis
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backend-private
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-worker
+  namespace: tropis
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backend-worker

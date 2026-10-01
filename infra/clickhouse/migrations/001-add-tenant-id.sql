@@ -20,7 +20,7 @@ CREATE DATABASE IF NOT EXISTS logs;
 -- ── logs.analytics_events ──────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS logs.analytics_events_new
 (
-    tenant_id   LowCardinality(String) DEFAULT 'default',
+    tenant_id   LowCardinality(String),
     event_id    String,
     event_type  LowCardinality(String),
     user_id     String,
@@ -40,29 +40,6 @@ FROM logs.analytics_events;
 EXCHANGE TABLES logs.analytics_events AND logs.analytics_events_new;
 DROP TABLE IF EXISTS logs.analytics_events_new;
 
--- ── logs.user_events ───────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS logs.user_events_new
-(
-    tenant_id   LowCardinality(String) DEFAULT 'default',
-    event_id    String,
-    event_type  LowCardinality(String),
-    user_id     String,
-    email       String,
-    ts          Int64,
-    ingested_at DateTime DEFAULT now()
-)
-ENGINE = MergeTree()
-ORDER BY (tenant_id, event_type, ts)
-PARTITION BY toYYYYMM(toDateTime(ts / 1000));
-
-INSERT INTO logs.user_events_new
-    (tenant_id, event_id, event_type, user_id, email, ts, ingested_at)
-SELECT 'default', event_id, event_type, user_id, email, ts, ingested_at
-FROM logs.user_events;
-
-EXCHANGE TABLES logs.user_events AND logs.user_events_new;
-DROP TABLE IF EXISTS logs.user_events_new;
-
 -- ── logs.analytics_minutely_agg + its materialized view ────────────────────
 -- The view has to be dropped before the aggregate table is swapped: it writes
 -- into that table, and its SELECT list must gain tenant_id at the same time.
@@ -70,7 +47,7 @@ DROP VIEW IF EXISTS logs.analytics_minutely;
 
 CREATE TABLE IF NOT EXISTS logs.analytics_minutely_agg_new
 (
-    tenant_id    LowCardinality(String) DEFAULT 'default',
+    tenant_id    LowCardinality(String),
     window_start DateTime,
     event_type   LowCardinality(String),
     event_count  UInt64

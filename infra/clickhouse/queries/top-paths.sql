@@ -8,7 +8,7 @@
 -- TENANT SCOPE: set this to the tenant you are analysing. logs.user_behavior
 -- is multi-tenant and tenant_id is its leading key column, so leaving the
 -- filter out aggregates every tenant together (and reads the whole table).
-SET param_tenant_id = 'default';
+SET param_tenant_id = 'acme';
 
 SELECT
     arrayStringConcat(path_seq, ' → ') AS path,

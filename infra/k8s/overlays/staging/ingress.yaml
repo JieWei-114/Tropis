@@ -9,16 +9,15 @@ metadata:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
     nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
-    nginx.ingress.kubernetes.io/proxy-http-version: '1.1'
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection "upgrade";
+    # Avatar uploads are up to 5 MB; ingress-nginx's default body limit is 1 MB.
+    nginx.ingress.kubernetes.io/proxy-body-size: '6m'
 spec:
   ingressClassName: nginx
   tls:
     - hosts:
         - staging.yourdomain.com # ← replace
         - api.staging.yourdomain.com # ← replace
+        - rpc.staging.yourdomain.com # ← replace (browser RPC endpoint, Connect protocol)
       secretName: tropis-staging-tls-cert
   rules:
     # Frontend
@@ -32,7 +31,8 @@ spec:
                 name: frontend-svc
                 port:
                   number: 80
-    # Backend API + WebSocket
+    # Backend API + WebSocket: the public role only. The other roles and
+    # every ops port (9464: health, metrics) have no route here.
     - host: api.staging.yourdomain.com # ← replace
       http:
         paths:
@@ -43,3 +43,15 @@ spec:
                 name: backend-svc
                 port:
                   number: 3100
+    # Browser RPC → backend RPC listener (:50051), plain HTTP proxying as in
+    # prod (see overlays/prod/ingress.yaml).
+    - host: rpc.staging.yourdomain.com # ← replace
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend-svc
+                port:
+                  number: 50051

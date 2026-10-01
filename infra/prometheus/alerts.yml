@@ -43,9 +43,9 @@ groups:
     rules:
       - alert: HighHttp5xxRate
         expr: |
-          sum(rate(http_requests_total{job="nestjs", status_code=~"5.."}[5m]))
+          sum(rate(tropis_http_server_requests_total{job="nestjs", status_class="5xx"}[5m]))
             /
-          sum(rate(http_requests_total{job="nestjs"}[5m])) > 0.05
+          sum(rate(tropis_http_server_requests_total{job="nestjs"}[5m])) > 0.05
         for: 5m
         labels:
           severity: critical
@@ -56,7 +56,7 @@ groups:
       - alert: HighHttpLatencyP95
         expr: |
           histogram_quantile(0.95,
-            sum by (le) (rate(http_request_duration_seconds_bucket{job="nestjs"}[5m]))
+            sum by (le) (rate(tropis_http_server_duration_seconds_bucket{job="nestjs"}[5m]))
           ) > 1
         for: 10m
         labels:
@@ -65,19 +65,56 @@ groups:
           summary: 'HTTP p95 latency above 1s'
           description: 'p95 request duration is {{ $value | humanizeDuration }} over the last 5 minutes.'
 
+  - name: rpc
+    rules:
+      - alert: HighRpcServerErrorRate
+        expr: |
+          sum(rate(tropis_rpc_server_requests_total{job="nestjs", code=~"unknown|internal|unavailable|data_loss|deadline_exceeded|unimplemented"}[5m]))
+            /
+          sum(rate(tropis_rpc_server_requests_total{job="nestjs"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'RPC server error rate above 5%'
+          description: '{{ $value | humanizePercentage }} of RPC calls ended with a server-side Connect code over the last 5 minutes.'
+
+      - alert: HighRpcLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(tropis_rpc_server_duration_seconds_bucket{job="nestjs"}[5m]))
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'RPC p95 latency above 1s'
+          description: 'p95 RPC call duration is {{ $value | humanizeDuration }} over the last 5 minutes.'
+
+  - name: jobs
+    rules:
+      - alert: JobsDeadLettered
+        expr: sum by (queue) (increase(tropis_jobs_dead_lettered_total{job="nestjs"}[10m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Jobs of {{ $labels.queue }} exhausted their retries'
+          description: '{{ $value }} job(s) moved to the dead-letter queue in the last 10 minutes. Inspect and replay them with the devtools jobs-dlq tool once the cause is fixed.'
+
   - name: outbox
     rules:
       - alert: OutboxDeadRows
-        expr: tropis_outbox_rows{job="nestjs", status="dead"} > 0
+        expr: tropis_outbox_backlog_rows{job="nestjs", status="dead"} > 0
         for: 1m
         labels:
           severity: warning
         annotations:
           summary: 'Outbox has {{ $value }} dead-lettered row(s)'
-          description: 'Rows reached the terminal DEAD status after exhausting all publish attempts — those domain events will NEVER be delivered without manual intervention, so downstream read models (Elasticsearch, pgvector, ClickHouse) are permanently out of sync. Query the outbox collection for status "dead" and read lastError to find the failing topic, then replay the rows once the cause is fixed.'
+          description: 'Rows reached the terminal DEAD status after exhausting all publish attempts — those domain events will NEVER be delivered without manual intervention, so downstream read models (Elasticsearch, pgvector, ClickHouse) are permanently out of sync. Each DEAD row also blocks every later event of its aggregate. List them with `make outbox-dead` and read lastError to find the failing topic, then `make outbox-redrive` once the cause is fixed, or `make outbox-skip` to give the event up.'
 
       - alert: OutboxFailedBacklogSustained
-        expr: min_over_time(tropis_outbox_rows{job="nestjs", status="failed"}[15m]) > 0
+        expr: min_over_time(tropis_outbox_backlog_rows{job="nestjs", status="failed"}[15m]) > 0
         for: 15m
         labels:
           severity: warning
@@ -86,13 +123,13 @@ groups:
           description: '{{ $value }} row(s) have been stuck in FAILED for half an hour, meaning the exponential retry backoff is not winning — the broker or a topic is rejecting publishes. Rows in this state also hold back every later event for the same aggregate. They become DEAD after 5 attempts; check the relay error logs and Pulsar health now.'
 
       - alert: OutboxPendingBacklogGrowing
-        expr: min_over_time(tropis_outbox_rows{job="nestjs", status="pending"}[10m]) > 100
+        expr: min_over_time(tropis_outbox_backlog_rows{job="nestjs", status="pending"}[10m]) > 100
         for: 10m
         labels:
           severity: warning
         annotations:
           summary: 'Outbox PENDING backlog above 100 and not draining'
-          description: 'The relay publishes 50 rows every 5 seconds, so a floor of {{ $value }} PENDING rows over 10 minutes means it is not keeping up or not running. Check OutboxRelayStalled, the relay Redis lock, and whether writes are outpacing the batch size.'
+          description: 'Each relay poll publishes up to 50 aggregates and polls again at once after a full batch (otherwise every 5 seconds), so a floor of {{ $value }} PENDING rows over 10 minutes means the relays are not keeping up or not running. Check OutboxRelayStalled, the per-aggregate leases in Redis, and whether writes are outpacing the relays.'
 
       - alert: OutboxRelayStalled
         expr: time() - max(tropis_outbox_relay_last_poll_timestamp_seconds{job="nestjs"}) > 60
@@ -101,10 +138,28 @@ groups:
           severity: critical
         annotations:
           summary: 'Outbox relay has not polled for over a minute'
-          description: 'No instance has acquired the outbox relay lock for more than 60 seconds (it should poll every 5s). Nothing is being published: every domain event is piling up as PENDING. Usual cause is Redis being unreachable, so the lock can never be taken — check Redis and the relay logs for "lock unavailable".'
+          description: 'No relay instance has polled for more than 60 seconds (each polls at least every 5s). Nothing is being published: every domain event is piling up as PENDING. Check that the backend is running and the relay logs for outbox.relay-poll-failed and outbox.relay-lock-unavailable (Redis unreachable, so no aggregate lease can be taken).'
 
   - name: messaging
     rules:
+      - alert: ConsumerDeadLettering
+        expr: sum by (system, destination, subscription) (increase(tropis_messaging_dead_lettered_total{job="nestjs"}[10m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Consumer {{ $labels.subscription }} dead-lettered messages from {{ $labels.destination }}'
+          description: '{{ $value }} message(s) failed every redelivery in the last 10 minutes and went to {{ $labels.destination }}-DLQ ({{ $labels.system }}). Covers Kafka too, whose DLQ the broker metrics do not show. Check the handler error logs, then inspect and redrive with `make messaging-dlq`.'
+
+      - alert: ConsumerFailureRateHigh
+        expr: sum by (subscription) (rate(tropis_messaging_failed_total{job="nestjs"}[5m])) / clamp_min(sum by (subscription) (rate(tropis_messaging_processed_total{job="nestjs"}[5m]) + rate(tropis_messaging_failed_total{job="nestjs"}[5m])), 1e-9) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Consumer {{ $labels.subscription }} fails over 20% of attempts'
+          description: 'A sink the consumer writes to is failing or rejecting; messages are being redelivered with backoff and will be dead-lettered if it lasts.'
+
       - alert: PulsarDeadLetterBacklog
         expr: pulsar_msg_backlog{job="pulsar", topic=~".*-DLQ"} > 0
         for: 5m
@@ -112,7 +167,7 @@ groups:
           severity: warning
         annotations:
           summary: 'Pulsar dead-letter topic {{ $labels.topic }} has a backlog'
-          description: '{{ $value }} message(s) sit in {{ $labels.topic }}. A consumer failed the same message 5 times (maxRedeliverCount in pulsar-broker.adapter.ts) and it was routed here instead of blocking the subscription — the work in it was never done. Inspect the payloads and the handler error logs for the parent topic.'
+          description: '{{ $value }} message(s) sit in {{ $labels.topic }}, kept for its `<subscription>-DLQ` subscription. A consumer failed the same message on every redelivery (MESSAGING_MAX_REDELIVERIES, backing off up to MESSAGING_MAX_REDELIVERY_DELAY_MS) and it was routed here instead of blocking the subscription — the work in it was never done. Inspect it with `make messaging-dlq` and redrive it once the handler is fixed.'
 
       - alert: PulsarDeadLetterRateHigh
         expr: sum by (topic) (rate(pulsar_in_messages_total{job="pulsar", topic=~".*-DLQ"}[10m])) > 0.1

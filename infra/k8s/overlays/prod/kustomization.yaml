@@ -8,9 +8,16 @@ resources:
   - ingress.yaml
 
 # Image tag is set by CI to the git tag (e.g. v1.2.3)
-# Run: kustomize edit set image ghcr.io/tropis/backend=ghcr.io/tropis/backend:$(git describe --tags)
+# Run, for each backend role (public, private, worker, scheduler):
+#   kustomize edit set image ghcr.io/tropis/backend-<role>=ghcr.io/tropis/backend-<role>:$(git describe --tags)
 images:
-  - name: ghcr.io/tropis/backend
+  - name: ghcr.io/tropis/backend-public
+    newTag: latest # overwritten by CI: kustomize edit set image ...
+  - name: ghcr.io/tropis/backend-private
+    newTag: latest # overwritten by CI: kustomize edit set image ...
+  - name: ghcr.io/tropis/backend-worker
+    newTag: latest # overwritten by CI: kustomize edit set image ...
+  - name: ghcr.io/tropis/backend-scheduler
     newTag: latest # overwritten by CI: kustomize edit set image ...
   - name: ghcr.io/tropis/frontend
     newTag: latest # overwritten by CI: kustomize edit set image ...
@@ -25,26 +32,28 @@ configMapGenerator:
     literals:
       - NODE_ENV=production
       - LOG_LEVEL=warn
-      # Browser origin allowed to call the API. CORS_ORIGIN is validated as a
-      # single URI (env.validation.ts) and passed to enableCors verbatim — it is
-      # never split on commas, so exactly one origin goes here.
+      # Browser origins allowed to call the API: a comma-separated list of
+      # absolute URLs (validated in env.validation.ts, split in cors.constants.ts).
       - CORS_ORIGIN=https://app.yourdomain.com # ← replace
+      - KEYSPACE_ENV=production
+      # Set by deploy-prod.yml to the released image tag.
+      - SERVICE_VERSION=unreleased
 
-# Scale up for prod
+# Fixed replica counts for the roles without an HPA.
 patches:
+  # HPA targets (hpa.yaml) carry no replica count, so an apply never resets
+  # the HPA's choice. The base keeps one for clusters without an HPA.
+  - target:
+      kind: Deployment
+      name: backend-public|backend-worker|frontend
+    patch: |-
+      - op: remove
+        path: /spec/replicas
   - patch: |-
       apiVersion: apps/v1
       kind: Deployment
       metadata:
-        name: backend
-        namespace: tropis
-      spec:
-        replicas: 3
-  - patch: |-
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: frontend
+        name: backend-private
         namespace: tropis
       spec:
         replicas: 2

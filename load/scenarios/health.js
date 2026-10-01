@@ -1,10 +1,11 @@
-// Baseline smoke — GET /api/health.
+// Baseline smoke — GET /readyz on the ops port (unthrottled; /api/health is
+// rate limited).
 // Establishes the floor: if this scenario fails its thresholds, don't bother
 // reading the login/track results — the stack itself is unhealthy.
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:3100';
+const OPS_URL = __ENV.OPS_URL || 'http://localhost:9464';
 
 export const options = {
   stages: [
@@ -19,7 +20,7 @@ export const options = {
 };
 
 export default function () {
-  const res = http.get(`${BASE_URL}/api/health`);
+  const res = http.get(`${OPS_URL}/readyz`);
   check(res, {
     'status is 200': (r) => r.status === 200,
   });

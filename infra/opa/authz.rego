@@ -4,31 +4,36 @@ import rego.v1
 
 # ── Role hierarchy ─────────────────────────────────────────────────────────
 # admin  → can do everything
-# editor → can read and write, cannot delete or manage users
+# editor → can read and write, cannot create, delete or manage users
 # viewer → can only read
+# member → its own account only; the role every self-registered user gets
 #
-# `read` and `list` are deliberately distinct on `user`. Registration is public
-# and self-registered accounts default to `editor`, so granting enumeration
-# under `read` meant one free signup could dump every user's email. `list`
-# (FindAll / Search / FindSimilar) is admin-only; `read` is a single record and
-# the controller additionally requires owner-or-admin.
+# Self sign-up is public (where the tenant allows it), so the role it grants
+# holds nothing tenant-wide: no analytics or tracking data, no enumeration.
+# An admin grants editor or viewer. `create` is admin-only: anyone else
+# creates an account only through self sign-up, under its limits. `read` and `list` are distinct on `user`:
+# `list` (FindAll / Search / FindSimilar) is admin-only; `read` and `update`
+# are single records and the controller additionally requires owner-or-admin.
 role_permissions := {
   "admin": {
     "user":      {"create", "read", "list", "update", "delete", "manage_roles"},
     "analytics": {"read", "write"},
   },
   "editor": {
-    "user":      {"create", "read", "update"},
+    "user":      {"read", "update"},
     "analytics": {"read", "write"},
   },
   "viewer": {
     "user":      {"read"},
     "analytics": {"read"},
   },
+  "member": {
+    "user":      {"read", "update"},
+  },
 }
 
 # ── Main allow rule ────────────────────────────────────────────────────────
-# input.roles    — array of roles from JWT (e.g. ["editor"])
+# input.roles    — the caller's current roles (e.g. ["editor"])
 # input.resource — the resource being accessed (e.g. "user")
 # input.action   — the action being performed (e.g. "delete")
 

@@ -4,13 +4,13 @@
  * prints EVERY event it receives with a timestamp. Ctrl-C to exit.
  *
  * Auth: pass TOKEN=<jwt> to use an existing token; otherwise it logs in via
- * gRPC as admin@example.com / Password123! (the `make seed` admin), same as
+ * RPC as admin@example.com / Password123! (the `make seed` admin), same as
  * the seeder. Override with WS_EMAIL / WS_PASSWORD.
  *
  * Run: `make ws-listen [TOKEN=...]`  (→ pnpm --filter @tropis/devtools ws-listen)
  */
 import { io } from 'socket.io-client';
-import { checkHealth, loginForToken } from './lib/grpc';
+import { checkHealth, loginForToken } from './lib/rpc';
 
 const WS_URL = process.env.WS_URL ?? 'http://localhost:3100';
 const EMAIL = process.env.WS_EMAIL ?? 'admin@example.com';
@@ -25,7 +25,7 @@ async function main(): Promise<void> {
 
   let token = process.env.TOKEN;
   if (!token) {
-    console.log(`No TOKEN given — logging in as ${EMAIL} over gRPC…`);
+    console.log(`No TOKEN given — logging in as ${EMAIL} over RPC…`);
     try {
       token = await loginForToken(EMAIL, PASSWORD);
     } catch (err) {

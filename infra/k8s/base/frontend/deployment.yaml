@@ -16,9 +16,25 @@ spec:
       labels:
         app: frontend
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 101 # "nginx" user in nginx:alpine
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: frontend
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: frontend
       containers:
         - name: frontend
           image: ghcr.io/tropis/frontend:latest # replace with your image
@@ -30,6 +46,11 @@ spec:
                 - ALL
           ports:
             - containerPort: 8080 # non-root nginx listens on 8080
+          # Lets the endpoint removal reach the ingress before nginx stops.
+          lifecycle:
+            preStop:
+              exec:
+                command: ['sleep', '5']
           # nginx needs these paths writable even with a read-only root fs
           volumeMounts:
             - name: nginx-cache
@@ -42,6 +63,12 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 20
           resources:
             requests:
               cpu: '50m'

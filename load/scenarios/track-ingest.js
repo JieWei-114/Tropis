@@ -1,5 +1,5 @@
 // Load-shedding behaviour of the beacon endpoint — POST /api/v1/track
-// (apps/backend/src/modules/tracking/controllers/tracking.controller.ts).
+// (apps/backend/src/features/tracking/controllers/tracking.controller.ts).
 //
 // WHAT THIS MEASURES. The route is rate limited to 600 req/min per IP, and a
 // single k6 host is one IP, so 50 VUs sit far above the limit by design. What
@@ -20,6 +20,8 @@ import { uuidv4 } from 'https://jslib.k6.io/k6-utils/1.4.0/index.js';
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:3100';
 const BATCH_SIZE = Number(__ENV.BATCH_SIZE || 20);
+// Anonymous ingest names its tenant; without one the batch is rejected.
+const TENANT_ID = __ENV.TENANT_ID || 'dev';
 
 /**
  * The beacon endpoint is deliberately rate limited (600 req/min per IP), and
@@ -65,7 +67,9 @@ export default function () {
   const res = http.post(
     `${BASE_URL}/api/v1/track`,
     JSON.stringify(makeBatch(__VU, __ITER)),
-    { headers: { 'Content-Type': 'application/json' } },
+    {
+      headers: { 'Content-Type': 'application/json', 'X-Tenant-ID': TENANT_ID },
+    },
   );
   throttled.add(res.status === 429);
 

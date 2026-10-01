@@ -6,14 +6,16 @@
   "scripts": {
     "ws-listen": "tsx src/ws-listen.ts",
     "outbox-status": "tsx src/outbox-status.ts",
+    "outbox-dead": "tsx src/outbox-dead.ts",
+    "jobs-dlq": "tsx src/jobs-dlq.ts",
+    "messaging-dlq": "tsx src/messaging-dlq.ts",
     "sdk-repl": "tsx src/sdk-repl.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@grpc/grpc-js": "^1.14.3",
-    "@grpc/proto-loader": "^0.8.0",
     "@tropis/sdk": "workspace:*",
     "@types/node": "^24.0.0",
+    "bullmq": "^5.76.6",
     "dotenv": "^16.4.7",
     "mongoose": "^9.9.5",
     "socket.io-client": "^4.8.3",
