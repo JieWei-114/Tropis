@@ -12,6 +12,9 @@
  * Uses WebCrypto (globalThis.crypto.subtle) so it runs in Node ≥ 20 without
  * dependencies.
  *
+ * Signed requests also carry a W3C `traceparent` (not covered by the
+ * signature), so the server joins the caller's trace.
+ *
  * ⚠️ SECURITY: API secrets must NEVER be shipped to a browser — anything in
  * client-side JS is public. Use this only in trusted server environments
  * (backend jobs, partner integrations). Browsers authenticate with user JWTs.
@@ -40,6 +43,9 @@ export interface SignedHeaders {
   'X-Nonce': string;
   'X-Signature': string;
 }
+
+import { HEADERS } from '@tropis/shared';
+import { resolveTraceparent, type TraceparentProvider } from '../trace/index';
 
 const encoder = new TextEncoder();
 
@@ -119,11 +125,15 @@ export interface SignedFetchOptions {
   secret: string;
   /** Custom fetch implementation (defaults to globalThis.fetch). */
   fetchImpl?: typeof fetch;
+  /** Active W3C traceparent per call; a fresh trace when it returns none. */
+  traceparent?: TraceparentProvider;
 }
 
 /**
  * Wraps fetch so every request is HMAC-signed. Body must be a string
  * (typically JSON.stringify(...)) so the signed bytes match the sent bytes.
+ * The request acts for the tenant the API key is bound to; X-Tenant-ID is
+ * not needed, and one naming another tenant is rejected (TENANT_MISMATCH).
  *
  *   const signedFetch = createSignedFetch({ keyId, secret });
  *   await signedFetch('http://localhost:3100/api/v1/track/secure', {
@@ -133,7 +143,7 @@ export interface SignedFetchOptions {
  *   });
  */
 export function createSignedFetch(options: SignedFetchOptions): typeof fetch {
-  const { keyId, secret, fetchImpl = fetch } = options;
+  const { keyId, secret, fetchImpl, traceparent } = options;
 
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(
@@ -154,9 +164,13 @@ export function createSignedFetch(options: SignedFetchOptions): typeof fetch {
       keyId,
       secret,
     });
-    return fetchImpl(input, {
-      ...init,
-      headers: { ...(init?.headers as Record<string, string>), ...headers },
-    });
+    const callerHeaders = new Headers(init?.headers);
+    if (!callerHeaders.has(HEADERS.TRACEPARENT)) {
+      callerHeaders.set(HEADERS.TRACEPARENT, resolveTraceparent(traceparent));
+    }
+    for (const [name, value] of Object.entries(headers)) {
+      callerHeaders.set(name, value);
+    }
+    return (fetchImpl ?? fetch)(input, { ...init, headers: callerHeaders });
   }) as typeof fetch;
 }

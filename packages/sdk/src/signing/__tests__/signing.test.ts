@@ -88,10 +88,34 @@ describe('createSignedFetch', () => {
       body: VECTOR.body,
     });
 
-    const headers = captured?.headers as Record<string, string>;
-    expect(headers['X-Api-Key']).toBe(VECTOR.keyId);
-    expect(headers['X-Signature']).toMatch(/^[0-9a-f]{64}$/);
-    expect(headers['Content-Type']).toBe('application/json');
+    const headers = new Headers(captured?.headers);
+    expect(headers.get('X-Api-Key')).toBe(VECTOR.keyId);
+    expect(headers.get('X-Signature')).toMatch(/^[0-9a-f]{64}$/);
+    expect(headers.get('Content-Type')).toBe('application/json');
+  });
+
+  it('sends a traceparent: the active one, or a fresh trace', async () => {
+    const seen: Headers[] = [];
+    const fetchImpl = (async (_input: unknown, init?: RequestInit) => {
+      seen.push(new Headers(init?.headers));
+      return new Response('{}');
+    }) as typeof fetch;
+    const active = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+
+    await createSignedFetch({ keyId: 'k', secret: 's', fetchImpl })(
+      'http://x/api/y',
+    );
+    await createSignedFetch({
+      keyId: 'k',
+      secret: 's',
+      fetchImpl,
+      traceparent: () => active,
+    })('http://x/api/y');
+
+    expect(seen[0]!.get('traceparent')).toMatch(
+      /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/,
+    );
+    expect(seen[1]!.get('traceparent')).toBe(active);
   });
 
   it('rejects non-string bodies (signature must cover exact bytes)', async () => {

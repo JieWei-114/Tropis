@@ -1,9 +1,14 @@
 // @tropis/sdk — typed client SDK generated from the v1 protos.
 
-// Typed gRPC-Web clients
-export { createSdk, type Sdk, type SdkOptions } from './client/index';
+// Typed RPC clients (Connect protocol)
+export {
+  createSdk,
+  TENANT_HEADER,
+  type Sdk,
+  type SdkOptions,
+} from './client/index';
 
-// High-level API facade (same surface the frontend consumed from lib/grpc-web.ts)
+// High-level API facade
 export {
   createApi,
   type Api,
@@ -22,6 +27,9 @@ export {
   type TrackingEventCount,
   type TrackingDailyUnique,
   type TrackingRecentEvent,
+  type TrackingFunnelStep,
+  type UserPage,
+  type ListUsersOptions,
 } from './api';
 
 // REST helpers
@@ -29,6 +37,12 @@ export {
   createRestClient,
   type RestClient,
   type RestOptions,
+  type AccessTokenResponse,
+  type OAuthProvider,
+  type OnboardingWorkflow,
+  type OnboardingWorkflows,
+  type HealthCheck,
+  type HealthStatus,
 } from './rest/index';
 
 // Realtime (Socket.io)
@@ -41,19 +55,37 @@ export {
 } from './realtime/index';
 
 // Errors
-export { parseApiError, type ApiError } from './errors/index';
+export {
+  parseApiError,
+  readApiError,
+  isProblemBody,
+  ApiRequestError,
+  ERROR_DOMAIN,
+  type ApiError,
+  type FieldError,
+  type ProblemDetails,
+} from './errors/index';
 export { Code, ConnectError } from '@connectrpc/connect';
 
-// Token store
+// Access-token store (memory only; the refresh token is an httpOnly cookie)
 export {
   getToken,
   setToken,
   clearToken,
-  getRefreshToken,
-  setRefreshToken,
-  clearRefreshToken,
-  clearTokens,
+  onTokenChange,
+  clearLegacyTokens,
+  type TokenListener,
 } from './auth/token';
+export {
+  createRefresher,
+  type Refresher,
+  type RefresherOptions,
+} from './auth/refresh';
+export {
+  OAUTH_VERIFIER_KEY,
+  createCodeVerifier,
+  codeChallenge,
+} from './auth/pkce';
 
 // Tracking (user-behavior tracker)
 export {
@@ -62,6 +94,14 @@ export {
   type TrackerOptions,
   type TrackedEvent,
 } from './tracking/index';
+
+// W3C Trace Context
+export {
+  TRACEPARENT_HEADER,
+  generateTraceparent,
+  isValidTraceparent,
+  type TraceparentProvider,
+} from './trace/index';
 
 // Request signing (server-to-server HMAC — docs/api-conventions.md;
 // never use in browsers: secrets don't belong in client-side JS)
@@ -78,3 +118,5 @@ export * as authv1 from './gen/auth/v1/auth_pb';
 export * as userv1 from './gen/user/v1/user_pb';
 export * as analyticsv1 from './gen/analytics/v1/analytics_pb';
 export * as trackingv1 from './gen/tracking/v1/tracking_pb';
+export * as signingv1 from './gen/signing/v1/signing_pb';
+export * as healthv1 from './gen/health/v1/health_pb';

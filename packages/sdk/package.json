@@ -37,7 +37,7 @@
   },
   "scripts": {
     "generate": "buf generate",
-    "build": "tsup src/index.ts --format esm --dts --sourcemap --clean --out-dir dist",
+    "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "tsc --noEmit && vitest run"
   },
@@ -50,6 +50,7 @@
   "devDependencies": {
     "@bufbuild/buf": "1.61.0",
     "@bufbuild/protoc-gen-es": "2.10.1",
+    "@tropis/shared": "workspace:*",
     "@types/node": "^20.19.0",
     "tsup": "^8.5.1",
     "typescript": "^5.7.3",

@@ -1,10 +1,15 @@
 /**
- * Typed gRPC-Web clients generated from the v1 protos.
+ * Typed RPC clients generated from the v1 protos.
  *
  * Architecture:
- *   Browser  →  connect-web gRPC-Web transport (HTTP/1.1)
- *           →  Envoy (gRPC-Web filter, transcodes to HTTP/2 gRPC)
- *           →  NestJS gRPC server
+ *   Browser  →  connect-web Connect transport (binary protobuf over HTTP/1.1
+ *               or HTTP/2, plain fetch)
+ *           →  backend public RPC listener (RPC_PUBLIC_PORT), which answers
+ *               Connect, gRPC-Web and gRPC on the same port
+ *
+ * The Connect protocol is used because it needs no proxy and no trailers, so
+ * errors and unary calls behave like ordinary HTTP in the browser. Binary
+ * rather than JSON keeps payloads small and int64 fields exact.
  */
 
 import {
@@ -14,15 +19,21 @@ import {
   type Client,
   type Interceptor,
 } from '@connectrpc/connect';
-import { createGrpcWebTransport } from '@connectrpc/connect-web';
+import { createConnectTransport } from '@connectrpc/connect-web';
 import { AuthService } from '../gen/auth/v1/auth_pb';
 import { UserService } from '../gen/user/v1/user_pb';
 import { AnalyticsService } from '../gen/analytics/v1/analytics_pb';
 import { TrackingService } from '../gen/tracking/v1/tracking_pb';
+import { HEADERS } from '@tropis/shared';
 import type { Refresher } from '../auth/refresh';
+import {
+  TRACEPARENT_HEADER,
+  resolveTraceparent,
+  type TraceparentProvider,
+} from '../trace/index';
 
 export interface SdkOptions {
-  /** Base URL of the Envoy gRPC-Web endpoint, e.g. http://localhost:8080 */
+  /** Base URL of the backend RPC endpoint, e.g. http://localhost:50051 */
   baseUrl: string;
   /** Returns the current bearer token, or null when unauthenticated. */
   getToken?: () => string | null;
@@ -31,6 +42,14 @@ export interface SdkOptions {
   /** Called on an Unauthenticated response to mint a new access token; the
    *  call is retried once when it returns a token (refresh-on-401). */
   refresh?: Refresher;
+  /**
+   * Tenant sent as X-Tenant-ID. Required for calls made without a token
+   * (login, sign-up); with a token the backend takes the token's tenant and
+   * rejects a different one (TENANT_MISMATCH).
+   */
+  tenantId?: string;
+  /** Active W3C traceparent per call; a fresh trace when it returns none. */
+  traceparent?: TraceparentProvider;
 }
 
 export interface Sdk {
@@ -42,17 +61,31 @@ export interface Sdk {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+/** Header naming the caller's tenant (docs/api-conventions.md). */
+export const TENANT_HEADER = HEADERS.TENANT;
+
 export function createSdk(options: SdkOptions): Sdk {
   const {
     baseUrl,
     getToken,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     refresh,
+    tenantId,
+    traceparent,
   } = options;
+
+  // Outermost, so a refresh-on-401 retry stays in the same trace.
+  const traceInterceptor: Interceptor = (next) => (req) => {
+    if (!req.header.has(TRACEPARENT_HEADER)) {
+      req.header.set(TRACEPARENT_HEADER, resolveTraceparent(traceparent));
+    }
+    return next(req);
+  };
 
   const authInterceptor: Interceptor = (next) => (req) => {
     const token = getToken?.();
     if (token) req.header.set('Authorization', `Bearer ${token}`);
+    if (tenantId) req.header.set(TENANT_HEADER, tenantId);
     return next(req);
   };
 
@@ -73,11 +106,12 @@ export function createSdk(options: SdkOptions): Sdk {
     }
   };
 
-  const transport = createGrpcWebTransport({
+  const transport = createConnectTransport({
     baseUrl,
+    useBinaryFormat: true,
     interceptors: refresh
-      ? [refreshInterceptor, authInterceptor]
-      : [authInterceptor],
+      ? [traceInterceptor, refreshInterceptor, authInterceptor]
+      : [traceInterceptor, authInterceptor],
     defaultTimeoutMs: timeoutMs,
   });
 

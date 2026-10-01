@@ -4,17 +4,26 @@
  * transport details.
  */
 
+import { timestampMs, type Timestamp } from '@bufbuild/protobuf/wkt';
 import { createSdk, type Sdk } from './client/index';
-import { createRestClient, type RestClient } from './rest/index';
 import {
+  createRestClient,
+  type HealthStatus,
+  type OAuthProvider,
+  type OnboardingWorkflows,
+  type RestClient,
+} from './rest/index';
+import {
+  clearLegacyTokens,
+  clearToken,
+  getToken as getStoredToken,
   setToken,
-  setRefreshToken,
-  getRefreshToken,
-  clearTokens,
 } from './auth/token';
 import { createRefresher } from './auth/refresh';
+import { beginPkce, takePkceVerifier } from './auth/pkce';
 import type { UserResponse } from './gen/user/v1/user_pb';
 import type { EventResponse } from './gen/analytics/v1/analytics_pb';
+import type { TraceparentProvider } from './trace/index';
 
 // ── Domain types (same shapes the frontend already uses) ─────────────────────
 
@@ -66,6 +75,8 @@ export interface ReplaceUserPayload {
   password?: string;
   age?: number;
   status: 'active' | 'inactive';
+  /** The caller's current password; required to change their own password or email. */
+  currentPassword?: string;
 }
 export interface PatchUserPayload {
   name?: string;
@@ -73,6 +84,24 @@ export interface PatchUserPayload {
   password?: string;
   age?: number;
   status?: 'active' | 'inactive';
+  /** The caller's current password; required to change their own password or email. */
+  currentPassword?: string;
+}
+
+/** One page of users (AIP-158). */
+export interface UserPage {
+  users: User[];
+  /** Pass as `pageToken` to read the next page; empty on the last page. */
+  nextPageToken: string;
+  /** Users across all pages. */
+  totalSize: number;
+}
+
+export interface ListUsersOptions {
+  /** Maximum users per page; the server default when omitted. */
+  pageSize?: number;
+  /** `nextPageToken` of the previous page; omit for the first page. */
+  pageToken?: string;
 }
 
 export type EventType =
@@ -125,6 +154,11 @@ export interface TrackingInsights {
 
 // ── Mappers (proto messages → domain types; int64 comes back as bigint) ──────
 
+/** Epoch ms from the Timestamp field, falling back to the deprecated int64 one. */
+function epochMs(time: Timestamp | undefined, legacy: bigint): number {
+  return time ? timestampMs(time) : Number(legacy);
+}
+
 function toUser(u: UserResponse): User {
   return {
     id: u.id,
@@ -149,21 +183,32 @@ function toEvent(e: EventResponse): AnalyticsEvent {
     eventType: e.eventType,
     userId: e.userId,
     metadata,
-    timestamp: Number(e.timestamp),
+    timestamp: epochMs(e.eventTime, e.timestamp),
   };
 }
 
 // ── Api ───────────────────────────────────────────────────────────────────────
 
 export interface ApiOptions {
-  /** gRPC-Web (Envoy) endpoint. */
-  grpcBaseUrl: string;
+  /** Backend RPC endpoint (Connect protocol), e.g. http://localhost:50051. */
+  rpcBaseUrl: string;
   /** REST API origin (avatar upload etc.). */
   restBaseUrl: string;
-  /** Returns the current bearer token, or null. */
+  /**
+   * Returns the current bearer token, or null. Defaults to the SDK's
+   * in-memory store, which login, refresh and logout write.
+   */
   getToken?: () => string | null;
   /** Per-RPC deadline in milliseconds. */
   timeoutMs?: number;
+  /**
+   * Tenant sent as X-Tenant-ID. Required for calls made without a token
+   * (login, sign-up); with a token the backend takes the token's tenant and
+   * rejects a different one (TENANT_MISMATCH).
+   */
+  tenantId?: string;
+  /** Active W3C traceparent per call; a fresh trace when it returns none. */
+  traceparent?: TraceparentProvider;
 }
 
 export interface Api {
@@ -172,12 +217,33 @@ export interface Api {
   rest: RestClient;
 
   // Auth
+  /** Current access token (memory only), or null. */
+  getToken: () => string | null;
   login: (email: string, password: string) => Promise<void>;
-  /** Revokes the tokens server-side, then clears them locally. */
+  /**
+   * Restores the session on app start from the refresh cookie; resolves to
+   * whether a session exists. Also removes tokens older SDK versions left in
+   * localStorage.
+   */
+  restoreSession: () => Promise<boolean>;
+  /**
+   * Starts an OAuth sign-in: keeps a PKCE verifier in sessionStorage and
+   * resolves to the URL to navigate the browser to.
+   */
+  startOAuthSignIn: (provider: OAuthProvider) => Promise<string>;
+  /**
+   * Finishes an OAuth sign-in: trades the one-time code from the callback
+   * URL fragment (`/auth/callback#code=...`), with the verifier the start
+   * stored, for an access token.
+   */
+  completeOAuthSignIn: (code: string) => Promise<void>;
+  /** Revokes the session server-side, then clears it locally and in other tabs. */
   logout: () => Promise<void>;
 
   // Users
-  fetchUsers: (page?: number, limit?: number) => Promise<User[]>;
+  /** First page of users. */
+  fetchUsers: (pageSize?: number) => Promise<User[]>;
+  listUsers: (options?: ListUsersOptions) => Promise<UserPage>;
   fetchUser: (id: string) => Promise<User>;
   fetchMe: () => Promise<User>;
   createUser: (body: CreateUserPayload) => Promise<User>;
@@ -187,6 +253,19 @@ export interface Api {
   searchUsers: (query: string, size?: number) => Promise<User[]>;
   findSimilarUsers: (userId: string, limit?: number) => Promise<User[]>;
   uploadAvatar: (userId: string, file: File) => Promise<string>;
+  /** Roles of every user in the tenant, keyed by user id (admin only). */
+  getUserRoles: () => Promise<Record<string, string[]>>;
+  /** Replaces a user's roles (admin only). */
+  setUserRoles: (
+    id: string,
+    roles: string[],
+  ) => Promise<{ id: string; roles: string[] }>;
+
+  // Workflows
+  listOnboardingWorkflows: () => Promise<OnboardingWorkflows>;
+
+  // Health
+  getHealth: () => Promise<HealthStatus>;
 
   // Analytics
   fireEvent: (
@@ -202,20 +281,56 @@ export interface Api {
   fetchTrackingInsights: (days?: number) => Promise<TrackingInsights>;
 }
 
+/** Tabs of one app tell each other about a logout. */
+const AUTH_CHANNEL = 'tropis-auth';
+
+function authChannel(): BroadcastChannel | undefined {
+  try {
+    return typeof BroadcastChannel === 'undefined'
+      ? undefined
+      : new BroadcastChannel(AUTH_CHANNEL);
+  } catch {
+    return undefined;
+  }
+}
+
 export function createApi(options: ApiOptions): Api {
+  const getToken = options.getToken ?? getStoredToken;
   // Shared single-flight refresher — both transports refresh-on-401 through it.
-  const refresh = createRefresher(options.restBaseUrl);
+  const refresh = createRefresher(options.restBaseUrl, {
+    traceparent: options.traceparent,
+  });
+  const channel = authChannel();
+  channel?.addEventListener('message', (e: MessageEvent) => {
+    if (e.data === 'logout') clearToken();
+  });
   const clients = createSdk({
-    baseUrl: options.grpcBaseUrl,
-    getToken: options.getToken,
+    baseUrl: options.rpcBaseUrl,
+    getToken,
     timeoutMs: options.timeoutMs,
+    tenantId: options.tenantId,
+    traceparent: options.traceparent,
     refresh,
   });
   const rest = createRestClient({
     baseUrl: options.restBaseUrl,
-    getToken: options.getToken,
+    getToken,
+    tenantId: options.tenantId,
+    traceparent: options.traceparent,
     refresh,
   });
+
+  const listUsers = async ({
+    pageSize = 0,
+    pageToken = '',
+  }: ListUsersOptions = {}): Promise<UserPage> => {
+    const res = await clients.users.findAll({ pageSize, pageToken });
+    return {
+      users: res.users.map(toUser),
+      nextPageToken: res.nextPageToken,
+      totalSize: res.totalSize,
+    };
+  };
 
   const fetchRecent = async (): Promise<AnalyticsEvent[]> => {
     const res = await clients.analytics.getRecent({});
@@ -226,30 +341,53 @@ export function createApi(options: ApiOptions): Api {
     clients,
     rest,
 
+    getToken,
+
     async login(email, password) {
-      // Login over REST (not gRPC): the REST endpoint runs the full AuthService
-      // (lockout + a rotating REFRESH token), where gRPC Login only returns an
-      // access token. Storing the refresh token is what enables refresh-on-401.
-      const { accessToken, refreshToken } = await rest.login(email, password);
+      // Login over REST (not RPC): the REST endpoint runs the full
+      // AuthService (lockout) and sets the refresh cookie that keeps the
+      // session alive; RPC Login only returns an access token.
+      const { accessToken } = await rest.login(email, password);
       if (!accessToken) throw new Error('Login failed: no token in response');
       setToken(accessToken);
-      if (refreshToken) setRefreshToken(refreshToken);
+    },
+
+    async restoreSession() {
+      clearLegacyTokens();
+      if (getToken()) return true;
+      return (await refresh()) !== null;
+    },
+
+    async startOAuthSignIn(provider) {
+      return rest.oauthStartUrl(provider, await beginPkce());
+    },
+
+    async completeOAuthSignIn(code) {
+      const verifier = takePkceVerifier();
+      if (!verifier) {
+        throw new Error(
+          'This sign-in was not started in this browser tab; start it again',
+        );
+      }
+      const { accessToken } = await rest.exchangeOAuthCode(code, verifier);
+      if (!accessToken) throw new Error('Sign-in failed: no token in response');
+      setToken(accessToken);
     },
 
     async logout() {
-      // Server first: the access token lives 7 days and the refresh token
-      // longer, so dropping only the local copy leaves both valid server-side
-      // and the session resumable from any copy of the token. rest.logout
-      // swallows its own errors, so a network failure still clears local state
-      // rather than trapping the user signed in.
-      await rest.logout(getRefreshToken() ?? undefined);
-      clearTokens();
+      // Server first, while the access token is still at hand: the server
+      // revokes it and the refresh cookie. rest.logout swallows its own
+      // errors, so a network failure still clears the local session.
+      await rest.logout();
+      clearToken();
+      channel?.postMessage('logout');
     },
 
-    async fetchUsers(page = 1, limit = 20) {
-      const res = await clients.users.findAll({ page, limit });
-      return res.users.map(toUser);
+    async fetchUsers(pageSize = 20) {
+      return (await listUsers({ pageSize })).users;
     },
+
+    listUsers,
 
     async fetchUser(id) {
       return toUser(await clients.users.findById({ id }));
@@ -279,6 +417,7 @@ export function createApi(options: ApiOptions): Api {
           status: body.status,
           password: body.password ?? '',
           age: body.age ?? 0,
+          currentPassword: body.currentPassword ?? '',
         }),
       );
     },
@@ -292,6 +431,7 @@ export function createApi(options: ApiOptions): Api {
           password: body.password ?? '',
           age: body.age ?? 0,
           status: body.status ?? '',
+          currentPassword: body.currentPassword ?? '',
         }),
       );
     },
@@ -301,16 +441,20 @@ export function createApi(options: ApiOptions): Api {
     },
 
     async searchUsers(query, size = 10) {
-      const res = await clients.users.search({ query, size });
+      const res = await clients.users.search({ query, pageSize: size });
       return res.users.map(toUser);
     },
 
     async findSimilarUsers(userId, limit = 5) {
-      const res = await clients.users.findSimilar({ userId, limit });
+      const res = await clients.users.findSimilar({ userId, pageSize: limit });
       return res.users.map(toUser);
     },
 
     uploadAvatar: (userId, file) => rest.uploadAvatar(userId, file),
+    getUserRoles: () => rest.getUserRoles(),
+    setUserRoles: (id, roles) => rest.setUserRoles(id, roles),
+    listOnboardingWorkflows: () => rest.listOnboardingWorkflows(),
+    getHealth: () => rest.getHealth(),
 
     async fireEvent(eventType, userId, metadata) {
       const res = await clients.analytics.createEvent({
@@ -328,9 +472,9 @@ export function createApi(options: ApiOptions): Api {
         byType: res.byType.map((s) => ({
           eventType: s.eventType,
           count: s.count,
-          lastSeen: Number(s.lastSeen),
+          lastSeen: epochMs(s.lastSeenTime, s.lastSeen),
         })),
-        cachedAt: Number(res.cachedAt),
+        cachedAt: epochMs(res.cacheTime, res.cachedAt),
         fromCache: res.fromCache,
       };
     },
@@ -340,7 +484,7 @@ export function createApi(options: ApiOptions): Api {
     async fetchMinutelyStats(minutes = 60) {
       const res = await clients.analytics.getMinutelyStats({ minutes });
       return res.stats.map((s) => ({
-        windowMs: Number(s.windowMs),
+        windowMs: epochMs(s.windowStartTime, s.windowMs),
         eventType: s.eventType,
         count: s.count,
       }));
@@ -373,7 +517,7 @@ export function createApi(options: ApiOptions): Api {
             sessionId: r.sessionId,
             page: r.page,
             props,
-            timestamp: Number(r.timestamp),
+            timestamp: epochMs(r.eventTime, r.timestamp),
           };
         }),
         funnel: res.funnel.map((s) => ({ step: s.step, users: s.users })),

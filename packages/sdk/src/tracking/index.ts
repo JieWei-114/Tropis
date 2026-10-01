@@ -3,20 +3,33 @@
  *
  * Design:
  *   - Events are buffered and flushed as a batch to `POST <endpoint>` (the
- *     backend's REST ingest, /api/v1/track). REST because gRPC-Web cannot be
+ *     backend's REST ingest, /api/v1/track). REST because an RPC call cannot be
  *     used with navigator.sendBeacon.
  *   - Flush triggers: buffer reaches maxBatch, the flush interval fires, or
  *     the page is being hidden/unloaded (visibilitychange:hidden + pagehide),
  *     where delivery uses navigator.sendBeacon with a fetch(keepalive) fallback.
  *   - Fire-and-forget: tracking must NEVER throw or break the host app.
  *   - SSR/Node safe: when `window` is undefined every method is a no-op.
+ *   - Trace context: the fetch delivery carries a `traceparent`; a beacon
+ *     cannot set headers, so a beacon batch starts its trace on the server.
  */
+
+import { HEADERS, TRACKING_EVENTS } from '@tropis/shared';
+import { resolveTraceparent, type TraceparentProvider } from '../trace/index';
 
 export interface TrackerOptions {
   /** Full ingest URL, e.g. http://localhost:3100/api/v1/track */
   endpoint: string;
   /** Optional bearer token supplier (ingest is public; token is optional). */
   getToken?: () => string | null;
+  /**
+   * Tenant the events belong to. Sent as `?tenant=` because
+   * navigator.sendBeacon cannot set headers; without it (and without a
+   * token) the backend rejects the batch.
+   */
+  tenantId?: string;
+  /** Active W3C traceparent per batch; a fresh trace when it returns none. */
+  traceparent?: TraceparentProvider;
   /** Interval between automatic flushes (default 5000 ms). */
   flushIntervalMs?: number;
   /** Flush as soon as the buffer reaches this size (default 10). */
@@ -126,7 +139,16 @@ export function createTracker(options: TrackerOptions): Tracker {
   // SSR / Node safety — no window, no tracking.
   if (typeof window === 'undefined') return NOOP_TRACKER;
 
-  const { endpoint, getToken, flushIntervalMs = 5000, maxBatch = 10 } = options;
+  const {
+    getToken,
+    tenantId,
+    traceparent,
+    flushIntervalMs = 5000,
+    maxBatch = 10,
+  } = options;
+  const endpoint = tenantId
+    ? `${options.endpoint}${options.endpoint.includes('?') ? '&' : '?'}tenant=${encodeURIComponent(tenantId)}`
+    : options.endpoint;
 
   const anonymousId = getAnonymousId();
   let userId: string | undefined;
@@ -161,6 +183,7 @@ export function createTracker(options: TrackerOptions): Tracker {
         keepalive: true,
         headers: {
           'Content-Type': 'application/json',
+          [HEADERS.TRACEPARENT]: resolveTraceparent(traceparent),
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body,
@@ -211,16 +234,13 @@ export function createTracker(options: TrackerOptions): Tracker {
       enqueue(event, props);
     },
     page(path) {
-      // Name registered in @tropis/shared TRACKING_EVENTS.PAGE_VIEW
-      // (the SDK deliberately has no dependency on @tropis/shared).
-      enqueue('page.view', { path });
+      enqueue(TRACKING_EVENTS.PAGE_VIEW.name, { path });
     },
     identify(id) {
       userId = id;
     },
     exposeExperiment(experiment, variant) {
-      // Name registered in @tropis/shared TRACKING_EVENTS.EXPERIMENT_EXPOSED.
-      enqueue('experiment.exposed', { experiment, variant });
+      enqueue(TRACKING_EVENTS.EXPERIMENT_EXPOSED.name, { experiment, variant });
     },
     flush() {
       flushBuffer();

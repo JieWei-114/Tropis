@@ -43,8 +43,12 @@ const WATCHED: WsEventName[] = [
 export interface RealtimeOptions {
   /** Socket.io gateway origin, e.g. http://localhost:3100 (namespace /ws is appended). */
   url: string;
-  /** Bearer token for the handshake; connection is skipped when null. */
-  token: string | null;
+  /**
+   * Bearer token for the handshake; connection is skipped when null. A
+   * function is read again on every reconnect, so a reconnect after a token
+   * refresh presents the new token.
+   */
+  token: string | null | (() => string | null);
 }
 
 /**
@@ -56,7 +60,8 @@ export function connectRealtime(
   onEvent: (e: WsEvent) => void,
 ): () => void {
   const { url, token } = options;
-  if (!token) return () => {};
+  const currentToken = typeof token === 'function' ? token : () => token;
+  if (!currentToken()) return () => {};
 
   listeners.add(onEvent);
 
@@ -69,7 +74,8 @@ export function connectRealtime(
       socket.disconnect();
     }
     socket = io(`${url}/ws`, {
-      auth: { token },
+      auth: (cb: (data: { token: string | null }) => void) =>
+        cb({ token: currentToken() }),
       transports: ['websocket'],
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
