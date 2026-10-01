@@ -2,7 +2,7 @@
 #   docker build -f apps/frontend/helm/Dockerfile .
 
 # ── Stage 1: build ────────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
