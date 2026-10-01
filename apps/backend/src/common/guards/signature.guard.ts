@@ -2,48 +2,41 @@ import {
   Injectable,
   CanActivate,
   ExecutionContext,
-  UnauthorizedException,
   Inject,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import type Redis from 'ioredis';
-import { createHash, createHmac, timingSafeEqual } from 'crypto';
-import { ERROR_CODES } from '@tropis/shared';
-import { REDIS_CLIENT } from '../../infrastructure/redis/redis.module';
+import { ERROR_CODES, type ErrorCode } from '@tropis/shared';
+import { AppError } from '../errors/app-error';
+import type { TenantId } from '../keyspace';
+import { DEDUP, type DedupPort } from '../../infrastructure/dedup/dedup.port';
+import {
+  SIGNING,
+  type SigningPort,
+} from '../../infrastructure/signing/signing.port';
 import { ApiKeyService } from './api-key.service';
+import {
+  TENANT_DIRECTORY,
+  assertTenantActive,
+  type TenantDirectory,
+} from '../tenant/tenant-directory.port';
+import { isAppError } from '../errors/app-error';
+import {
+  TENANT_HEADER,
+  TENANT_QUERY_PARAM,
+  type TenantResolvedRequest,
+} from '../tenant/tenant.middleware';
+import {
+  NONCE_TTL_SECONDS,
+  SIGNATURE_MAX_SKEW_SECONDS,
+  SIGNATURE_NONCE_KEY,
+} from './signature.constants';
 
-/** Signed requests are valid for ±300 s around the server clock. */
-const SIGNATURE_MAX_SKEW_SECONDS = 300;
-
-/** Nonces are remembered for the full validity window (SET NX EX 300). */
-const NONCE_TTL_SECONDS = SIGNATURE_MAX_SKEW_SECONDS;
-const NONCE_KEY_PREFIX = 'sig:nonce:';
-
-/**
- * Canonical string for HMAC request signing — MUST match the SDK
- * implementation in packages/sdk/src/signing/ and the spec in
- * docs/api-conventions.md:
- *
- *   METHOD \n PATH \n X-Timestamp \n X-Nonce \n SHA256(body) as lowercase hex
- *
- * PATH is the full request path including the global prefix and query string
- * (e.g. /api/v1/track/secure), exactly as sent on the wire.
- */
-export function buildCanonicalString(
-  method: string,
-  path: string,
-  timestamp: string,
-  nonce: string,
-  body: Buffer | string,
-): string {
-  const bodyHash = createHash('sha256').update(body).digest('hex');
-  return `${method.toUpperCase()}\n${path}\n${timestamp}\n${nonce}\n${bodyHash}`;
-}
-
-/** hex(HMAC-SHA256(secret, canonical)) */
-export function computeSignature(secret: string, canonical: string): string {
-  return createHmac('sha256', secret).update(canonical).digest('hex');
-}
+// The canonical-string builder lives with the signing capability; re-exported
+// here because the SDK and native-service test vectors cite this file.
+export {
+  buildCanonicalString,
+  computeSignature,
+} from '../../infrastructure/signing/signing.canonical';
 
 /**
  * Validates HMAC-signed server-to-server requests (docs/api-conventions.md).
@@ -53,8 +46,16 @@ export function computeSignature(secret: string, canonical: string): string {
  *   1. all four headers present               → SIGNATURE_INVALID
  *   2. timestamp within ±300 s                → SIGNATURE_EXPIRED
  *   3. key id known                           → API_KEY_UNKNOWN
- *   4. nonce never seen (Redis SET NX EX 300) → NONCE_REUSED
- *   5. constant-time signature compare        → SIGNATURE_INVALID
+ *   4. constant-time signature compare        → SIGNATURE_INVALID
+ *      (signing port: in-process or native service)
+ *   5. a tenant hint, if sent, names the key's
+ *      tenant (403)                           → TENANT_MISMATCH
+ *   6. the key's tenant is registered and
+ *      active (404 / 403)                     → TENANT_NOT_FOUND / TENANT_INACTIVE
+ *   7. nonce never seen (dedup claim, 300 s)  → NONCE_REUSED
+ *
+ * The request then runs in the tenant the API key is bound to; an unsigned
+ * header can never choose it.
  *
  * Requires the raw request bytes: main.ts configures express.json() with a
  * `verify` callback that stores the untouched body buffer on `req.rawBody`.
@@ -63,13 +64,16 @@ export function computeSignature(secret: string, canonical: string): string {
 export class SignatureGuard implements CanActivate {
   constructor(
     private readonly apiKeys: ApiKeyService,
-    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    @Inject(SIGNING) private readonly signing: SigningPort,
+    @Inject(DEDUP) private readonly dedup: DedupPort,
+    @Inject(TENANT_DIRECTORY)
+    private readonly tenants: Pick<TenantDirectory, 'find'>,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context
       .switchToHttp()
-      .getRequest<Request & { rawBody?: Buffer }>();
+      .getRequest<Request & TenantResolvedRequest & { rawBody?: Buffer }>();
 
     const keyId = this.header(request, 'x-api-key');
     const timestamp = this.header(request, 'x-timestamp');
@@ -83,8 +87,8 @@ export class SignatureGuard implements CanActivate {
       );
     }
 
-    // 2. Timestamp window — rejects replays outside ±300 s even if Redis
-    //    has already expired the nonce.
+    // 2. Timestamp window — rejects replays outside ±300 s even if the dedup
+    //    store has already expired the nonce.
     const ts = Number(timestamp);
     const nowSecs = Math.floor(Date.now() / 1000);
     if (
@@ -98,46 +102,76 @@ export class SignatureGuard implements CanActivate {
     }
 
     // 3. Key lookup
-    const secret = this.apiKeys.getSecret(keyId);
-    if (!secret) {
+    const key = this.apiKeys.getKey(keyId);
+    if (!key) {
       throw this.unauthorized(ERROR_CODES.API_KEY_UNKNOWN, 'Unknown API key');
     }
 
     // 4. Signature — recompute over the raw bytes and compare constant-time.
     //    Verified BEFORE the nonce is consumed, so a bad-signature request can't
     //    burn a legitimate nonce (which would fail the real caller's retry).
-    const canonical = buildCanonicalString(
-      request.method,
-      request.originalUrl ?? request.url,
-      timestamp,
-      nonce,
-      request.rawBody ?? Buffer.alloc(0),
+    const valid = await this.signing.verify(
+      {
+        method: request.method,
+        path: request.originalUrl ?? request.url,
+        timestamp,
+        nonce,
+        body: request.rawBody ?? Buffer.alloc(0),
+        keyId,
+      },
+      signature,
+      key.secret,
     );
-    const expected = computeSignature(secret, canonical);
-    const given = Buffer.from(signature, 'utf8');
-    const want = Buffer.from(expected, 'utf8');
-    if (given.length !== want.length || !timingSafeEqual(given, want)) {
+    if (!valid) {
       throw this.unauthorized(
         ERROR_CODES.SIGNATURE_INVALID,
         'Signature verification failed',
       );
     }
 
-    // 5. Nonce dedup — atomic SET NX EX, only after the signature is proven
+    // 5. Tenant — the key's, never the unsigned hint's.
+    const hint = this.tenantHint(request);
+    if (hint !== undefined && hint !== key.tenantId) {
+      throw new AppError('TENANT_MISMATCH', {
+        detail: 'The API key is bound to a different tenant',
+      });
+    }
+
+    // 6. Tenant status — a suspended tenant's keys stop working.
+    assertTenantActive(await this.findTenant(key.tenantId));
+
+    // 7. Nonce dedup — atomic claim, only after the signature is proven
     //    valid. A second VALID request with the same nonce inside the window
     //    fails (replay protection); invalid requests never reach here.
-    const stored = await this.redis.set(
-      `${NONCE_KEY_PREFIX}${keyId}:${nonce}`,
-      '1',
-      'EX',
+    const fresh = await this.dedup.claim(
+      SIGNATURE_NONCE_KEY.global(keyId, nonce),
       NONCE_TTL_SECONDS,
-      'NX',
     );
-    if (stored !== 'OK') {
+    if (!fresh) {
       throw this.unauthorized(ERROR_CODES.NONCE_REUSED, 'Nonce already used');
     }
 
+    request.tenantId = key.tenantId;
+    request.tenantError = undefined;
     return true;
+  }
+
+  private async findTenant(id: TenantId) {
+    try {
+      return await this.tenants.find(id);
+    } catch (err) {
+      if (isAppError(err)) throw err;
+      throw new AppError('SERVICE_UNAVAILABLE', { cause: err });
+    }
+  }
+
+  private tenantHint(request: Request): string | undefined {
+    const header = this.header(request, TENANT_HEADER);
+    if (header) return header;
+    const query = (request.query as Record<string, unknown> | undefined)?.[
+      TENANT_QUERY_PARAM
+    ];
+    return typeof query === 'string' && query ? query : undefined;
   }
 
   private header(request: Request, name: string): string | undefined {
@@ -145,9 +179,7 @@ export class SignatureGuard implements CanActivate {
     return Array.isArray(value) ? value[0] : value;
   }
 
-  private unauthorized(code: string, message: string): UnauthorizedException {
-    // { code, message } is picked up by GlobalExceptionFilter and surfaced
-    // in the standard error envelope.
-    return new UnauthorizedException({ code, message });
+  private unauthorized(code: ErrorCode, detail: string): AppError {
+    return new AppError(code, { detail });
   }
 }

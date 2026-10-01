@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
-import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { ExecutionContext } from '@nestjs/common';
+import { AppError } from '../../errors/app-error';
 import { ERROR_CODES } from '@tropis/shared';
 import {
   SignatureGuard,
@@ -8,6 +9,9 @@ import {
 } from '../signature.guard';
 import { ApiKeyService } from '../api-key.service';
 import { ConfigService } from '@nestjs/config';
+import { InMemoryDedupAdapter } from '../../../infrastructure/dedup/__tests__/in-memory-dedup.adapter';
+import { InprocessSigningAdapter } from '../../../infrastructure/signing/adapters/inprocess/inprocess-signing.adapter';
+import { SIGNATURE_NONCE_KEY } from '../signature.constants';
 
 /**
  * SHARED TEST VECTOR — must stay byte-for-byte in sync with
@@ -27,19 +31,30 @@ const VECTOR = {
     'c2c9224d1fb33aef647e7e66b3ca45ffc0fcd9f3e538bda90dd8b49128c50f9d',
 };
 
-function mockContext(overrides: {
-  headers?: Record<string, string>;
-  rawBody?: Buffer;
-  method?: string;
-  url?: string;
-}): ExecutionContext {
-  const request = {
+const KEY_TENANT = 'acme';
+
+type MockRequest = Record<string, unknown> & {
+  tenantId?: string;
+  tenantError?: unknown;
+};
+
+function mockContext(
+  overrides: {
+    headers?: Record<string, string>;
+    rawBody?: Buffer;
+    method?: string;
+    url?: string;
+  },
+  request: MockRequest = {},
+): ExecutionContext {
+  Object.assign(request, {
     method: overrides.method ?? VECTOR.method,
     originalUrl: overrides.url ?? VECTOR.path,
     url: overrides.url ?? VECTOR.path,
     headers: overrides.headers ?? {},
     rawBody: overrides.rawBody ?? Buffer.from(VECTOR.body),
-  };
+    query: {},
+  });
   return {
     switchToHttp: () => ({ getRequest: () => request }),
     getHandler: () => undefined,
@@ -71,26 +86,40 @@ function signedHeaders(
 
 describe('SignatureGuard', () => {
   let guard: SignatureGuard;
-  let redis: { set: jest.Mock };
+  let dedup: InMemoryDedupAdapter;
+  let tenants: { find: jest.Mock };
 
   beforeEach(() => {
-    redis = { set: jest.fn().mockResolvedValue('OK') };
+    dedup = new InMemoryDedupAdapter();
+    tenants = {
+      find: jest.fn().mockResolvedValue({
+        id: KEY_TENANT,
+        name: 'Acme',
+        status: 'active',
+        selfSignup: false,
+      }),
+    };
     const config = {
-      get: jest.fn((key: string, def?: string) =>
+      getOrThrow: jest.fn((key: string) =>
         key === 'API_KEYS'
-          ? JSON.stringify({ [VECTOR.keyId]: VECTOR.secret })
-          : def,
+          ? JSON.stringify({
+              [VECTOR.keyId]: { secret: VECTOR.secret, tenantId: KEY_TENANT },
+            })
+          : undefined,
       ),
     } as unknown as ConfigService;
-    guard = new SignatureGuard(new ApiKeyService(config), redis as never);
+    guard = new SignatureGuard(
+      new ApiKeyService(config),
+      new InprocessSigningAdapter(),
+      dedup,
+      tenants,
+    );
   });
 
   const expectCode = async (headers: Record<string, string>, code: string) => {
     const promise = guard.canActivate(mockContext({ headers }));
-    await expect(promise).rejects.toBeInstanceOf(UnauthorizedException);
-    await promise.catch((err: UnauthorizedException) => {
-      expect((err.getResponse() as { code: string }).code).toBe(code);
-    });
+    await expect(promise).rejects.toBeInstanceOf(AppError);
+    await expect(promise).rejects.toMatchObject({ code, httpStatus: 401 });
   };
 
   it('shared test vector produces the pinned signature (SDK sync check)', () => {
@@ -111,17 +140,24 @@ describe('SignatureGuard', () => {
     );
   });
 
-  it('accepts a correctly signed request and stores the nonce (SET NX EX)', async () => {
+  it('accepts a correctly signed request and claims the nonce for 300 s', async () => {
+    const claim = jest.spyOn(dedup, 'claim');
     await expect(
       guard.canActivate(mockContext({ headers: signedHeaders() })),
     ).resolves.toBe(true);
-    expect(redis.set).toHaveBeenCalledWith(
-      expect.stringContaining('sig:nonce:'),
-      '1',
-      'EX',
+    expect(claim).toHaveBeenCalledWith(
+      SIGNATURE_NONCE_KEY.global(VECTOR.keyId, VECTOR.nonce),
       300,
-      'NX',
     );
+  });
+
+  it('does not consume the nonce of a request with a bad signature', async () => {
+    const claim = jest.spyOn(dedup, 'claim');
+    await expectCode(
+      signedHeaders({ 'x-signature': 'f'.repeat(64) }),
+      ERROR_CODES.SIGNATURE_INVALID,
+    );
+    expect(claim).not.toHaveBeenCalled();
   });
 
   it('rejects a missing header set with SIGNATURE_INVALID', async () => {
@@ -142,12 +178,95 @@ describe('SignatureGuard', () => {
       ERROR_CODES.SIGNATURE_EXPIRED,
     );
     // Nonce must not be consumed before the timestamp check passes
-    expect(redis.set).not.toHaveBeenCalled();
+    await expect(
+      dedup.claim(SIGNATURE_NONCE_KEY.global(VECTOR.keyId, VECTOR.nonce), 300),
+    ).resolves.toBe(true);
   });
 
   it('rejects a replayed nonce with NONCE_REUSED', async () => {
-    redis.set.mockResolvedValue(null); // SET NX failed → already seen
-    await expectCode(signedHeaders(), ERROR_CODES.NONCE_REUSED);
+    const headers = signedHeaders();
+    await expect(guard.canActivate(mockContext({ headers }))).resolves.toBe(
+      true,
+    );
+    await expectCode(headers, ERROR_CODES.NONCE_REUSED);
+  });
+
+  // Reproduces the gap: the signed tier took its tenant from the unsigned
+  // X-Tenant-ID header, so any key holder could write into any tenant.
+  it('runs the request in the tenant the API key is bound to', async () => {
+    const request: MockRequest = {};
+    await expect(
+      guard.canActivate(mockContext({ headers: signedHeaders() }, request)),
+    ).resolves.toBe(true);
+    expect(request.tenantId).toBe(KEY_TENANT);
+  });
+
+  it('accepts a tenant header that names the key tenant', async () => {
+    const request: MockRequest = {};
+    const headers = { ...signedHeaders(), 'x-tenant-id': KEY_TENANT };
+    await expect(
+      guard.canActivate(mockContext({ headers }, request)),
+    ).resolves.toBe(true);
+    expect(request.tenantId).toBe(KEY_TENANT);
+  });
+
+  it('rejects a tenant header naming another tenant, without consuming the nonce', async () => {
+    const claim = jest.spyOn(dedup, 'claim');
+    const request: MockRequest = { tenantId: 'globex' };
+    const headers = { ...signedHeaders(), 'x-tenant-id': 'globex' };
+    const promise = guard.canActivate(mockContext({ headers }, request));
+    await expect(promise).rejects.toMatchObject({
+      code: 'TENANT_MISMATCH',
+      httpStatus: 403,
+    });
+    expect(claim).not.toHaveBeenCalled();
+  });
+
+  it('ignores an API_KEYS entry that is not bound to a tenant', async () => {
+    const config = {
+      getOrThrow: jest.fn((key: string) =>
+        key === 'API_KEYS'
+          ? JSON.stringify({ [VECTOR.keyId]: VECTOR.secret })
+          : undefined,
+      ),
+    } as unknown as ConfigService;
+    guard = new SignatureGuard(
+      new ApiKeyService(config),
+      new InprocessSigningAdapter(),
+      dedup,
+      tenants,
+    );
+    await expectCode(signedHeaders(), ERROR_CODES.API_KEY_UNKNOWN);
+  });
+
+  // Reproduces the gap: the key of a suspended tenant kept working.
+  it('rejects a key whose tenant is suspended, without consuming the nonce', async () => {
+    tenants.find.mockResolvedValue({
+      id: KEY_TENANT,
+      name: 'Acme',
+      status: 'suspended',
+      selfSignup: false,
+    });
+    const headers = signedHeaders();
+    await expect(
+      guard.canActivate(mockContext({ headers })),
+    ).rejects.toMatchObject({ code: 'TENANT_INACTIVE' });
+    tenants.find.mockResolvedValue({
+      id: KEY_TENANT,
+      name: 'Acme',
+      status: 'active',
+      selfSignup: false,
+    });
+    await expect(guard.canActivate(mockContext({ headers }))).resolves.toBe(
+      true,
+    );
+  });
+
+  it('rejects a key whose tenant is not registered', async () => {
+    tenants.find.mockResolvedValue(null);
+    await expect(
+      guard.canActivate(mockContext({ headers: signedHeaders() })),
+    ).rejects.toMatchObject({ code: 'TENANT_NOT_FOUND' });
   });
 
   it('rejects an unknown API key with API_KEY_UNKNOWN', async () => {

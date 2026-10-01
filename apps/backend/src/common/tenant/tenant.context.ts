@@ -1,41 +1,83 @@
 import { Injectable } from '@nestjs/common';
 import { AsyncLocalStorage } from 'async_hooks';
-import { DEFAULT_TENANT } from '../../modules/user/schemas/user.schema';
+import { AppError } from '../errors/app-error';
+import { isTenantId, type TenantId } from '../keyspace';
 
-interface TenantStore {
-  tenantId: string;
+type TenantScope =
+  | { readonly kind: 'tenant'; readonly tenantId: TenantId }
+  | { readonly kind: 'global' };
+
+const storage = new AsyncLocalStorage<TenantScope>();
+
+/** Validates a raw tenant id from a transport, throwing TENANT_INVALID. */
+export function parseTenantId(raw: unknown): TenantId {
+  if (!isTenantId(raw)) {
+    throw new AppError('TENANT_INVALID', {
+      detail: 'Tenant ids are 1-128 characters of [A-Za-z0-9_.-]',
+    });
+  }
+  return raw;
+}
+
+/** Runs `fn` scoped to one tenant. */
+export function runInTenant<T>(tenantId: TenantId, fn: () => T): T {
+  return storage.run({ kind: 'tenant', tenantId: parseTenantId(tenantId) }, fn);
 }
 
 /**
- * Ambient tenant context for the current request/RPC, backed by
- * AsyncLocalStorage.
- *
- * Must stay a singleton. `Scope.REQUEST` would make every consumer
- * request-scoped too (UserService, UserRepository, the CQRS handlers), so no
- * singleton can inject it. As a singleton over AsyncLocalStorage any service
- * can read the current tenant without threading it through every signature and
- * without changing DI scopes. Callers at the transport boundary must wrap the
- * continuation in `run()`; outside one, reads fall back to DEFAULT_TENANT.
- *
- * Bound at the transport boundary by GrpcTenantInterceptor, which is a global
- * interceptor and so covers both gRPC calls and HTTP requests (for HTTP it
- * reads the tenant TenantMiddleware resolved onto the request).
+ * Runs `fn` as an explicitly global operation. Reading the tenant inside it
+ * throws, so tenant-scoped data is unreachable from a global scope.
+ */
+export function runGlobal<T>(fn: () => T): T {
+  return storage.run({ kind: 'global' }, fn);
+}
+
+/** The current tenant, or undefined outside a tenant scope. */
+export function currentTenant(): TenantId | undefined {
+  const scope = storage.getStore();
+  return scope?.kind === 'tenant' ? scope.tenantId : undefined;
+}
+
+/** Whether the caller runs inside an explicit runGlobal() scope. */
+export function isGlobalScope(): boolean {
+  return storage.getStore()?.kind === 'global';
+}
+
+/** The current tenant; throws TENANT_REQUIRED outside a tenant scope. */
+export function requireTenant(): TenantId {
+  const tenantId = currentTenant();
+  if (!tenantId) throw new AppError('TENANT_REQUIRED');
+  return tenantId;
+}
+
+/**
+ * The tenant of the unit of work in progress (HTTP request, RPC, consumed
+ * message), held in AsyncLocalStorage so singletons can read it without
+ * request-scoped DI. The transport boundary binds it; there is no fallback
+ * tenant, so tenant-scoped code outside a scope fails with TENANT_REQUIRED.
  */
 @Injectable()
 export class TenantContext {
-  private readonly als = new AsyncLocalStorage<TenantStore>();
-
-  /** Runs `fn` with `tenantId` visible to everything it awaits. */
-  run<T>(tenantId: string, fn: () => T): T {
-    return this.als.run({ tenantId: tenantId || DEFAULT_TENANT }, fn);
+  run<T>(tenantId: TenantId, fn: () => T): T {
+    return runInTenant(tenantId, fn);
   }
 
-  /**
-   * Current tenant, or DEFAULT_TENANT outside a request (cron jobs, message
-   * consumers, startup). Those paths must pass a tenant explicitly when they
-   * act on tenant-scoped data.
-   */
-  get tenantId(): string {
-    return this.als.getStore()?.tenantId ?? DEFAULT_TENANT;
+  runGlobal<T>(fn: () => T): T {
+    return runGlobal(fn);
+  }
+
+  /** The current tenant; throws TENANT_REQUIRED outside a tenant scope. */
+  get tenant(): TenantId {
+    return requireTenant();
+  }
+
+  /** Same as `tenant`. */
+  get tenantId(): TenantId {
+    return requireTenant();
+  }
+
+  /** The current tenant, or undefined outside a tenant scope. */
+  get current(): TenantId | undefined {
+    return currentTenant();
   }
 }

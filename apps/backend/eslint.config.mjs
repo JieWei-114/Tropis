@@ -43,6 +43,37 @@ export default tseslint.config(
       '@typescript-eslint/no-redundant-type-constituents': 'warn',
       '@typescript-eslint/no-unused-vars': 'warn',
       'prettier/prettier': ['error', { endOfLine: 'auto' }],
+      // Every record goes through the logger (common/observability/logger.ts)
+      // so it carries trace ids, redaction and the shared record shape.
+      'no-console': 'error',
+      // Module code logs through createLogger() with an explicit event name;
+      // Nest's Logger and PinoLogger records carry no event.
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@nestjs/common',
+              importNames: ['Logger'],
+              message: 'Use createLogger() from common/observability/logger.',
+            },
+            {
+              name: 'nestjs-pino',
+              importNames: ['PinoLogger', 'InjectPinoLogger'],
+              message: 'Use createLogger() from common/observability/logger.',
+            },
+          ],
+        },
+      ],
     },
+  },
+  {
+    files: ['src/common/observability/**'],
+    rules: { 'no-restricted-imports': 'off' },
+  },
+  {
+    // One-off CLI scripts print to the terminal.
+    files: ['scripts/**'],
+    rules: { 'no-console': 'off' },
   },
 );

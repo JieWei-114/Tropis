@@ -40,7 +40,12 @@ export const NATIVE_APP_ORIGINS = [
  * comma-separated; the native origins above are appended unconditionally.
  */
 export function corsOriginFromEnv(): string[] {
-  const configured = (process.env['CORS_ORIGIN'] ?? DEFAULT_CORS_ORIGIN)
+  return corsOriginList(process.env['CORS_ORIGIN']);
+}
+
+/** The allow-list for a CORS_ORIGIN value (the validated config's, say). */
+export function corsOriginList(value: string | undefined): string[] {
+  const configured = (value ?? DEFAULT_CORS_ORIGIN)
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);

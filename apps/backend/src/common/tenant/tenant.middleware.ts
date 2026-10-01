@@ -1,76 +1,52 @@
-import { Injectable, NestMiddleware, Inject } from '@nestjs/common';
+import { Inject, Injectable, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
-import * as jwt from 'jsonwebtoken';
-import { ConfigService } from '@nestjs/config';
-import type Redis from 'ioredis';
-import { REDIS_CLIENT } from '../../infrastructure/redis/redis.module';
-import { DEFAULT_TENANT } from '../../modules/user/schemas/user.schema';
+import type { TenantId } from '../keyspace';
+import { requestCredentials } from '../auth/request-credentials';
+import {
+  TOKEN_VERIFIER,
+  type TokenVerifier,
+} from '../auth/token-verifier.port';
+import { resolveTenant } from './tenant-resolution';
 
-interface JwtPayloadWithTenant {
-  tenantId?: string;
-  jti?: string;
+export const TENANT_HEADER = 'x-tenant-id';
+/** Query form of the tenant hint, for callers that cannot set headers (sendBeacon). */
+export const TENANT_QUERY_PARAM = 'tenant';
+
+export interface TenantResolvedRequest {
+  tenantId?: TenantId;
+  tenantError?: unknown;
+}
+
+function tenantHint(req: Request): unknown {
+  const header = req.headers[TENANT_HEADER];
+  if (typeof header === 'string' && header) return header;
+  const query = (req.query as Record<string, unknown> | undefined)?.[
+    TENANT_QUERY_PARAM
+  ];
+  return typeof query === 'string' ? query : undefined;
 }
 
 /**
- * Extracts tenantId for every HTTP request in priority order:
- *   1. JWT `tenantId` claim (authenticated users) — locked; header cannot override
- *   2. X-Tenant-ID header (unauthenticated service-to-service calls only)
- *   3. Falls back to DEFAULT_TENANT ('default')
- *
- * Never throws — unauthenticated or invalid tokens still proceed;
- * auth guards handle authentication separately.
+ * Resolves the tenant of every HTTP request (rules in tenant-resolution.ts)
+ * from the verified token and the tenant hint, and records the outcome on
+ * the request. It never rejects: HttpTenantInterceptor binds the tenant or
+ * throws the recorded error, so the error goes through the exception filter.
+ * The token verification is memoized for JwtAuthGuard.
  */
 @Injectable()
 export class TenantMiddleware implements NestMiddleware {
-  private readonly jwtSecret: string;
-
   constructor(
-    config: ConfigService,
-    @Inject(REDIS_CLIENT) private readonly redis: Redis,
-  ) {
-    this.jwtSecret = config.getOrThrow<string>('JWT_SECRET');
-  }
+    @Inject(TOKEN_VERIFIER) private readonly verifier: TokenVerifier,
+  ) {}
 
   async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
-    let tenantId = DEFAULT_TENANT;
-    let jwtTenantResolved = false;
-
-    const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-      try {
-        const payload = jwt.verify(
-          authHeader.slice(7),
-          this.jwtSecret,
-        ) as JwtPayloadWithTenant;
-        // Don't resolve tenant from a revoked (logged-out) token — mirrors the
-        // JwtStrategy blacklist check so tenant context can't outlive a logout.
-        const revoked =
-          payload.jti &&
-          (await this.redis.exists(`bl:${payload.jti}`).catch(() => 0)) === 1;
-        if (payload.tenantId && !revoked) {
-          tenantId = payload.tenantId;
-          jwtTenantResolved = true;
-        }
-      } catch {
-        // invalid token — auth guard will handle rejection; we just skip tenant extraction
-      }
+    const out = req as Request & TenantResolvedRequest;
+    const { principal } = await requestCredentials(req, this.verifier);
+    try {
+      out.tenantId = resolveTenant(principal?.tenantId, tenantHint(req));
+    } catch (err) {
+      out.tenantError = err;
     }
-
-    // Only allow header override when no JWT tenant is present (unauthenticated machine clients).
-    // Preventing authenticated users from switching tenants via header stops tenant-hopping attacks.
-    if (!jwtTenantResolved) {
-      const headerTenant = req.headers['x-tenant-id'];
-      if (typeof headerTenant === 'string' && headerTenant) {
-        tenantId = headerTenant;
-      }
-    }
-
-    // Resolution only. Binding into TenantContext happens in the global
-    // interceptor (GrpcTenantInterceptor), which reads this field: an
-    // AsyncLocalStorage store entered here in the middleware does NOT reach the
-    // route handler, because Nest composes the rest of the pipeline in the
-    // async context that existed when the request started.
-    (req as unknown as { tenantId?: string }).tenantId = tenantId;
     next();
   }
 }

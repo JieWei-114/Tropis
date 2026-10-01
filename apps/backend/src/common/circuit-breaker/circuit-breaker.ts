@@ -3,7 +3,8 @@
  *
  * CLOSED   : calls pass through normally; failures accumulate.
  * OPEN     : calls are rejected immediately (fail-fast) for `resetTimeoutMs`.
- * HALF_OPEN: one probe call is allowed; success closes the circuit, failure re-opens it.
+ * HALF_OPEN: exactly one probe call is let through; concurrent calls are rejected
+ *            until it settles. Success closes the circuit, failure re-opens it.
  */
 
 export interface CircuitBreakerOptions {
@@ -13,6 +14,8 @@ export interface CircuitBreakerOptions {
   resetTimeoutMs?: number;
   /** Human-readable name for logging. */
   name?: string;
+  /** Clock, for tests. */
+  now?: () => number;
 }
 
 export class CircuitBreakerOpenError extends Error {
@@ -28,24 +31,33 @@ export class CircuitBreaker {
   private state: State = 'CLOSED';
   private failures = 0;
   private openedAt = 0;
+  private probing = false;
 
   private readonly failureThreshold: number;
   private readonly resetTimeoutMs: number;
   private readonly name: string;
+  private readonly now: () => number;
 
   constructor(opts: CircuitBreakerOptions = {}) {
     this.failureThreshold = opts.failureThreshold ?? 5;
     this.resetTimeoutMs = opts.resetTimeoutMs ?? 30_000;
     this.name = opts.name ?? 'unnamed';
+    this.now = opts.now ?? Date.now;
   }
 
   async fire<T>(fn: () => Promise<T>): Promise<T> {
     if (this.state === 'OPEN') {
-      if (Date.now() - this.openedAt >= this.resetTimeoutMs) {
+      if (this.now() - this.openedAt >= this.resetTimeoutMs) {
         this.state = 'HALF_OPEN';
       } else {
         throw new CircuitBreakerOpenError(this.name);
       }
+    }
+
+    const isProbe = this.state === 'HALF_OPEN';
+    if (isProbe) {
+      if (this.probing) throw new CircuitBreakerOpenError(this.name);
+      this.probing = true;
     }
 
     try {
@@ -55,6 +67,8 @@ export class CircuitBreaker {
     } catch (err) {
       this.onFailure();
       throw err;
+    } finally {
+      if (isProbe) this.probing = false;
     }
   }
 
@@ -67,7 +81,7 @@ export class CircuitBreaker {
     this.failures += 1;
     if (this.state === 'HALF_OPEN' || this.failures >= this.failureThreshold) {
       this.state = 'OPEN';
-      this.openedAt = Date.now();
+      this.openedAt = this.now();
     }
   }
 
