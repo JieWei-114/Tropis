@@ -4,19 +4,17 @@ PULSAR_URL   := pulsar://localhost:6650
 PULSAR_ADMIN := http://localhost:8080
 PULSAR_TOPIC := persistent://public/default/analytics-events
 CH_JDBC      := jdbc:clickhouse://localhost:8123/logs
+CH_TABLE     := analytics_events
+JOB          ?= PulsarToClickHouseJob
+ARGS         ?= --pulsar-url $(PULSAR_URL) --pulsar-admin $(PULSAR_ADMIN) --pulsar-topic $(PULSAR_TOPIC) --ch-url $(CH_JDBC) --ch-table $(CH_TABLE)
 
-.PHONY: build submit init-ch logs
+.PHONY: build submit logs
 
 ## Build the fat JAR
 build:
 	mvn clean package -q -f pom.xml
 
-## Create ClickHouse table (run once before submitting the job)
-init-ch:
-	docker exec -i tropis_clickhouse \
-	  clickhouse-client < sql/init-clickhouse.sql
-
-## Submit job to local Flink cluster (builds first)
+## Submit one job (JOB=<class in jobs/>, ARGS=<program args>) to the local Flink cluster; builds first
 submit: build
 	curl -s -X POST $(FLINK)/jars/upload \
 	  -H "Expect:" \
@@ -25,7 +23,7 @@ submit: build
 	  | xargs -I{} curl -s -X POST \
 	      "$(FLINK)/jars/{}/run" \
 	      -H "Content-Type: application/json" \
-	      -d '{"entryClass":"com.app.flink.jobs.PulsarToClickHouseJob","programArgs":"--pulsar-url $(PULSAR_URL) --pulsar-admin $(PULSAR_ADMIN) --pulsar-topic $(PULSAR_TOPIC) --ch-url $(CH_JDBC)"}'
+	      -d '{"entryClass":"com.app.flink.jobs.$(JOB)","programArgs":"$(ARGS)"}'
 
 ## Tail Flink TaskManager logs
 logs:

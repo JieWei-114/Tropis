@@ -2,13 +2,12 @@
 
 `tropis.signing.v1.SigningService` — computes and verifies the HMAC-SHA256
 request signatures specified in [docs/api-conventions.md](../../../docs/api-conventions.md)
-(§ Request signing). Why it exists as a polyglot service, and why in Rust:
-[services/README.md](../README.md) and
+(§ Request signing). Why it is a separate Rust service:
 [docs/tech-decisions.md → Rust vs TypeScript](../../../docs/tech-decisions.md#rust-vs-typescript).
 
 ## What it does
 
-- `ComputeSignature` — canonical string `METHOD \n PATH \n timestamp \n nonce \n sha256(body)` → `hex(HMAC-SHA256(secret, canonical))`.
+- `ComputeSignature` — canonical string `METHOD \n PATH \n timestamp \n nonce \n sha256(body)` → `hex(HMAC-SHA256(secret, canonical))`. An unknown key id fails with `UNAUTHENTICATED` and a `google.rpc.ErrorInfo` detail naming the catalog code `API_KEY_UNKNOWN` (domain `tropis`), as the backend's RPC errors do.
 - `VerifySignature` — timestamp window ±300 s, key lookup, constant-time compare (`subtle`). Returns `valid` + `reason` (`OK | SIGNATURE_EXPIRED | API_KEY_UNKNOWN | SIGNATURE_INVALID`).
 
 Byte-for-byte compatible with the TypeScript implementations — the shared
@@ -16,25 +15,23 @@ test vector in `src/domain/signature.rs` is pinned in sync with
 `apps/backend/src/common/guards/__tests__/signature.guard.spec.ts` and
 `packages/sdk/src/signing/__tests__/signing.test.ts`.
 
-**Deliberately NOT here:** nonce replay dedup (Redis `SET NX EX 300`) —
-that stays with the gateway/backend caller. This service is pure
+**Deliberately NOT here:** nonce replay dedup — the backend's signature guard
+claims each nonce through its `DEDUP` port (300 s). This service is pure
 computation, so it is stateless and horizontally scalable.
 
 ## Layout
 
-Reference implementation of the **Rust service anatomy** — see
-[docs/project-structure.md → "Rust service anatomy"](../../../docs/project-structure.md)
-for the layout and the compiler-enforced `grpc/ → domain/ → infra/` one-way
-rule. The crate is a member of the Cargo workspace at
-[`services/rust/Cargo.toml`](../Cargo.toml) (shared deps, rustfmt, lockfile).
+The reference implementation of the Rust service anatomy
+([docs/project-structure.md → Rust service anatomy](../../../docs/project-structure.md#rust-service-anatomy)),
+a member of the root Cargo workspace.
 
 ## Configuration
 
-| Env var     | Default | Meaning                                                 |
-| ----------- | ------- | ------------------------------------------------------- |
-| `API_KEYS`  | `{}`    | JSON map `{keyId: secret}` — same format as the backend |
-| `GRPC_PORT` | `50052` | Listen port                                             |
-| `RUST_LOG`  | `info`  | Log filter (JSON logs to stdout)                        |
+| Env var     | Default | Meaning                                                                                                                           |
+| ----------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `API_KEYS`  | `{}`    | JSON map keyId → `{"secret": "...", "tenantId": "..."}` (the backend's format; only `secret` is used here) or keyId → bare secret |
+| `GRPC_PORT` | `50052` | Listen port                                                                                                                       |
+| `RUST_LOG`  | `info`  | Log filter (JSON logs to stdout)                                                                                                  |
 
 ## Run
 
@@ -46,8 +43,8 @@ API_KEYS='{"svc-test":"test-secret-material-for-hmac-vector"}' cargo run -p sign
 docker build -f services/rust/signing/Dockerfile -t signing .
 docker run -e API_KEYS='{"svc-test":"secret"}' -p 50052:50052 signing
 
-# Compose (rust profile)
-docker compose -f infra/docker/docker-compose.yml --profile rust up -d signing
+# Compose (signing profile)
+docker compose -f infra/docker/docker-compose.yml --profile signing up -d signing
 ```
 
 ## Call it
@@ -76,10 +73,5 @@ from the identical contract.
 
 ## Develop
 
-Run from the workspace root `services/rust/`:
-
-```bash
-cargo test --workspace           # includes the shared-vector parity test
-cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-```
+Build, test and lint from the repo root:
+[services/README.md → Rust workspace](../../README.md#rust-workspace).

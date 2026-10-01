@@ -7,11 +7,11 @@
 //! grpc/ (transport)  →  domain/ (business logic)  →  infra/ (external clients)
 //! ```
 //!
-//! The one-way rule is **compiler-enforced**: everything in `domain/` is
-//! `pub(crate)`, so it cannot leak outside the crate, and `domain/` imports
-//! no tonic/prost types — a `use tonic::…` in `domain/` has nothing to
-//! attach to and any transport type crossing into a domain signature fails
-//! `pub(crate)` visibility checks (E0446). Stronger than dependency-cruiser.
+//! The compiler enforces the crate boundary: `domain/`, `error/` and `infra/`
+//! are `pub(crate)`, so `main.rs` and `tests/` cannot reach them and a domain
+//! type in a `pub` signature fails to compile (E0446). The direction inside
+//! the crate — `domain/` never importing `grpc/` or tonic/prost types — is a
+//! code-review rule.
 
 pub mod config;
 pub(crate) mod domain;

@@ -1,9 +1,12 @@
-# Cargo workspace for the Rust services under services/rust/.
-# One member per deployable service; shared dependency versions are hoisted
-# into [workspace.dependencies] so every service builds against the same
-# tonic/prost/tokio stack. Single Cargo.lock + target/ live here.
+# Cargo workspace for the Rust services under services/.
+# One member per deployable Rust service; shared dependency versions are
+# hoisted into [workspace.dependencies] so every service builds against the
+# same tonic/prost/tokio stack. The single Cargo.lock and target/ live here.
+# apps/desktop/src-tauri is deliberately not a member: it declares its own
+# [workspace] and keeps its own lockfile and target/.
 [workspace]
-members = ["signing"]
+members = ["services/rust/*"]
+exclude = ["apps/desktop/src-tauri"]
 resolver = "2"
 
 [workspace.package]
@@ -15,6 +18,7 @@ tonic = "0.14"
 tonic-prost = "0.14"
 tonic-health = "0.14"
 tonic-prost-build = "0.14"
+tonic-types = "0.14"
 prost = "0.14"
 tokio = { version = "1.47", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-stream = { version = "0.1", features = ["net"] }

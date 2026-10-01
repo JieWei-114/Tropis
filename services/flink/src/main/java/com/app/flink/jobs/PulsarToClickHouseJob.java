@@ -15,35 +15,26 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Flink job: Pulsar → (filter) → ClickHouse
+ * Flink job: Pulsar analytics topic -> ClickHouse `logs.analytics_events`.
  *
- * What it does:
- *  1. Consumes AppEvent messages from Pulsar topic "persistent://public/default/analytics-events"
- *     (same topic that NestJS AnalyticsService publishes to)
- *  2. Uses a DIFFERENT subscription name ("flink-clickhouse-sub") than AnalyticsProcessor
- *     ("analytics-processor-sub") — both consumers receive every message independently.
- *  3. Filters out any events missing an eventType
- *  4. Writes every event to ClickHouse table `logs.analytics_events_flink`
- *     in micro-batches
+ * One owner writes that table. Run this job only with the backend's
+ * STREAM_ENGINE=flink: the Node AnalyticsProcessor then does not subscribe,
+ * so each event is written once. With STREAM_ENGINE=node do not submit it,
+ * because MergeTree does not deduplicate and two writers double every count.
  *
- * WHY ITS OWN TABLE. `logs.analytics_events` is written by AnalyticsProcessor
- * and read by the console. This job's subscription receives every message
- * independently and MergeTree does not deduplicate, so writing there would
- * double every count the dashboard shows whenever both run. A separate table
- * makes the job safe to submit at any time; compare the two tables to see that
- * they agree.
- *
- * Rows carry `tenant_id`, resolved from the envelope payload (see AppEvent).
- * It leads the table's sort key, so an unresolved value files the event under
- * the default tenant and makes it invisible to a per-tenant query.
+ * The tenant comes from the envelope (`ce_tenantid`); events without one, or
+ * whose body names another tenant, are dropped. Delivery is at-least-once
+ * (checkpoints every 10 s): a restart can replay rows since the last
+ * checkpoint.
  *
  * Run locally:
- *   mvn package -f flink/pom.xml
- *   flink run flink/target/flink-jobs-0.0.1.jar \
+ *   mvn package -f services/flink/pom.xml
+ *   flink run services/flink/target/flink-jobs-0.0.1.jar \
  *     --pulsar-url    pulsar://localhost:6650  \
  *     --pulsar-admin  http://localhost:8080    \
  *     --pulsar-topic  persistent://public/default/analytics-events \
- *     --ch-url        jdbc:clickhouse://localhost:8123/logs
+ *     --ch-url        jdbc:clickhouse://localhost:8123/logs \
+ *     --ch-table      analytics_events
  */
 public class PulsarToClickHouseJob {
 
@@ -58,6 +49,10 @@ public class PulsarToClickHouseJob {
         String pulsarAdmin = params.get("pulsar-admin", "http://localhost:8080");
         String pulsarTopic = params.get("pulsar-topic", "persistent://public/default/analytics-events");
         String chUrl       = params.get("ch-url",       "jdbc:clickhouse://localhost:8123/logs");
+        String chTable     = params.get("ch-table",     "analytics_events");
+        if (!chTable.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+            throw new IllegalArgumentException("Invalid --ch-table " + chTable);
+        }
 
         // ── Flink environment ──────────────────────────────────────────────
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -83,14 +78,16 @@ public class PulsarToClickHouseJob {
         // ── Transform: filter invalid events ──────────────────────────────
         DataStream<AppEvent> validEvents = events
                 .filter(e -> e.getEventType() != null && !e.getEventType().isBlank())
-                .name("filter: drop events without type");
+                .name("filter: drop events without type")
+                .filter(e -> e.getTenantId() != null)
+                .name("filter: drop events without tenant");
 
         // Log events in debug mode (disable in prod)
         validEvents.map(e -> { LOG.debug("Processing {}", e); return e; }).name("debug-log");
 
         // ── ClickHouse sink ────────────────────────────────────────────────
         SinkFunction<AppEvent> clickHouseSink = JdbcSink.sink(
-                "INSERT INTO analytics_events_flink "
+                "INSERT INTO " + chTable + " "
                         + "(tenant_id, event_id, event_type, user_id, payload, ts) "
                         + "VALUES (?, ?, ?, ?, ?, ?)",
                 (stmt, event) -> {
@@ -112,7 +109,7 @@ public class PulsarToClickHouseJob {
                         .build()
         );
 
-        validEvents.addSink(clickHouseSink).name("ClickHouse: events (flink)");
+        validEvents.addSink(clickHouseSink).name("ClickHouse: " + chTable);
 
         // ── Execute ───────────────────────────────────────────────────────
         env.execute("PulsarToClickHouseJob");

@@ -1,30 +1,38 @@
 #!/usr/bin/env bash
 # Submit the PulsarToClickHouseJob to the local Flink cluster.
-# Usage (from repo root):  bash flink/submit-job.sh
+# Usage (from any directory):  bash services/flink/submit-job.sh
 #
 # Requirements: Docker running (for infra), Maven OR Docker for the build step.
+# The job becomes the one writer of logs.analytics_events: run the backend with
+# STREAM_ENGINE=flink so the Node AnalyticsProcessor does not also write it.
 # The script auto-detects whether mvn is available; falls back to Docker build.
 
 set -euo pipefail
 
+# Resolve paths against this script so it works from any working directory.
+cd "$(dirname "$0")"
+
 FLINK="http://localhost:8081"
-JAR="flink/target/flink-jobs-0.0.1.jar"
+JAR="target/flink-jobs-0.0.1.jar"
 
 PULSAR_URL="pulsar://localhost:6650"
 PULSAR_ADMIN="http://localhost:8080"
 PULSAR_TOPIC="persistent://public/default/analytics-events"
 CH_JDBC="jdbc:clickhouse://localhost:8123/logs"
+CH_TABLE="analytics_events"
+JOB="${JOB:-PulsarToClickHouseJob}"
+ARGS="${ARGS:---pulsar-url ${PULSAR_URL} --pulsar-admin ${PULSAR_ADMIN} --pulsar-topic ${PULSAR_TOPIC} --ch-url ${CH_JDBC} --ch-table ${CH_TABLE}}"
 
 # ── 1. Build JAR ─────────────────────────────────────────────────────────────
 
 if [ ! -f "$JAR" ]; then
   echo ">>> Building Flink job JAR..."
   if command -v mvn &>/dev/null; then
-    mvn clean package -q -f flink/pom.xml -DskipTests
+    mvn clean package -q -f pom.xml -DskipTests
   else
     echo "    mvn not found — building inside Docker (requires internet on first run)"
     docker run --rm \
-      -v "$(pwd)/flink":/workspace \
+      -v "$(pwd)":/workspace \
       -w /workspace \
       maven:3.9-eclipse-temurin-11 \
       mvn clean package -q -DskipTests
@@ -63,8 +71,8 @@ echo ">>> Submitting job..."
 RUN_RESP=$(curl -s -X POST "$FLINK/jars/${JAR_ID}/run" \
   -H "Content-Type: application/json" \
   -d "{
-    \"entryClass\": \"com.app.flink.jobs.PulsarToClickHouseJob\",
-    \"programArgs\": \"--pulsar-url ${PULSAR_URL} --pulsar-admin ${PULSAR_ADMIN} --pulsar-topic ${PULSAR_TOPIC} --ch-url ${CH_JDBC}\"
+    \"entryClass\": \"com.app.flink.jobs.${JOB}\",
+    \"programArgs\": \"${ARGS}\"
   }")
 
 echo "$RUN_RESP"

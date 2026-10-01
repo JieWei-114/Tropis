@@ -140,13 +140,20 @@ async fn verify_reports_an_unknown_key() {
 }
 
 #[tokio::test]
-async fn compute_returns_not_found_for_an_unknown_key() {
+async fn compute_rejects_an_unknown_key_with_the_catalog_code() {
+    use tonic_types::StatusExt;
+
     let mut client = spawn_server().await;
 
     let status = client
         .compute_signature(compute_req("nope", now_secs()))
         .await
         .unwrap_err();
-    assert_eq!(status.code(), tonic::Code::NotFound);
-    assert_eq!(status.message(), "API_KEY_UNKNOWN");
+    assert_eq!(status.code(), tonic::Code::Unauthenticated);
+    assert_eq!(status.message(), "The API key is not recognised.");
+    let info = status
+        .get_details_error_info()
+        .expect("google.rpc.ErrorInfo detail");
+    assert_eq!(info.reason, "API_KEY_UNKNOWN");
+    assert_eq!(info.domain, "tropis");
 }
