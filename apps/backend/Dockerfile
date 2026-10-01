@@ -7,7 +7,7 @@
 # and the aerospike and pulsar-client prebuilds target glibc as well.
 
 # ── Build ─────────────────────────────────────────────────────────────────────
-FROM node:22-bookworm-slim AS builder
+FROM node:26-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -33,7 +33,7 @@ RUN pnpm --filter @tropis/shared build
 RUN pnpm --filter @tropis/backend build
 
 # ── Production dependencies ───────────────────────────────────────────────────
-FROM node:22-bookworm-slim AS deps
+FROM node:26-bookworm-slim AS deps
 
 WORKDIR /app
 
@@ -54,7 +54,7 @@ RUN npm pkg delete scripts.prepare \
 
 # ── Runtime base shared by every role ─────────────────────────────────────────
 # No package manager or store: only the installed tree and the built output.
-FROM node:22-bookworm-slim AS runtime
+FROM node:26-bookworm-slim AS runtime
 
 # libyaml: the aerospike client's native addon links against it.
 RUN apt-get update \
