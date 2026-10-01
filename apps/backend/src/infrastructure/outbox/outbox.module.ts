@@ -1,18 +1,35 @@
-import { Module, Global } from '@nestjs/common';
+import { DynamicModule, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { Outbox, OutboxSchema } from './outbox.schema';
+import { DocumentsModule } from '../documents/documents.module';
+import {
+  Outbox,
+  OutboxHead,
+  OutboxHeadSchema,
+  OutboxSchema,
+} from './outbox.schema';
 import { OutboxService } from './outbox.service';
-import { OutboxRelay } from './outbox.relay';
-import { MetricsModule } from '../../modules/metrics/metrics.module';
 
-@Global()
-@Module({
-  imports: [
-    MongooseModule.forFeature([{ name: Outbox.name, schema: OutboxSchema }]),
-    // For the backlog/heartbeat gauges the relay publishes.
-    MetricsModule,
-  ],
-  providers: [OutboxService, OutboxRelay],
-  exports: [OutboxService],
-})
-export class OutboxModule {}
+/**
+ * Writing outbox rows, in every module that publishes domain events. The
+ * relay is OutboxRelayModule (worker role), the sweep trigger
+ * OutboxScheduleModule (scheduler role).
+ */
+@Module({})
+export class OutboxModule {
+  private static root?: DynamicModule;
+
+  static forRoot(): DynamicModule {
+    return (OutboxModule.root ??= {
+      module: OutboxModule,
+      imports: [
+        DocumentsModule.forRoot(),
+        MongooseModule.forFeature([
+          { name: Outbox.name, schema: OutboxSchema },
+          { name: OutboxHead.name, schema: OutboxHeadSchema },
+        ]),
+      ],
+      providers: [OutboxService],
+      exports: [OutboxService],
+    });
+  }
+}
