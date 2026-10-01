@@ -17,8 +17,8 @@
  *     literals at track() call sites.
  *
  * NOTE: this dictionary covers TRACKING events only. The analytics
- * pipeline's `AnalyticsEventType` enum ('page_view', 'button_click', ...)
- * in ./app-event.ts is a separate contract and is intentionally unchanged.
+ * pipeline's `AnalyticsEventType` ('page_view', 'button_click', ...)
+ * (ANALYTICS_EVENT_TYPES in ./event-types.ts) is a separate contract.
  */
 
 export interface TrackingEventDef {
