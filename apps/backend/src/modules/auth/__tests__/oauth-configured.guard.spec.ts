@@ -1,4 +1,5 @@
-import { NotImplementedException, ExecutionContext } from '@nestjs/common';
+import { ExecutionContext } from '@nestjs/common';
+import { AppError } from '../../../common/errors';
 import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -42,24 +43,20 @@ describe('OAuthConfiguredGuard', () => {
       guard.canActivate(context('google'));
       throw new Error('expected the guard to throw');
     } catch (err) {
-      expect(err).toBeInstanceOf(NotImplementedException);
-      const body = (err as NotImplementedException).getResponse() as {
-        code: string;
-        message: string;
-      };
-      expect(body.code).toBe('OAUTH_NOT_CONFIGURED');
-      // The message must name the variables an operator has to set.
-      expect(body.message).toContain('GOOGLE_CLIENT_ID');
-      expect(body.message).toContain('GOOGLE_CLIENT_SECRET');
+      expect(err).toBeInstanceOf(AppError);
+      const appErr = err as AppError;
+      expect(appErr.code).toBe('OAUTH_NOT_CONFIGURED');
+      expect(appErr.httpStatus).toBe(501);
+      // The detail must name the variables an operator has to set.
+      expect(appErr.detail).toContain('GOOGLE_CLIENT_ID');
+      expect(appErr.detail).toContain('GOOGLE_CLIENT_SECRET');
     }
   });
 
   it('throws when only one half of the credential pair is set', () => {
     const guard = build('github', { GITHUB_CLIENT_ID: 'id-only' });
 
-    expect(() => guard.canActivate(context('github'))).toThrow(
-      NotImplementedException,
-    );
+    expect(() => guard.canActivate(context('github'))).toThrow(AppError);
   });
 
   it('allows the route once both credentials are present', () => {

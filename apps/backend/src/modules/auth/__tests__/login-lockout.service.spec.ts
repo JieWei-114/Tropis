@@ -1,113 +1,170 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { HttpException } from '@nestjs/common';
+import { toTenantId } from '../../../common/keyspace';
+import { InMemoryKvAdapter } from '../../../infrastructure/kv/__tests__/in-memory-kv.adapter';
+import { InMemoryRateLimitAdapter } from '../../../infrastructure/ratelimit/__tests__/in-memory-ratelimit.adapter';
+import {
+  LOGIN_EMAIL_RATE_LIMIT,
+  LOGIN_IP_RATE_LIMIT,
+  RPC_LOGIN_RATE_LIMIT,
+} from '../constants/auth.constants';
 import {
   LoginLockoutService,
   LOCKOUT_MAX_ATTEMPTS,
   LOCKOUT_EMAIL_MAX,
   LOCKOUT_WINDOW_S,
 } from '../services/login-lockout.service';
-import { REDIS_CLIENT } from '../../../infrastructure/redis/redis.module';
 
 describe('LoginLockoutService', () => {
   let service: LoginLockoutService;
-  let redis: {
-    get: jest.Mock;
-    eval: jest.Mock;
-    del: jest.Mock;
-  };
+  let rateLimit: InMemoryRateLimitAdapter;
+  let kv: InMemoryKvAdapter;
 
+  const T = toTenantId('acme');
   const EMAIL = 'Alice@Example.com';
   const IP = '1.2.3.4';
-  const IP_KEY = 'login:fail:alice@example.com:1.2.3.4';
-  const EMAIL_KEY = 'login:fail:email:alice@example.com';
 
-  beforeEach(async () => {
-    redis = {
-      get: jest.fn().mockResolvedValue(null),
-      eval: jest.fn().mockResolvedValue(1),
-      del: jest.fn().mockResolvedValue(1),
-    };
+  const fail = async (times: number, email = EMAIL, ip = IP) => {
+    for (let i = 0; i < times; i++) await service.recordFailure(T, email, ip);
+  };
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        LoginLockoutService,
-        { provide: REDIS_CLIENT, useValue: redis },
-      ],
-    }).compile();
+  const status = (err: unknown) =>
+    (err as { httpStatus?: number; code?: string }).code === 'AUTH_LOGIN_LOCKED'
+      ? 429
+      : err;
 
-    service = module.get(LoginLockoutService);
+  beforeEach(() => {
+    rateLimit = new InMemoryRateLimitAdapter();
+    kv = new InMemoryKvAdapter();
+    service = new LoginLockoutService(rateLimit, kv);
   });
 
   describe('assertNotLocked', () => {
     it('passes when there are no recorded failures', async () => {
-      await expect(service.assertNotLocked(EMAIL, IP)).resolves.toBeUndefined();
-      expect(redis.get).toHaveBeenCalledWith(IP_KEY);
-      expect(redis.get).toHaveBeenCalledWith(EMAIL_KEY);
+      await expect(
+        service.assertNotLocked(T, EMAIL, IP),
+      ).resolves.toBeUndefined();
     });
 
     it('passes when failures are below the threshold', async () => {
-      redis.get.mockResolvedValue(String(LOCKOUT_MAX_ATTEMPTS - 1));
-      await expect(service.assertNotLocked(EMAIL, IP)).resolves.toBeUndefined();
+      await fail(LOCKOUT_MAX_ATTEMPTS - 1);
+      await expect(
+        service.assertNotLocked(T, EMAIL, IP),
+      ).resolves.toBeUndefined();
     });
 
-    it('throws 429 when the per-IP threshold is reached', async () => {
-      redis.get.mockImplementation((key: string) =>
-        Promise.resolve(key === IP_KEY ? String(LOCKOUT_MAX_ATTEMPTS) : null),
-      );
-      const err = await service.assertNotLocked(EMAIL, IP).catch((e) => e);
-      expect(err).toBeInstanceOf(HttpException);
-      expect((err as HttpException).getStatus()).toBe(429);
+    it('throws 429 once the per-IP threshold is reached', async () => {
+      await fail(LOCKOUT_MAX_ATTEMPTS);
+      const err = await service.assertNotLocked(T, EMAIL, IP).catch((e) => e);
+      expect(status(err)).toBe(429);
     });
 
-    it('throws 429 when the per-email threshold is reached (IP-rotation defence)', async () => {
-      redis.get.mockImplementation((key: string) =>
-        Promise.resolve(key === EMAIL_KEY ? String(LOCKOUT_EMAIL_MAX) : null),
-      );
-      const err = await service.assertNotLocked(EMAIL, IP).catch((e) => e);
-      expect(err).toBeInstanceOf(HttpException);
-      expect((err as HttpException).getStatus()).toBe(429);
+    it('says how long the lockout lasts, for the Retry-After header', async () => {
+      await fail(LOCKOUT_MAX_ATTEMPTS);
+      const err = await service.assertNotLocked(T, EMAIL, IP).catch((e) => e);
+      expect(err).toMatchObject({
+        metadata: { retryAfterSeconds: String(LOCKOUT_WINDOW_S) },
+      });
     });
 
-    it('fails open when Redis is unavailable', async () => {
-      redis.get.mockRejectedValue(new Error('redis down'));
-      await expect(service.assertNotLocked(EMAIL, IP)).resolves.toBeUndefined();
+    it('locks per email+IP, not per IP alone', async () => {
+      await fail(LOCKOUT_MAX_ATTEMPTS);
+      await expect(
+        service.assertNotLocked(T, 'bob@example.com', IP),
+      ).resolves.toBeUndefined();
+    });
+
+    it('throws 429 once the per-email threshold is reached from rotating IPs (IP-rotation defence)', async () => {
+      for (let i = 0; i < LOCKOUT_EMAIL_MAX; i++) {
+        await service.recordFailure(T, EMAIL, `10.0.0.${i}`);
+      }
+      const err = await service
+        .assertNotLocked(T, EMAIL, '192.168.1.1')
+        .catch((e) => e);
+      expect(status(err)).toBe(429);
+    });
+
+    it('matches the email case-insensitively', async () => {
+      await fail(LOCKOUT_MAX_ATTEMPTS, 'ALICE@example.com');
+      const err = await service
+        .assertNotLocked(T, 'alice@EXAMPLE.com', IP)
+        .catch((e) => e);
+      expect(status(err)).toBe(429);
+    });
+
+    it('fails open when kv is unavailable', async () => {
+      await fail(LOCKOUT_MAX_ATTEMPTS);
+      jest.spyOn(kv, 'exists').mockRejectedValue(new Error('down'));
+      await expect(
+        service.assertNotLocked(T, EMAIL, IP),
+      ).resolves.toBeUndefined();
     });
   });
 
+  it('keeps lockouts per tenant', async () => {
+    await fail(LOCKOUT_MAX_ATTEMPTS);
+    await expect(
+      service.assertNotLocked(toTenantId('globex'), EMAIL, IP),
+    ).resolves.toBeUndefined();
+  });
+
   describe('recordFailure', () => {
-    it('atomically bumps both counters with the 15-min TTL', async () => {
-      await service.recordFailure(EMAIL, IP);
-      // one eval per counter (Lua does incr+expire atomically)
-      expect(redis.eval).toHaveBeenCalledWith(
-        expect.any(String),
-        1,
-        IP_KEY,
-        LOCKOUT_WINDOW_S,
+    it('counts on both counters with the 15-min window', async () => {
+      const hit = jest.spyOn(rateLimit, 'hit');
+      await service.recordFailure(T, EMAIL, IP);
+      expect(hit).toHaveBeenCalledWith(
+        LOGIN_IP_RATE_LIMIT.forTenant(T, 'alice@example.com', IP),
+        { limit: LOCKOUT_MAX_ATTEMPTS, windowSeconds: LOCKOUT_WINDOW_S },
       );
-      expect(redis.eval).toHaveBeenCalledWith(
-        expect.any(String),
-        1,
-        EMAIL_KEY,
-        LOCKOUT_WINDOW_S,
+      expect(hit).toHaveBeenCalledWith(
+        LOGIN_EMAIL_RATE_LIMIT.forTenant(T, 'alice@example.com'),
+        { limit: LOCKOUT_EMAIL_MAX, windowSeconds: LOCKOUT_WINDOW_S },
       );
     });
 
-    it('swallows Redis errors (fail open)', async () => {
-      redis.eval.mockRejectedValue(new Error('redis down'));
-      await expect(service.recordFailure(EMAIL, IP)).resolves.toBeUndefined();
+    it('swallows store errors (fail open)', async () => {
+      jest.spyOn(rateLimit, 'hit').mockRejectedValue(new Error('down'));
+      await expect(
+        service.recordFailure(T, EMAIL, IP),
+      ).resolves.toBeUndefined();
     });
   });
 
   describe('reset', () => {
-    it('deletes both counter keys', async () => {
-      await service.reset(EMAIL, IP);
-      expect(redis.del).toHaveBeenCalledWith(IP_KEY);
-      expect(redis.del).toHaveBeenCalledWith(EMAIL_KEY);
+    it('lifts an active lockout', async () => {
+      await fail(LOCKOUT_MAX_ATTEMPTS);
+      await service.reset(T, EMAIL, IP);
+      await expect(
+        service.assertNotLocked(T, EMAIL, IP),
+      ).resolves.toBeUndefined();
     });
 
-    it('swallows Redis errors', async () => {
-      redis.del.mockRejectedValue(new Error('redis down'));
-      await expect(service.reset(EMAIL, IP)).resolves.toBeUndefined();
+    it('swallows store errors', async () => {
+      jest.spyOn(kv, 'del').mockRejectedValue(new Error('down'));
+      await expect(service.reset(T, EMAIL, IP)).resolves.toBeUndefined();
+    });
+  });
+
+  describe('assertRpcLoginAllowed', () => {
+    it('allows 10 attempts per lower-cased email in the window, then rejects', async () => {
+      const hit = jest.spyOn(rateLimit, 'hit');
+      for (let i = 0; i < 10; i++) {
+        await expect(
+          service.assertRpcLoginAllowed(T, 'Alice@Example.com'),
+        ).resolves.toBeUndefined();
+      }
+      await expect(
+        service.assertRpcLoginAllowed(T, 'alice@example.com'),
+      ).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+      expect(hit).toHaveBeenCalledWith(
+        RPC_LOGIN_RATE_LIMIT.forTenant(T, 'alice@example.com'),
+        { limit: 10, windowSeconds: 60 },
+      );
+    });
+
+    it('fails open when the ratelimit store is down', async () => {
+      jest.spyOn(rateLimit, 'hit').mockRejectedValue(new Error('down'));
+      await expect(
+        service.assertRpcLoginAllowed(T, 'a@example.com'),
+      ).resolves.toBeUndefined();
     });
   });
 });

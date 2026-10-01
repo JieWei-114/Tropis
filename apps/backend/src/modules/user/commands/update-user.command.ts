@@ -1,24 +1,30 @@
 import { ICommand, CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { BadRequestException, NotFoundException, Inject } from '@nestjs/common';
+import { Inject } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { InjectConnection } from '@nestjs/mongoose';
-import type { Connection } from 'mongoose';
-import type Redis from 'ioredis';
+import {
+  DOCUMENTS,
+  type DocumentsPort,
+} from '../../../infrastructure/documents/documents.port';
 import { UserRepository } from '../repositories/user.repository';
 import { UserTransformer } from '../transformers/user.transformer';
 import { IUserResponse } from '../interfaces/user.interface';
-import { ERROR_CODES } from '@tropis/shared';
+import { AppError } from '../../../common/errors';
 import {
   PASSWORD_MIN_LENGTH,
   USER_ERROR_CODES,
   USER_EVENTS,
+  USER_PROFILE_CACHE,
+  USER_TOPIC,
 } from '../constants/user.constants';
 import { UserUpdatedEvent } from '../events/user.events';
 import { UserEventStoreService } from '../event-store/user-event-store.service';
 import { OutboxService } from '../../../infrastructure/outbox/outbox.service';
-import { REDIS_CLIENT } from '../../../infrastructure/redis/redis.module';
-import { UserStatus, UserDocument } from '../schemas/user.schema';
+import {
+  CACHE,
+  type CachePort,
+} from '../../../infrastructure/cache/cache.port';
+import { UserRole, UserStatus, UserDocument } from '../schemas/user.schema';
 import { TenantContext } from '../../../common/tenant/tenant.context';
 
 const BCRYPT_SALT = 12;
@@ -46,8 +52,8 @@ export class UpdateUserHandler implements ICommandHandler<
     private readonly eventStore: UserEventStoreService,
     private readonly outboxService: OutboxService,
     private readonly eventEmitter: EventEmitter2,
-    @Inject(REDIS_CLIENT) private readonly redis: Redis,
-    @InjectConnection() private readonly connection: Connection,
+    @Inject(CACHE) private readonly cache: CachePort,
+    @Inject(DOCUMENTS) private readonly documents: DocumentsPort,
     private readonly tenantCtx: TenantContext,
   ) {}
 
@@ -59,10 +65,12 @@ export class UpdateUserHandler implements ICommandHandler<
       // class-validator never runs and a 1-char password would otherwise be
       // hashed and stored, locking the account out of REST login.
       if (cmd.patch.password.length < PASSWORD_MIN_LENGTH) {
-        throw new BadRequestException({
-          code: ERROR_CODES.BAD_REQUEST,
-          message: `Password must be at least ${PASSWORD_MIN_LENGTH} characters`,
-        });
+        throw AppError.validation([
+          {
+            field: 'password',
+            description: `Password must be at least ${PASSWORD_MIN_LENGTH} characters`,
+          },
+        ]);
       }
       updateData.passwordHash = await bcrypt.hash(
         cmd.patch.password,
@@ -74,51 +82,72 @@ export class UpdateUserHandler implements ICommandHandler<
     const eventPayload = { ...cmd.patch } as Record<string, unknown>;
     delete eventPayload.password;
 
-    const session = await this.connection.startSession();
+    const tenant = this.tenantCtx.tenant;
     let user: UserDocument | null = null;
 
-    try {
-      await session.withTransaction(async () => {
-        user = await this.userRepo.updateWithSession(
-          cmd.id,
-          updateData,
-          session,
-          this.tenantCtx.tenantId,
-        );
-        if (!user) throw new NotFoundException(USER_ERROR_CODES.NOT_FOUND);
+    await this.documents.withTransaction(async (tx) => {
+      const current = await this.userRepo.findById(tenant, cmd.id, tx);
+      if (!current) throw new AppError(USER_ERROR_CODES.NOT_FOUND);
 
-        await this.eventStore.appendWithSession(
-          cmd.id,
-          'UserUpdated',
-          eventPayload,
-          session,
-        );
-        // Outbox carries the FULL current fields (not just the patch) so the
-        // downstream consumer can do a complete re-index / vector upsert.
-        await this.outboxService.write(
-          cmd.id,
-          USER_EVENTS.UPDATED,
-          {
+      const statusChanges =
+        cmd.patch.status !== undefined && cmd.patch.status !== current.status;
+      const emailChanges =
+        cmd.patch.email !== undefined &&
+        cmd.patch.email.toLowerCase() !== current.email;
+      if (
+        statusChanges &&
+        cmd.patch.status !== UserStatus.ACTIVE &&
+        (current.roles ?? []).includes(UserRole.ADMIN) &&
+        (await this.userRepo.touchOtherAdmins(tenant, cmd.id, tx)) === 0
+      ) {
+        throw new AppError(USER_ERROR_CODES.LAST_ADMIN, {
+          detail: 'Cannot deactivate the last admin of this tenant',
+        });
+      }
+
+      user = await this.userRepo.update(tenant, cmd.id, updateData, tx, {
+        endSessions: !!cmd.patch.password || emailChanges || statusChanges,
+      });
+      if (!user) throw new AppError(USER_ERROR_CODES.NOT_FOUND);
+
+      await this.eventStore.append(
+        tenant,
+        cmd.id,
+        'UserUpdated',
+        eventPayload,
+        tx,
+      );
+      // Outbox carries the FULL current fields (not just the patch) so the
+      // downstream consumer can do a complete re-index / vector upsert.
+      await this.outboxService.write(
+        {
+          topic: USER_TOPIC,
+          aggregateId: cmd.id,
+          type: USER_EVENTS.UPDATED,
+          tenantId: tenant,
+          data: {
             userId: cmd.id,
+            tenantId: tenant,
             name: user.name,
             email: user.email,
             age: user.age,
             loginCount: user.loginCount,
+            roles: user.roles ?? [],
+            status: user.status,
           },
-          session,
-        );
-      });
-    } finally {
-      await session.endSession();
-    }
+        },
+        tx,
+      );
+    });
 
     const updatedUser = user!;
 
-    await this.redis.del(`user:${cmd.id}`);
+    await this.cache.del(USER_PROFILE_CACHE.forTenant(tenant, cmd.id));
 
     this.eventEmitter.emit(
       UserUpdatedEvent.EVENT,
       new UserUpdatedEvent(
+        tenant,
         cmd.id,
         updatedUser.name,
         updatedUser.email,

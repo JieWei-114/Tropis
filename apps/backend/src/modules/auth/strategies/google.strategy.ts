@@ -4,14 +4,16 @@ import { Strategy, Profile, VerifyCallback } from 'passport-google-oauth20';
 import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 import { OAuthUserProfile } from '../interfaces/oauth-profile.interface';
+import type { StateStore } from 'passport-oauth2';
+import { SignedOAuthStateStore } from './oauth-state.store';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   private readonly configured: boolean;
 
   constructor(config: ConfigService) {
-    const clientID = config.get<string>('GOOGLE_CLIENT_ID', '');
-    const clientSecret = config.get<string>('GOOGLE_CLIENT_SECRET', '');
+    const clientID = config.getOrThrow<string>('GOOGLE_CLIENT_ID');
+    const clientSecret = config.getOrThrow<string>('GOOGLE_CLIENT_SECRET');
 
     // passport-google-oauth20 validates clientID in the constructor — supply a
     // placeholder so the class can be instantiated without credentials.
@@ -19,11 +21,11 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     super({
       clientID: clientID || 'unconfigured',
       clientSecret: clientSecret || 'unconfigured',
-      callbackURL: config.get<string>(
-        'GOOGLE_CALLBACK_URL',
-        'http://localhost:3100/api/auth/google/callback',
-      ),
+      callbackURL: config.getOrThrow<string>('GOOGLE_CALLBACK_URL'),
       scope: ['email', 'profile'],
+      store: new SignedOAuthStateStore(
+        config.getOrThrow<string>('JWT_SECRET'),
+      ) as unknown as StateStore,
     });
 
     this.configured = !!(clientID && clientSecret);

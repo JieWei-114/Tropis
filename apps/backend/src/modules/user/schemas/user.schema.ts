@@ -1,9 +1,9 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import type { HydratedDocument } from 'mongoose';
-import { UserStatus, UserRole, DEFAULT_TENANT } from '../constants/user.enums';
+import { tenantScopePlugin } from '../../../infrastructure/documents/tenant-scope';
+import { UserStatus, UserRole } from '../constants/user.enums';
 
-// Re-exported so existing `from '../schemas/user.schema'` imports keep working.
-export { UserStatus, UserRole, DEFAULT_TENANT };
+export { UserStatus, UserRole };
 
 export type UserDocument = HydratedDocument<User>;
 
@@ -45,14 +45,16 @@ export class User {
   @Prop({ default: 0 })
   loginCount: number;
 
-  @Prop({ type: [String], enum: UserRole, default: [UserRole.EDITOR] })
+  @Prop({ type: [String], enum: UserRole, default: [UserRole.MEMBER] })
   roles: UserRole[];
 
-  // Multi-tenancy — every record belongs to exactly one tenant.
-  // Queries always filter by tenantId; users from different tenants are invisible to each other.
-  // Default tenant ('default') is used for self-hosted / single-tenant deployments.
-  @Prop({ required: true, index: true, default: DEFAULT_TENANT })
+  @Prop({ required: true, index: true })
   tenantId: string;
+
+  // Signed into every access and refresh token; bumping it ends every
+  // session issued before (password, email, role or status change).
+  @Prop({ default: 0 })
+  tokenVersion: number;
 
   // OAuth provider fields — set when a user registers via Google/GitHub instead of password
   @Prop({ index: true, sparse: true })
@@ -67,6 +69,7 @@ export class User {
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+UserSchema.plugin(tenantScopePlugin);
 
 // Compound unique index: email is unique per tenant, not globally.
 // Two tenants can have the same email — they are separate accounts.

@@ -31,9 +31,9 @@ export class ListUsersHandler implements IQueryHandler<
 
   async execute(query: ListUsersQuery): Promise<PagedUsers> {
     const result = await this.userRepo.findAll(
+      this.tenantCtx.tenant,
       query.page,
       query.limit,
-      this.tenantCtx.tenantId,
     );
     return {
       data: UserTransformer.toResponseList(result.data),

@@ -1,21 +1,14 @@
-import { Module, Global } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
+import { Module } from '@nestjs/common';
 import { NotificationGateway } from './gateways/notification.gateway';
+import { RealtimeModule } from '../../infrastructure/realtime/realtime.module';
 import { AuthModule } from '../auth/auth.module';
 
-@Global()
+/**
+ * Holds client sockets (public role only). Producers never inject the
+ * gateway; they publish through REALTIME from any role.
+ */
 @Module({
-  imports: [
-    AuthModule, // for AuthService — token blacklist checks on WS connect
-    JwtModule.registerAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.getOrThrow<string>('JWT_SECRET'),
-      }),
-    }),
-  ],
+  imports: [AuthModule, RealtimeModule.forRoot()],
   providers: [NotificationGateway],
-  exports: [NotificationGateway],
 })
 export class WebsocketModule {}

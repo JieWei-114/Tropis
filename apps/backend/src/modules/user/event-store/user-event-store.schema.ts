@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import type { HydratedDocument } from 'mongoose';
+import { tenantScopePlugin } from '../../../infrastructure/documents/tenant-scope';
 
 export type UserEventDocument = HydratedDocument<UserEvent>;
 
@@ -12,6 +13,9 @@ export type UserEventDocument = HydratedDocument<UserEvent>;
   versionKey: false,
 })
 export class UserEvent {
+  @Prop({ required: true })
+  tenantId: string;
+
   @Prop({ required: true, index: true })
   aggregateId: string;
 
@@ -34,6 +38,9 @@ export class UserEvent {
 }
 
 export const UserEventSchema = SchemaFactory.createForClass(UserEvent);
+UserEventSchema.plugin(tenantScopePlugin);
 
-// Compound index for fast replay: all events for an aggregate, in order
-UserEventSchema.index({ aggregateId: 1, version: 1 }, { unique: true });
+UserEventSchema.index(
+  { tenantId: 1, aggregateId: 1, version: 1 },
+  { unique: true },
+);

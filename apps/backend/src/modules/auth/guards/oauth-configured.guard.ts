@@ -1,12 +1,7 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  Injectable,
-  NotImplementedException,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
-import { ERROR_CODES } from '@tropis/shared';
+import { AppError } from '../../../common/errors';
 
 export const OAUTH_PROVIDER_KEY = 'oauthProvider';
 
@@ -40,9 +35,8 @@ export class OAuthConfiguredGuard implements CanActivate {
     const clientSecret = this.config.get<string>(`${prefix}_CLIENT_SECRET`, '');
 
     if (!clientId || !clientSecret) {
-      throw new NotImplementedException({
-        code: ERROR_CODES.OAUTH_NOT_CONFIGURED,
-        message:
+      throw new AppError('OAUTH_NOT_CONFIGURED', {
+        detail:
           `${provider} sign-in is not configured on this server ` +
           `(set ${prefix}_CLIENT_ID and ${prefix}_CLIENT_SECRET)`,
       });

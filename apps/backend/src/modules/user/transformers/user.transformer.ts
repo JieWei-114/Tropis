@@ -24,6 +24,7 @@ export class UserTransformer {
       ...UserTransformer.toResponse(user),
       passwordHash: (user as any).passwordHash as string,
       tenantId: user.tenantId,
+      tokenVersion: user.tokenVersion ?? 0,
     };
   }
 }

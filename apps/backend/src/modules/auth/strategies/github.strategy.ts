@@ -4,6 +4,8 @@ import { Strategy, VerifyCallback } from 'passport-oauth2';
 import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 import { OAuthUserProfile } from '../interfaces/oauth-profile.interface';
+import type { StateStore } from 'passport-oauth2';
+import { SignedOAuthStateStore } from './oauth-state.store';
 
 // Uses passport-oauth2 (maintained) instead of the abandoned passport-github2 /
 // unmaintained passport-github. GitHub's OAuth2 endpoints are standard; no
@@ -13,19 +15,19 @@ export class GithubStrategy extends PassportStrategy(Strategy, 'github') {
   private readonly configured: boolean;
 
   constructor(config: ConfigService) {
-    const clientID = config.get<string>('GITHUB_CLIENT_ID', '');
-    const clientSecret = config.get<string>('GITHUB_CLIENT_SECRET', '');
+    const clientID = config.getOrThrow<string>('GITHUB_CLIENT_ID');
+    const clientSecret = config.getOrThrow<string>('GITHUB_CLIENT_SECRET');
 
     super({
       authorizationURL: 'https://github.com/login/oauth/authorize',
       tokenURL: 'https://github.com/login/oauth/access_token',
       clientID: clientID || 'unconfigured',
       clientSecret: clientSecret || 'unconfigured',
-      callbackURL: config.get<string>(
-        'GITHUB_CALLBACK_URL',
-        'http://localhost:3100/api/auth/github/callback',
-      ),
+      callbackURL: config.getOrThrow<string>('GITHUB_CALLBACK_URL'),
       scope: ['user:email'],
+      store: new SignedOAuthStateStore(
+        config.getOrThrow<string>('JWT_SECRET'),
+      ) as unknown as StateStore,
     });
 
     this.configured = !!(clientID && clientSecret);

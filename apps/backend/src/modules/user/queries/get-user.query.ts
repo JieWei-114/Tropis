@@ -1,15 +1,19 @@
 import { IQuery, QueryHandler, IQueryHandler } from '@nestjs/cqrs';
-import { NotFoundException } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
-import type Redis from 'ioredis';
+import { AppError } from '../../../common/errors';
 import { UserRepository } from '../repositories/user.repository';
 import { UserTransformer } from '../transformers/user.transformer';
 import { IUserResponse } from '../interfaces/user.interface';
-import { USER_ERROR_CODES } from '../constants/user.constants';
-import { REDIS_CLIENT } from '../../../infrastructure/redis/redis.module';
+import {
+  USER_ERROR_CODES,
+  USER_PROFILE_CACHE,
+  USER_PROFILE_CACHE_TTL_SECONDS,
+} from '../constants/user.constants';
+import {
+  CACHE,
+  type CachePort,
+} from '../../../infrastructure/cache/cache.port';
 import { TenantContext } from '../../../common/tenant/tenant.context';
-
-const CACHE_TTL = 300;
 
 export class GetUserQuery implements IQuery {
   constructor(public readonly id: string) {}
@@ -22,27 +26,24 @@ export class GetUserHandler implements IQueryHandler<
 > {
   constructor(
     private readonly userRepo: UserRepository,
-    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    @Inject(CACHE) private readonly cache: CachePort,
     private readonly tenantCtx: TenantContext,
   ) {}
 
-  async execute(query: GetUserQuery): Promise<IUserResponse> {
-    const cached = await this.redis.get(`user:${query.id}`);
-    if (cached) return JSON.parse(cached) as IUserResponse;
-
-    const user = await this.userRepo.findById(
-      query.id,
-      this.tenantCtx.tenantId,
+  /**
+   * Cache-aside with single-flight. The key is tenant-scoped, so a cached
+   * profile is only ever returned to the tenant it was loaded for.
+   */
+  execute(query: GetUserQuery): Promise<IUserResponse> {
+    const tenant = this.tenantCtx.tenant;
+    return this.cache.getOrLoad(
+      USER_PROFILE_CACHE.forTenant(tenant, query.id),
+      USER_PROFILE_CACHE_TTL_SECONDS,
+      async () => {
+        const user = await this.userRepo.findById(tenant, query.id);
+        if (!user) throw new AppError(USER_ERROR_CODES.NOT_FOUND);
+        return UserTransformer.toResponse(user);
+      },
     );
-    if (!user) throw new NotFoundException(USER_ERROR_CODES.NOT_FOUND);
-
-    const response = UserTransformer.toResponse(user);
-    await this.redis.set(
-      `user:${query.id}`,
-      JSON.stringify(response),
-      'EX',
-      CACHE_TTL,
-    );
-    return response;
   }
 }

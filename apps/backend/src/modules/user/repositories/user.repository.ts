@@ -1,7 +1,13 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import type { ClientSession, Model } from 'mongoose';
-import { User, UserDocument, DEFAULT_TENANT } from '../schemas/user.schema';
+import type { Model } from 'mongoose';
+import type { TenantId } from '../../../common/keyspace';
+import { createLogger } from '../../../common/observability/logger';
+import { runGlobal } from '../../../common/tenant/tenant.context';
+import type { DocumentsTransaction } from '../../../infrastructure/documents/documents.port';
+import { TenantScopedRepository } from '../../../infrastructure/documents/tenant-scope';
+import { sessionOf } from '../../../infrastructure/documents/transaction';
+import { User, UserDocument } from '../schemas/user.schema';
 
 export interface PageResult<T> {
   data: T[];
@@ -13,251 +19,242 @@ export interface PageResult<T> {
 
 export interface CursorPageResult<T> {
   data: T[];
-  nextCursor: string | null; // base64url-encoded last _id; null = no more pages
+  nextCursor: string | null;
   hasMore: boolean;
 }
 
-// Base filter applied to every query — excludes soft-deleted records
-const ACTIVE = { deletedAt: null } as const;
+const LIVE = { deletedAt: null } as const;
 
+/**
+ * Users of one tenant. Every method takes the TenantId first; the base class
+ * adds it to each filter and insert, and live reads also exclude
+ * soft-deleted rows (`deletedAt: null`).
+ */
 @Injectable()
-export class UserRepository implements OnModuleInit {
-  private readonly logger = new Logger(UserRepository.name);
+export class UserRepository
+  extends TenantScopedRepository<User>
+  implements OnModuleInit
+{
+  private readonly logger = createLogger('user');
 
-  constructor(@InjectModel(User.name) private readonly model: Model<User>) {}
+  constructor(@InjectModel(User.name) model: Model<User>) {
+    super(model);
+  }
 
   /**
-   * Reconciles the collection's indexes with the schema.
-   *
-   * Mongoose CREATES declared indexes automatically but never DROPS undeclared
-   * ones, and syncIndexes() is what removes them. The email uniqueness
-   * constraint is `{tenantId, email}` with a `partialFilterExpression:
-   * { deletedAt: null }`; any undeclared uniqueness index left on the
-   * collection keeps reserving the email addresses of soft-deleted users.
-   *
-   * Safe to run repeatedly and a no-op once converged; failures are logged,
-   * never fatal, since a stale index degrades behaviour rather than breaking
-   * startup.
+   * Reconciles the collection's indexes with the schema, dropping undeclared
+   * ones (a stale uniqueness index would keep reserving the emails of
+   * soft-deleted users). Failures are logged, never fatal.
    */
   async onModuleInit(): Promise<void> {
     try {
-      const dropped = await this.model.syncIndexes();
+      const dropped = await runGlobal(() => this.model.syncIndexes());
       if (dropped.length) {
-        this.logger.log(`Dropped stale user indexes: ${dropped.join(', ')}`);
+        this.logger.info('indexes-dropped', 'Dropped stale user indexes', {
+          'db.index.names': dropped.join(','),
+        });
       }
     } catch (err) {
-      this.logger.warn(`User index sync failed: ${(err as Error).message}`);
+      this.logger.warn('index-sync-failed', 'User index sync failed', {}, err);
     }
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
-  /** Every query is scoped to a tenant. Falls back to 'default' if not supplied. */
-  private tenant(tenantId = DEFAULT_TENANT) {
-    return { tenantId, ...ACTIVE };
-  }
-
-  // ── Write ──────────────────────────────────────────────────────────────────
-
-  create(data: Partial<User>): Promise<UserDocument> {
-    return this.model.create({ tenantId: DEFAULT_TENANT, ...data });
-  }
-
-  async createWithSession(
+  create(
+    tenantId: TenantId,
     data: Partial<User>,
-    session: ClientSession,
+    tx?: DocumentsTransaction,
   ): Promise<UserDocument> {
-    const [doc] = await this.model.create(
-      [{ tenantId: DEFAULT_TENANT, ...data }],
-      { session },
-    );
-    return doc;
+    return this.insert(tenantId, data, tx);
   }
 
+  /**
+   * Sets the given fields. `endSessions` also bumps tokenVersion, which
+   * ends every access and refresh token issued before the change.
+   */
   update(
+    tenantId: TenantId,
     id: string,
     data: Partial<User>,
-    tenantId = DEFAULT_TENANT,
+    tx?: DocumentsTransaction,
+    options: { endSessions?: boolean } = {},
   ): Promise<UserDocument | null> {
-    return this.model
-      .findOneAndUpdate({ _id: id, ...this.tenant(tenantId) }, data, {
-        new: true,
-      })
-      .exec();
+    const update: Record<string, unknown> = { $set: data };
+    if (options.endSessions) update.$inc = { tokenVersion: 1 };
+    return this.findOneAndUpdate(tenantId, { _id: id, ...LIVE }, update, {
+      session: sessionOf(tx),
+    }).exec();
   }
 
-  updateWithSession(
+  /** Replaces the roles and ends the user's sessions (tokenVersion + 1). */
+  updateRoles(
+    tenantId: TenantId,
     id: string,
-    data: Partial<User>,
-    session: ClientSession,
-    tenantId = DEFAULT_TENANT,
+    roles: User['roles'],
+    tx?: DocumentsTransaction,
   ): Promise<UserDocument | null> {
-    return this.model
-      .findOneAndUpdate({ _id: id, ...this.tenant(tenantId) }, data, {
-        new: true,
-        session,
-      })
-      .exec();
+    return this.update(tenantId, id, { roles }, tx, { endSessions: true });
   }
 
   /**
-   * Soft delete — sets deletedAt instead of removing the document.
-   * Document stays in MongoDB for audit / foreign-key integrity / GDPR staging.
+   * Writes every other live admin of the tenant inside `tx` and returns how
+   * many there are. Two transactions that each demote a different admin
+   * then write the same documents and conflict, so the last-admin check
+   * cannot be passed by both (write skew).
    */
-  delete(id: string, tenantId = DEFAULT_TENANT): Promise<UserDocument | null> {
-    return this.model
-      .findOneAndUpdate(
-        { _id: id, ...this.tenant(tenantId) },
-        { deletedAt: new Date() },
-        { new: true },
+  async touchOtherAdmins(
+    tenantId: TenantId,
+    id: string,
+    tx?: DocumentsTransaction,
+  ): Promise<number> {
+    const result = await this.model
+      .updateMany(
+        this.scope(tenantId, {
+          _id: { $ne: id },
+          roles: 'admin',
+          status: 'active',
+          ...LIVE,
+        }) as never,
+        { $set: { updatedAt: new Date() } } as never,
+        { session: sessionOf(tx), timestamps: false } as never,
       )
+      .exec();
+    return result.modifiedCount;
+  }
+
+  /** Status, roles and token version only, read from the store (never cached). */
+  findAccess(
+    tenantId: TenantId,
+    id: string,
+  ): Promise<Pick<User, 'status' | 'roles' | 'tokenVersion'> | null> {
+    return this.findOne(tenantId, { _id: id, ...LIVE })
+      .select({ status: 1, roles: 1, tokenVersion: 1 })
+      .lean<Pick<User, 'status' | 'roles' | 'tokenVersion'>>()
       .exec();
   }
 
-  deleteWithSession(
+  /** Includes passwordHash; for the current-password check only. */
+  findByIdWithPassword(
+    tenantId: TenantId,
     id: string,
-    session: ClientSession,
-    tenantId = DEFAULT_TENANT,
   ): Promise<UserDocument | null> {
-    return this.model
-      .findOneAndUpdate(
-        { _id: id, ...this.tenant(tenantId) },
-        { deletedAt: new Date() },
-        { new: true, session },
-      )
+    return this.findOne(tenantId, { _id: id, ...LIVE })
+      .select('+passwordHash')
       .exec();
+  }
+
+  /** Soft delete: sets deletedAt; the document stays for audit. */
+  delete(
+    tenantId: TenantId,
+    id: string,
+    tx?: DocumentsTransaction,
+  ): Promise<UserDocument | null> {
+    return this.findOneAndUpdate(
+      tenantId,
+      { _id: id, ...LIVE },
+      { deletedAt: new Date() },
+      { session: sessionOf(tx) },
+    ).exec();
   }
 
   /**
-   * Hard delete — permanently removes the document.
-   *
-   * Only reachable from admin tooling and the integration suite; no
-   * application code path calls it. Note before adding one: unlike delete(),
-   * this writes no outbox event, so the downstream copies are NOT cleaned up —
-   * the user's name and email survive in Elasticsearch and their embedding in
-   * pgvector. A GDPR erasure path must emit user.deleted (or purge those
-   * directly), otherwise it defeats its own purpose.
+   * Permanently removes the document. Writes no outbox event, so search and
+   * vector copies survive; a GDPR erasure path must emit user.deleted too.
    */
-  hardDelete(
-    id: string,
-    tenantId = DEFAULT_TENANT,
-  ): Promise<UserDocument | null> {
-    return this.model.findOneAndDelete({ _id: id, tenantId }).exec();
+  hardDelete(tenantId: TenantId, id: string): Promise<UserDocument | null> {
+    return this.findOneAndDelete(tenantId, { _id: id }).exec();
   }
 
-  /** Batched lookup — one query for many ids, in place of an N+1 loop. */
-  findByIds(ids: string[], tenantId = DEFAULT_TENANT): Promise<UserDocument[]> {
+  findByIds(tenantId: TenantId, ids: string[]): Promise<UserDocument[]> {
     if (!ids.length) return Promise.resolve([]);
-    return this.model
-      .find({ _id: { $in: ids }, ...this.tenant(tenantId) })
-      .exec();
+    return this.find(tenantId, { _id: { $in: ids }, ...LIVE }).exec();
   }
 
-  async incrementLoginCount(id: string): Promise<void> {
-    await this.model
-      .updateOne({ _id: id, ...ACTIVE }, { $inc: { loginCount: 1 } })
-      .exec();
+  async incrementLoginCount(tenantId: TenantId, id: string): Promise<void> {
+    await this.updateOne(
+      tenantId,
+      { _id: id, ...LIVE },
+      { $inc: { loginCount: 1 } },
+    ).exec();
   }
 
-  // ── Read ───────────────────────────────────────────────────────────────────
-
-  /**
-   * Paginated list scoped to a tenant.
-   * countDocuments() and find() run in parallel — response time = max(count, find).
-   */
+  /** Offset page, newest first; sorting keeps skip/limit pages disjoint. */
   async findAll(
+    tenantId: TenantId,
     page: number,
     limit: number,
-    tenantId = DEFAULT_TENANT,
   ): Promise<PageResult<UserDocument>> {
     const skip = (page - 1) * limit;
-    const filter = this.tenant(tenantId);
-
-    // Sort is required, not cosmetic: skip/limit over an unsorted scan lets a
-    // document appear on two pages or none at all. Newest-first also means a
-    // just-created user shows up at the top of page 1 instead of being invisible
-    // past the limit.
     const [data, total] = await Promise.all([
-      this.model.find(filter).sort({ _id: -1 }).skip(skip).limit(limit).exec(),
-      this.model.countDocuments(filter).exec(),
+      this.find(tenantId, LIVE)
+        .sort({ _id: -1 })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.countDocuments(tenantId, LIVE).exec(),
     ]);
-
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  /**
-   * Cursor-based pagination — stable under inserts/deletes, no COUNT query.
-   * Pass cursor=undefined for the first page; subsequent pages pass the
-   * nextCursor returned by the previous call.
-   */
+  /** Keyset page by _id: stable under inserts and deletes, no count query. */
   async findPage(
+    tenantId: TenantId,
     limit: number,
-    tenantId = DEFAULT_TENANT,
     cursor?: string,
   ): Promise<CursorPageResult<UserDocument>> {
-    const filter: Record<string, unknown> = this.tenant(tenantId);
+    const filter: Record<string, unknown> = { ...LIVE };
     if (cursor) {
-      const lastId = Buffer.from(cursor, 'base64url').toString('utf8');
-      filter['_id'] = { $gt: lastId };
+      filter['_id'] = {
+        $gt: Buffer.from(cursor, 'base64url').toString('utf8'),
+      };
     }
-
-    const data = await this.model
-      .find(filter)
+    const data = await this.find(tenantId, filter)
       .sort({ _id: 1 })
-      .limit(limit + 1) // fetch one extra to detect hasMore
+      .limit(limit + 1)
       .exec();
-
     const hasMore = data.length > limit;
     if (hasMore) data.pop();
-
     const nextCursor =
       hasMore && data.length > 0
         ? Buffer.from(data[data.length - 1]._id.toString()).toString(
             'base64url',
           )
         : null;
-
     return { data, nextCursor, hasMore };
   }
 
-  // Non-paginated — used by gRPC FindAll
-  findAllRaw(tenantId = DEFAULT_TENANT): Promise<UserDocument[]> {
-    return this.model.find(this.tenant(tenantId)).exec();
+  findAllRaw(tenantId: TenantId): Promise<UserDocument[]> {
+    return this.find(tenantId, LIVE).exec();
   }
 
   findById(
+    tenantId: TenantId,
     id: string,
-    tenantId = DEFAULT_TENANT,
+    tx?: DocumentsTransaction,
   ): Promise<UserDocument | null> {
-    return this.model.findOne({ _id: id, ...this.tenant(tenantId) }).exec();
+    return this.findOne(tenantId, { _id: id, ...LIVE })
+      .session(sessionOf(tx) ?? null)
+      .exec();
   }
 
-  findByEmail(
-    email: string,
-    tenantId = DEFAULT_TENANT,
-  ): Promise<UserDocument | null> {
-    return this.model.findOne({ email, ...this.tenant(tenantId) }).exec();
+  findByEmail(tenantId: TenantId, email: string): Promise<UserDocument | null> {
+    return this.findOne(tenantId, { email, ...LIVE }).exec();
   }
 
-  // Explicitly selects passwordHash — only for AuthService
+  /** Includes passwordHash; for AuthService only. */
   findByEmailWithPassword(
+    tenantId: TenantId,
     email: string,
-    tenantId = DEFAULT_TENANT,
   ): Promise<UserDocument | null> {
-    return this.model
-      .findOne({ email, ...this.tenant(tenantId) })
+    return this.findOne(tenantId, { email, ...LIVE })
       .select('+passwordHash')
       .exec();
   }
 
-  // OAuth login — find by provider identity within the tenant
   findByProvider(
+    tenantId: TenantId,
     provider: string,
     providerId: string,
-    tenantId = DEFAULT_TENANT,
   ): Promise<UserDocument | null> {
-    return this.model
-      .findOne({ provider, providerId, ...this.tenant(tenantId) })
-      .exec();
+    return this.findOne(tenantId, { provider, providerId, ...LIVE }).exec();
   }
 }

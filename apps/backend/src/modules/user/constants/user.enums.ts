@@ -17,7 +17,5 @@ export enum UserRole {
   ADMIN = 'admin',
   EDITOR = 'editor',
   VIEWER = 'viewer',
+  MEMBER = 'member',
 }
-
-/** Tenant assigned to records created without an explicit tenant. */
-export const DEFAULT_TENANT = 'default';

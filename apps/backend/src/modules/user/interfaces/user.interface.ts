@@ -14,4 +14,6 @@ export interface IUserResponse {
 export interface IUserWithPassword extends IUserResponse {
   passwordHash: string;
   tenantId: string;
+  /** Bumped on a password, email, role or status change; older tokens stop working. */
+  tokenVersion: number;
 }

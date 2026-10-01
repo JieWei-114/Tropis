@@ -1,52 +1,54 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import type { ClientSession, Model } from 'mongoose';
+import type { Model } from 'mongoose';
+import type { TenantId } from '../../../common/keyspace';
+import type { DocumentsTransaction } from '../../../infrastructure/documents/documents.port';
+import { TenantScopedRepository } from '../../../infrastructure/documents/tenant-scope';
+import { sessionOf } from '../../../infrastructure/documents/transaction';
 import { UserEvent, UserEventDocument } from './user-event-store.schema';
 
 @Injectable()
-export class UserEventStoreService {
-  constructor(
-    @InjectModel(UserEvent.name)
-    private readonly eventModel: Model<UserEventDocument>,
-  ) {}
-
-  async append(
-    aggregateId: string,
-    type: string,
-    payload: Record<string, unknown>,
-  ): Promise<void> {
-    await this.appendWithSession(aggregateId, type, payload);
+export class UserEventStoreService extends TenantScopedRepository<UserEvent> {
+  constructor(@InjectModel(UserEvent.name) model: Model<UserEvent>) {
+    super(model);
   }
 
-  async appendWithSession(
+  async append(
+    tenantId: TenantId,
     aggregateId: string,
     type: string,
     payload: Record<string, unknown>,
-    session?: ClientSession,
+    tx?: DocumentsTransaction,
     schemaVersion = 1,
   ): Promise<void> {
-    const lastVersion = await this.eventModel
-      .findOne({ aggregateId })
+    const lastVersion = await this.findOne(tenantId, { aggregateId })
       .sort({ version: -1 })
       .select('version')
-      .lean(session ? { session } : {});
+      .session(sessionOf(tx) ?? null)
+      .lean();
 
     const version = (lastVersion?.version ?? 0) + 1;
 
-    await this.eventModel.create(
-      [{ aggregateId, type, payload, version, schemaVersion }],
-      session ? { session } : {},
+    await this.insert(
+      tenantId,
+      { aggregateId, type, payload, version, schemaVersion },
+      tx,
     );
   }
 
-  async getHistory(aggregateId: string): Promise<UserEventDocument[]> {
-    return this.eventModel.find({ aggregateId }).sort({ version: 1 }).exec();
+  async getHistory(
+    tenantId: TenantId,
+    aggregateId: string,
+  ): Promise<UserEventDocument[]> {
+    return this.find(tenantId, { aggregateId }).sort({ version: 1 }).exec();
   }
 
-  // Replay all events for an aggregate to rebuild its current state.
-  // This is the core of event sourcing — state is derived, not stored directly.
-  async replay(aggregateId: string): Promise<Record<string, unknown>> {
-    const events = await this.getHistory(aggregateId);
+  /** Replays an aggregate's events in order to rebuild its current state. */
+  async replay(
+    tenantId: TenantId,
+    aggregateId: string,
+  ): Promise<Record<string, unknown>> {
+    const events = await this.getHistory(tenantId, aggregateId);
     let state: Record<string, unknown> = {};
 
     for (const event of events) {
@@ -63,20 +65,15 @@ export class UserEventStoreService {
 }
 
 /**
- * Migrate an old event payload to the current schema before applying it.
- * When a payload shape changes, bump schemaVersion in appendWithSession() and
- * add a migration branch here — old events in the store replay correctly without
- * requiring a backfill migration.
+ * Brings an old payload to the current schema before it is applied. Bump
+ * schemaVersion in appendWithSession() when a payload shape changes and add
+ * the branch here, so old events replay without a backfill.
  */
 function migratePayload(
   type: string,
   payload: Record<string, unknown>,
   schemaVersion: number,
 ): Record<string, unknown> {
-  // Example: if UserCreated v1 had no `age` field, add a default here
-  // if (type === 'UserCreated' && schemaVersion < 2) {
-  //   return { age: 0, ...payload };
-  // }
   void type;
   void schemaVersion;
   return payload;
