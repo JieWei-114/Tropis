@@ -13,7 +13,7 @@ Rules (enforced by `.dependency-cruiser.cjs`, `pnpm lint:arch`):
 
 A feature holds its route-specific components and types. When a feature needs
 backend data, add `@tropis/sdk` as a dependency and wire the calls in `lib/`
-(harbor is a static marketing site today and does not depend on the SDK yet).
+(harbor has no SDK dependency).
 
-> Note: this folder is currently empty — the layout is defined and CI-enforced
-> ahead of the first real feature, not retrofitted after sprawl.
+The folder holds no feature yet; the layout rules above are enforced by CI
+from the first one.

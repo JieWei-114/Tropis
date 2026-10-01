@@ -44,14 +44,15 @@ export async function registerAndLogin(
 /**
  * The seeded account, promoted to admin by the test harness.
  *
- * Managing the user directory (list, edit, delete anyone) is admin-only, and
- * self-registration deliberately grants only `editor` — so a freshly
- * registered account cannot drive those flows. Specs that exercise the
- * directory sign in as this account instead; specs that exercise registration
- * itself still register.
+ * Managing the user directory (list, edit, delete anyone) and firing or
+ * reading analytics need roles self-registration never grants (it grants
+ * `member`) — so a freshly registered account cannot drive those flows.
+ * Specs that exercise them sign in as this account instead; specs that
+ * exercise registration itself still register (in tenant `dev`, which the
+ * seeder registers with self sign-up on).
  *
- * The `make test-e2e` target runs `make seed` and then
- * `make promote-admin EMAIL=admin@example.com`.
+ * The `make test-e2e` target runs `make seed`, which registers tenant `dev`
+ * and makes admin@example.com its admin.
  */
 const ADMIN = {
   email: process.env.E2E_ADMIN_EMAIL ?? 'admin@example.com',
@@ -59,32 +60,15 @@ const ADMIN = {
 };
 
 /**
- * The admin JWT, reused across tests.
- *
- * POST /auth/login is throttled to 10 attempts per minute per IP (a
- * deliberate security default), and the suite has more tests than that. Each
- * test getting its own UI login therefore fails the whole run with 429s once
- * the suite grows. One real sign-in per process, replayed into localStorage
- * afterwards, keeps the suite independent of that limit — and much faster.
+ * Signs in as the seeded admin through the UI and waits for the authenticated
+ * UI. The session is the access token in memory plus the httpOnly refresh
+ * cookie, so it cannot be replayed into storage; each test signs in for real.
+ * `make test-e2e` raises RATE_LIMIT_AUTH (E2E_RATE_LIMIT_AUTH) so the suite
+ * stays under the login throttle.
  */
-let adminToken: string | null = null;
-
-/** Signs in as the promoted admin and waits for the authenticated UI. */
 export async function loginAsAdmin(page: Page): Promise<void> {
-  if (adminToken) {
-    await page.addInitScript(
-      (t: string) => localStorage.setItem('token', t),
-      adminToken,
-    );
-    await page.goto('/users');
-    await expectAuthenticated(page);
-    return;
-  }
-
   await login(page, ADMIN.email, ADMIN.password);
   await expectAuthenticated(page);
-  adminToken = await page.evaluate(() => localStorage.getItem('token'));
-  if (!adminToken) throw new Error('admin sign-in did not store a token');
 }
 
 /** Signs in an existing user through the LoginForm's "Sign in" mode. */
@@ -112,8 +96,8 @@ export async function expectAuthenticated(page: Page): Promise<void> {
 }
 
 /**
- * Signs in once for the whole spec file and replays the JWT into localStorage
- * on every subsequent page — the app is fully auth-gated (an unauthenticated
+ * Signs in as the admin before each page of a spec file (the session is an
+ * in-memory token plus an httpOnly cookie, so it is not replayed) — the app is fully auth-gated (an unauthenticated
  * visitor only ever sees the login screen, no nav, no pages), so
  * navigation/deep-link tests need a session before they can see anything.
  *

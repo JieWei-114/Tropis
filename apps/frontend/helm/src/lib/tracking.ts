@@ -15,5 +15,6 @@ import { env } from './env';
 
 export const tracker = createTracker({
   endpoint: `${env.VITE_API_BASE_URL}/api/v1/track`,
+  tenantId: env.VITE_TENANT_ID,
   getToken,
 });

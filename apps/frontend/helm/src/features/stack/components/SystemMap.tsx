@@ -36,7 +36,7 @@ const TECHS: Tech[] = [
   {
     name: 'Backend',
     category: 'services',
-    kind: 'NestJS · gRPC + REST',
+    kind: 'NestJS · RPC (Connect, gRPC, gRPC-Web) + REST',
     url: 'http://localhost:3100/api/docs',
     health: 'backend',
   },
@@ -157,15 +157,9 @@ const TECHS: Tech[] = [
     url: 'http://localhost:8200',
   },
   { name: 'OPA', category: 'security', kind: 'policy engine', health: 'opa' },
-  {
-    name: 'Envoy',
-    category: 'security',
-    kind: 'service proxy',
-    url: 'http://localhost:9901',
-  },
   { name: 'Argo CD', category: 'delivery', kind: 'GitOps continuous delivery' },
   {
-    name: 'MailHog',
+    name: 'Mailpit',
     category: 'delivery',
     kind: 'email testing',
     url: 'http://localhost:8025',

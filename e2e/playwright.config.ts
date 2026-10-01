@@ -16,6 +16,8 @@ export default defineConfig({
   workers: 1,
   retries: 1,
   timeout: 60_000,
+  // Bounds a hung run (a stuck stack, a page that never settles).
+  globalTimeout: 20 * 60_000,
   expect: { timeout: 15_000 },
   reporter: [['html', { outputFolder: 'report', open: 'never' }], ['list']],
   use: {

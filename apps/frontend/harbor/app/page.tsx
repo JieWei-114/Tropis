@@ -47,7 +47,7 @@ const STACK: { label: string; items: string[]; tag?: string }[] = [
   },
   {
     label: 'Ops / delivery',
-    items: ['Grafana', 'Prometheus', 'Argo CD', 'OPA', 'Envoy'],
+    items: ['Grafana', 'Prometheus', 'Argo CD', 'OPA'],
   },
   { label: 'Demo / reference', items: ['Aerospike', 'pgvector'], tag: 'demo' },
 ];

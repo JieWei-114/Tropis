@@ -4,7 +4,7 @@ Wraps the web frontend (`apps/frontend/helm`) into native desktop installers
 (.app/.dmg/.exe/.deb). It is a **shell, not an app**: it contains zero business
 logic and renders the exact same build the browser gets.
 
-Channel overview and store submission: [docs/multi-platform.md](../../docs/multi-platform.md).
+Channel overview and store submission: [docs/deployment.md](../../docs/deployment.md#native-distribution).
 
 ## Layout & what goes where
 
@@ -17,7 +17,7 @@ apps/desktop/
     │                        #   frontendDist → ../../../apps/frontend/helm/dist,
     │                        #   beforeBuildCommand builds the frontend first
     ├── capabilities/        # ⭐ permission grants per window (deny-by-default).
-    │   └── default.json     #   Only core:default now. Every new permission is a
+    │   └── default.json     #   Grants only core:default. Every new permission is a
     │                        #   security decision — add the narrowest one that works.
     ├── src/
     │   ├── main.rs          # entry point — DO NOT add logic here
@@ -25,7 +25,7 @@ apps/desktop/
     ├── icons/               # generated set — regenerate via `pnpm tauri icon <1024px.png>`
     ├── build.rs             # tauri build glue (generated, don't edit)
     └── Cargo.toml           # standalone crate (detached [workspace] on purpose —
-                             #   it's an app shell, not a services/rust member)
+                             #   it's an app shell, not a member of the root workspace)
 ```
 
 ## Rules (mirror of the platform's layering discipline)
@@ -43,10 +43,10 @@ apps/desktop/
    backend's OPA policies: the narrowest permission, reviewed in PR.
 4. **API endpoints are baked at web build time** (`VITE_*`): a desktop build
    talks to whatever backend the frontend build was pointed at — set
-   `apps/frontend/helm/.env` before `make desktop` (see docs/multi-platform.md).
+   `apps/frontend/helm/.env` before `make desktop` (see docs/deployment.md#build-time-endpoints).
 5. **Before release**: replace `identifier` (bundle ID), `productName`, and the
    icon set; set up signing/notarization per OS (pointers in
-   docs/multi-platform.md).
+   docs/deployment.md#store-submission).
 
 ## Commands
 

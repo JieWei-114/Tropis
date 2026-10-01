@@ -2,7 +2,15 @@ import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HelmetProvider } from 'react-helmet-async';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Routes, Route, Navigate, NavLink } from 'react-router';
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  NavLink,
+  useLocation,
+  useNavigate,
+} from 'react-router';
 import { Toasts } from '../components/Toasts';
 import {
   DropdownMenu,
@@ -12,7 +20,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ErrorBoundary } from './ErrorBoundary';
-import { LoginForm } from '../features/auth';
+import {
+  LoginForm,
+  OAuthCallback,
+  OAUTH_CALLBACK_PATH,
+} from '../features/auth';
 import { PageTracker } from './PageTracker';
 import { useNativeBackButton } from './useNativeBackButton';
 import { useKeyboardAwareInputs } from './useKeyboardAwareInputs';
@@ -141,6 +153,8 @@ function AppInner() {
   useKeyboardAwareInputs();
   const { t } = useTranslation();
   const authed = useAuthStore((s) => s.authed);
+  const restoring = useAuthStore((s) => s.restoring);
+  const restore = useAuthStore((s) => s.restore);
   const login = useAuthStore((s) => s.login);
   const logout = useAuthStore((s) => s.logout);
   const toasts = useToastStore((s) => s.toasts);
@@ -148,6 +162,26 @@ function AppInner() {
   const dismiss = useToastStore((s) => s.dismiss);
 
   const [wsOn, setWsOn] = useState(false);
+  const location = useLocation();
+  const onOAuthCallback = location.pathname === OAUTH_CALLBACK_PATH;
+
+  // The access token lives in memory, so a reload starts signed out until
+  // the refresh cookie restores the session. The OAuth callback mints its
+  // own session instead.
+  useEffect(() => {
+    if (!onOAuthCallback) void restore();
+  }, [onOAuthCallback, restore]);
+  const navigate = useNavigate();
+  const leaveOAuthCallback = useCallback(() => {
+    void navigate('/', { replace: true });
+  }, [navigate]);
+  const finishOAuth = useCallback(
+    (token: string) => {
+      login(token);
+      leaveOAuthCallback();
+    },
+    [login, leaveOAuthCallback],
+  );
 
   const handleWsEvent = useCallback(
     (e: WsEvent) => {
@@ -189,6 +223,24 @@ function AppInner() {
       setWsOn(false);
     };
   }, [authed, handleWsEvent]);
+
+  // OAuth providers redirect here with a one-time code; it is handled before
+  // the auth gate because the visitor is not signed in yet.
+  if (onOAuthCallback) {
+    return (
+      <main className="min-h-dvh">
+        <OAuthCallback onLogin={finishOAuth} onCancel={leaveOAuthCallback} />
+      </main>
+    );
+  }
+
+  if (restoring && !authed) {
+    return (
+      <main className="min-h-dvh">
+        <PageFallback />
+      </main>
+    );
+  }
 
   // Auth gate: an unauthenticated visitor only ever sees the login screen —
   // no nav, no pages. Everything below renders only once signed in.

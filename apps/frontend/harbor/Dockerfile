@@ -10,7 +10,9 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# pnpm comes from the root package.json `packageManager` field.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
 
 # Copy workspace manifests first — Docker layer cache skips install
 # when only source files change.
@@ -18,7 +20,6 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/frontend/harbor/package.json ./apps/frontend/harbor/
 COPY apps/frontend/helm/package.json ./apps/frontend/helm/
 COPY apps/backend/package.json ./apps/backend/
-COPY apps/temporal-worker/package.json ./apps/temporal-worker/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/sdk/package.json ./packages/sdk/
 COPY e2e/package.json ./e2e/
@@ -29,7 +30,17 @@ RUN pnpm install --frozen-lockfile --filter @tropis/harbor...
 # self-contained server under .next/standalone that traces only the deps it needs.
 COPY apps/frontend/harbor/ ./apps/frontend/harbor/
 
-RUN pnpm --filter @tropis/harbor build
+# Next.js inlines NEXT_PUBLIC_* at build time and prerenders pages with them
+# (lib/site.ts: canonical/OG URLs and the console link), so each image is bound
+# to the URLs it was built with. Build args reach RUN as environment variables.
+# lib/site.ts falls back to its local-dev default only when a variable is
+# absent, not when it is empty, so an arg passed empty is unset before the build.
+ARG NEXT_PUBLIC_SITE_URL
+ARG NEXT_PUBLIC_CONSOLE_URL
+
+RUN [ -n "$NEXT_PUBLIC_SITE_URL" ] || unset NEXT_PUBLIC_SITE_URL; \
+    [ -n "$NEXT_PUBLIC_CONSOLE_URL" ] || unset NEXT_PUBLIC_CONSOLE_URL; \
+    pnpm --filter @tropis/harbor build
 
 # ── Stage 2: production image ──────────────────────────────────────────────────
 FROM node:22-alpine AS runner

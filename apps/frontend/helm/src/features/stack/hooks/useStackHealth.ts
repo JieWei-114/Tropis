@@ -1,21 +1,9 @@
 /**
- * STACK FEATURE — polls the backend /api/health endpoint every 10s and
- * exposes per-service up/down state for the health cards.
+ * STACK FEATURE — polls the backend /api/health endpoint (through the SDK)
+ * every 10s and exposes per-service up/down state for the health cards.
  */
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { env } from '../../../lib/env';
-
-const API_BASE = `${env.VITE_API_BASE_URL}/api`;
-
-interface ServiceStatus {
-  status: 'up' | 'down' | 'unknown';
-}
-
-interface HealthResponse {
-  status: 'ok' | 'error';
-  info?: Record<string, ServiceStatus>;
-  error?: Record<string, ServiceStatus>;
-}
+import { getHealth, type HealthCheck } from '../../../lib/api';
 
 export interface ServiceState {
   name: string;
@@ -36,20 +24,28 @@ export interface ServiceState {
  */
 const DERIVED_BACKEND = 'backend';
 
-const SERVICE_ORDER = [
-  DERIVED_BACKEND,
-  'mongo',
-  'redis',
-  'postgres',
-  'elasticsearch',
-  'clickhouse',
-  'pulsar',
-  'minio',
-  'opa',
-  'temporal',
-  'aerospike',
-  'pgvector',
-];
+/**
+ * The health payload names capabilities, not technologies: each technology
+ * on the page reads the capability it backs, and must be that capability's
+ * selected adapter (a broker swapped for Kafka leaves the Pulsar card down).
+ * A failing server answers a problem whose `checks[]` names no adapters;
+ * there a capability that is up counts as up whatever backs it.
+ */
+const SERVICE_PROBES: Record<string, { probe: string; adapter?: string }> = {
+  mongo: { probe: 'documents' },
+  redis: { probe: 'cache', adapter: 'redis' },
+  postgres: { probe: 'relational' },
+  elasticsearch: { probe: 'search', adapter: 'elasticsearch' },
+  clickhouse: { probe: 'olap', adapter: 'clickhouse' },
+  pulsar: { probe: 'messaging', adapter: 'pulsar' },
+  minio: { probe: 'objects', adapter: 'minio' },
+  opa: { probe: 'policy' },
+  temporal: { probe: 'workflow', adapter: 'temporal' },
+  aerospike: { probe: 'kv', adapter: 'aerospike' },
+  pgvector: { probe: 'vector', adapter: 'pgvector' },
+};
+
+const SERVICE_ORDER = [DERIVED_BACKEND, ...Object.keys(SERVICE_PROBES)];
 
 export function useStackHealth() {
   const [services, setServices] = useState<ServiceState[]>(
@@ -67,34 +63,23 @@ export function useStackHealth() {
     inFlight.current = true;
     setChecking(true);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-      let res: Response;
-      try {
-        res = await fetch(`${API_BASE}/health`, { signal: controller.signal });
-      } finally {
-        clearTimeout(timeout);
-      }
-      // A non-2xx health response still carries a body describing each service;
-      // only a transport failure means "unreachable".
-      const body = (await res.json()) as HealthResponse;
-
-      const all = { ...(body.info ?? {}), ...(body.error ?? {}) };
+      const health = await getHealth();
+      const byName = new Map<string, HealthCheck>(
+        health.checks.map((c) => [c.name, c]),
+      );
 
       setServices(
         SERVICE_ORDER.map((name) => {
           if (name === DERIVED_BACKEND) return { name, status: 'up' as const };
-          // pgvector is a Postgres extension — it has no separate probe, so it
-          // reports whatever Postgres reports.
-          const key = name === 'pgvector' ? 'postgres' : name;
-          return {
-            name,
-            status: all[key]
-              ? all[key].status === 'up'
-                ? ('up' as const)
-                : ('down' as const)
-              : ('down' as const),
-          };
+          const { probe, adapter } = SERVICE_PROBES[name];
+          const check = byName.get(probe);
+          const up =
+            check?.status === 'up' &&
+            !check.disabled &&
+            (adapter === undefined ||
+              check.adapter === undefined ||
+              check.adapter === adapter);
+          return { name, status: up ? ('up' as const) : ('down' as const) };
         }),
       );
       setLastChecked(new Date());

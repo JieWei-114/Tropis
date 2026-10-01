@@ -1,7 +1,7 @@
 # Tauri desktop shell — an app shell around the built frontend, NOT a backend
 # service, so it is intentionally its own standalone crate (the [workspace]
-# table below detaches it from any parent Cargo workspace; services/rust/ has
-# its own workspace for backend services).
+# table below detaches it from the root Cargo workspace, which holds the
+# services under services/).
 [package]
 name = "tropis-desktop"
 version = "0.1.0"

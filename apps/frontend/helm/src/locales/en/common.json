@@ -81,6 +81,15 @@
       "emailInvalid": "Enter a valid email address",
       "passwordMin8": "Password must be at least 8 characters",
       "ageRange": "Age must be between 1 and 120"
+    },
+    "oauth": {
+      "signingIn": "Finishing sign-in…",
+      "missingCode": "The sign-in link is incomplete. Start the sign-in again.",
+      "failed": "Sign-in failed. Start the sign-in again.",
+      "backToSignIn": "Back to sign in",
+      "continueWith": "Continue with {{provider}}",
+      "or": "or",
+      "starting": "Redirecting…"
     }
   },
   "users": {

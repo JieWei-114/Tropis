@@ -10,6 +10,7 @@ const GROUPS: { label: string; items: string[] }[] = [
     label: 'Backend',
     items: [
       'NestJS',
+      'Connect RPC',
       'gRPC',
       'Protobuf (buf)',
       'BullMQ',

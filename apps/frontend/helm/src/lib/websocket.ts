@@ -16,7 +16,8 @@ export type { WsEvent } from '@tropis/sdk';
  * Returns a cleanup function — call it on unmount or logout.
  */
 export function connectWs(onEvent: (e: WsEvent) => void): () => void {
-  return connectRealtime({ url: env.VITE_WS_URL, token: getToken() }, onEvent);
+  // A getter, so a reconnect after a token refresh presents the new token.
+  return connectRealtime({ url: env.VITE_WS_URL, token: getToken }, onEvent);
 }
 
 export function isConnected(): boolean {

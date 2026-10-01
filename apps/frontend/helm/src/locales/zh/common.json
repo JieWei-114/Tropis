@@ -81,6 +81,15 @@
       "emailInvalid": "请输入有效的邮箱地址",
       "passwordMin8": "密码至少需要 8 个字符",
       "ageRange": "年龄必须在 1 到 120 之间"
+    },
+    "oauth": {
+      "signingIn": "正在完成登录…",
+      "missingCode": "登录链接不完整，请重新登录。",
+      "failed": "登录失败，请重新登录。",
+      "backToSignIn": "返回登录",
+      "continueWith": "使用 {{provider}} 继续",
+      "or": "或",
+      "starting": "正在跳转…"
     }
   },
   "users": {

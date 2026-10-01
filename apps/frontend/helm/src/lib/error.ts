@@ -1,3 +1,3 @@
-// Error normalization now lives in @tropis/sdk — this module re-exports it so
-// existing `lib/error` imports keep working.
+// Error normalization lives in @tropis/sdk; helm code imports it from here so
+// every screen maps errors the same way.
 export { parseApiError } from '@tropis/sdk';

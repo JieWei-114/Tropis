@@ -2,7 +2,14 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { z } from 'zod';
-import { login, createUser, getToken } from '../../../lib/api';
+import {
+  login,
+  createUser,
+  getToken,
+  startOAuthSignIn,
+  type OAuthProvider,
+} from '../../../lib/api';
+import { parseApiError } from '../../../lib/error';
 import { tracker } from '../../../lib/tracking';
 import { useZodForm, optionalAgeString } from '../../../lib/forms';
 import { TRACKING_EVENTS } from '@tropis/shared';
@@ -46,10 +53,29 @@ function FieldError({ id, message }: { id: string; message?: string }) {
   );
 }
 
+const OAUTH_PROVIDERS: Array<{ id: OAuthProvider; label: string }> = [
+  { id: 'google', label: 'Google' },
+  { id: 'github', label: 'GitHub' },
+];
+
 export function LoginForm({ onLogin }: Props) {
   const { t } = useTranslation();
   const [mode, setMode] = useState<Mode>('login');
   const [error, setError] = useState('');
+  const [redirecting, setRedirecting] = useState(false);
+
+  // The SDK keeps a PKCE verifier for this tab and returns the provider
+  // URL carrying its challenge; the callback trades the code with it.
+  const signInWith = async (provider: OAuthProvider) => {
+    setError('');
+    setRedirecting(true);
+    try {
+      window.location.assign(await startOAuthSignIn(provider));
+    } catch (err) {
+      setRedirecting(false);
+      setError(parseApiError(err).message);
+    }
+  };
 
   const schema = useMemo(() => makeSchema(mode, t), [mode, t]);
   const {
@@ -126,7 +152,7 @@ export function LoginForm({ onLogin }: Props) {
           <p className="text-xs text-muted [&_code]:text-primary-soft">
             {mode === 'login' ? (
               <>
-                Auth via <code>gRPC AuthService/Login</code> → Envoy → NestJS
+                Auth via <code>POST /api/auth/login</code> → NestJS
               </>
             ) : (
               <>
@@ -227,6 +253,29 @@ export function LoginForm({ onLogin }: Props) {
                 ? t('auth.createAccountAndSignIn')
                 : t('auth.signIn')}
           </Button>
+
+          {mode === 'login' && (
+            <>
+              <p className="text-center text-xs text-muted">
+                {t('auth.oauth.or')}
+              </p>
+              {OAUTH_PROVIDERS.map((p) => (
+                <Button
+                  key={p.id}
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  data-testid={`oauth-${p.id}`}
+                  disabled={redirecting}
+                  onClick={() => void signInWith(p.id)}
+                >
+                  {redirecting
+                    ? t('auth.oauth.starting')
+                    : t('auth.oauth.continueWith', { provider: p.label })}
+                </Button>
+              ))}
+            </>
+          )}
         </form>
       </Card>
     </div>

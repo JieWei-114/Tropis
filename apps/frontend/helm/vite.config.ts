@@ -34,18 +34,19 @@ export default defineConfig({
       workbox: {
         // Offline app shell: precache all built assets…
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
-        // …but never serve stale API data: network-first with a short timeout.
+        // …but never cache API responses: they are per-user and carry
+        // credentials, so a cached copy could be served to the next user of
+        // the device. The RPC and REST calls always go to the network.
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              networkTimeoutSeconds: 5,
-              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 },
-            },
+            handler: 'NetworkOnly',
           },
         ],
+        // Drop precaches of older builds. Runtime caches (the former
+        // 'api-cache') are deleted on start-up and on logout
+        // (src/lib/caches.ts).
+        cleanupOutdatedCaches: true,
         // SPA navigation fallback must never swallow API routes.
         navigateFallbackDenylist: [/^\/api\//],
       },
@@ -75,7 +76,7 @@ export default defineConfig({
     setupFiles: './src/setupTests.ts',
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'html'],
+      reporter: ['text', 'html', 'lcov'],
       exclude: ['node_modules/', 'dist/', 'vite.config.ts'],
     },
   },

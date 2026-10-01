@@ -6,6 +6,7 @@ vi.mock('../../../lib/api', () => ({
   login: vi.fn(),
   createUser: vi.fn(),
   getToken: vi.fn(() => 'token-abc'),
+  startOAuthSignIn: vi.fn(),
 }));
 
 import { LoginForm } from '../components/LoginForm';
@@ -140,5 +141,21 @@ describe('LoginForm', () => {
     await user.click(submitButton as HTMLElement);
 
     expect(await screen.findByText(/invalid credentials/i)).toBeInTheDocument();
+  });
+
+  it('starts an OAuth sign-in through the SDK with the chosen provider', async () => {
+    const start = grpcWeb.startOAuthSignIn as Mock;
+    start.mockRejectedValue(
+      new Error('OAuth sign-in needs a secure context (https or localhost)'),
+    );
+    const user = userEvent.setup();
+    render(<LoginForm onLogin={vi.fn()} />);
+
+    await user.click(screen.getByTestId('oauth-github'));
+
+    expect(start).toHaveBeenCalledWith('github');
+    expect(await screen.findByTestId('login-error')).toHaveTextContent(
+      /secure context/i,
+    );
   });
 });

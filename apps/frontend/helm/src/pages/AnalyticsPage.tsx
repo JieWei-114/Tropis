@@ -87,14 +87,9 @@ export function AnalyticsPage() {
     // feed + stats, 'tracking.event' throttle-refreshes the behavior insights.
     const unsubscribe = connectWs((e) => {
       if (e.name === 'analytics.event') {
-        // The gateway broadcasts an outbox ENVELOPE, not the event itself:
-        // { eventId: <outbox row id>, eventType, aggregateId, payload: {…},
-        //   timestamp: <relay time> }. The domain event is `payload`; the
-        // envelope's own `eventId` and `timestamp` describe the outbox row and
-        // the relay, so dedupe against fetchRecent() only works on the
-        // payload's ids.
-        const envelope = e.data as { payload?: unknown };
-        const event = (envelope.payload ?? e.data) as unknown as AnalyticsEvent;
+        // The push carries the analytics event itself, so its eventId is the
+        // one fetchRecent() returns and dedupes against.
+        const event = e.data as unknown as AnalyticsEvent;
         setLiveEvents((prev) => {
           if (prev.some((ev) => ev.eventId === event.eventId)) return prev;
           return [event, ...prev].slice(0, MAX_FEED);
