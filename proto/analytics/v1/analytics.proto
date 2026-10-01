@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package tropis.analytics.v1;
 
+import "google/protobuf/timestamp.proto";
+
 // ── Analytics ─────────────────────────────────────────────────────────────────
 service AnalyticsService {
   rpc CreateEvent      (CreateEventRequest)   returns (EventResponse);
@@ -21,7 +23,8 @@ message EventResponse {
   string event_type = 2;
   string user_id    = 3;
   string metadata   = 4; // JSON string
-  int64  timestamp  = 5;
+  int64  timestamp  = 5 [deprecated = true]; // epoch ms; use event_time
+  google.protobuf.Timestamp event_time = 6;
 }
 
 message StatsRequest {}
@@ -29,14 +32,16 @@ message StatsRequest {}
 message StatsResponse {
   int32              total_events = 1;
   repeated EventStat by_type     = 2;
-  int64              cached_at   = 3;
+  int64              cached_at   = 3 [deprecated = true]; // epoch ms; use cache_time
   bool               from_cache  = 4;
+  google.protobuf.Timestamp cache_time = 5;
 }
 
 message EventStat {
   string event_type = 1;
   int32  count      = 2;
-  int64  last_seen  = 3;
+  int64  last_seen  = 3 [deprecated = true]; // epoch ms; use last_seen_time
+  google.protobuf.Timestamp last_seen_time = 4;
 }
 
 message RecentRequest {}
@@ -50,9 +55,10 @@ message MinutelyStatsRequest {
 }
 
 message MinutelyStat {
-  int64  window_ms  = 1;
+  int64  window_ms  = 1 [deprecated = true]; // window start, epoch ms; use window_start_time
   string event_type = 2;
   int32  count      = 3;
+  google.protobuf.Timestamp window_start_time = 4;
 }
 
 message MinutelyStatsResponse {

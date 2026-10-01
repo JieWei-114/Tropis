@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package tropis.tracking.v1;
 
+import "google/protobuf/timestamp.proto";
+
 // ── Tracking (user-behavior analytics reads) ─────────────────────────────────
 // Ingest is REST (POST /api/v1/track) because navigator.sendBeacon cannot
 // speak gRPC-Web; reads stay gRPC-first per docs/architecture.md.
@@ -36,7 +38,8 @@ message RecentTrackEvent {
   string session_id   = 5;
   string page         = 6;
   string props        = 7; // JSON string
-  int64  timestamp    = 8; // epoch ms
+  int64  timestamp    = 8 [deprecated = true]; // epoch ms; use event_time
+  google.protobuf.Timestamp event_time = 9;
 }
 
 message FunnelStep {

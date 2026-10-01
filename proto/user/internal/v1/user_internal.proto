@@ -3,10 +3,10 @@ syntax = "proto3";
 package tropis.user.internal.v1;
 
 // ── Internal tier (docs/api-conventions.md) ──────────────────────────────────
-// Service-to-service only. NOT exposed through Envoy / gRPC-Web and NOT part
+// Service-to-service only. NOT served on the public listener and NOT part
 // of the public SDK (excluded from buf.gen.yaml codegen). Callers hit
-// backend:50051 directly, restricted by NetworkPolicy, and must present a
-// service identity (x-service-token metadata; production = mTLS/SPIFFE).
+// the internal listener (backend:50061) directly, restricted by NetworkPolicy,
+// and must present a service identity (x-service-token metadata).
 //
 // Message shapes are defined locally (not imported from tropis.user.v1) so the
 // internal surface can evolve independently. Same compatibility rules as the

@@ -25,32 +25,39 @@ message CreateUserRequest {
   string idempotency_key = 5; // optional — same key within 24 h returns cached response
 }
 
+// Pagination follows AIP-158: send page_size and the next_page_token of the
+// previous response as page_token. page and limit are deprecated; a request
+// that sets page_size or page_token ignores them.
 message FindAllRequest {
-  int32 page  = 1;
-  int32 limit = 2;
+  int32  page       = 1 [deprecated = true]; // use page_token
+  int32  limit      = 2 [deprecated = true]; // use page_size
+  int32  page_size  = 3; // maximum users per page; 0 means the server default
+  string page_token = 4; // next_page_token of the previous response; empty for the first page
 }
 
 message FindByIdRequest {
   string id = 1;
 }
 
-// token = JWT for auth, id = target user id
+// id = target user id; the caller is identified by the Authorization header.
 message UpdateUserRequest {
-  string id       = 1;
-  string name     = 2;
-  string email    = 3;
-  string password = 4;
-  int32  age      = 5;
-  string status   = 6;
+  string id               = 1;
+  string name             = 2;
+  string email            = 3;
+  string password         = 4;
+  int32  age              = 5;
+  string status           = 6;
+  string current_password = 7; // the caller's current password, required to change their own password or email
 }
 
 message ReplaceUserRequest {
-  string id       = 1;
-  string name     = 2;
-  string email    = 3;
-  string status   = 4;
-  string password = 5;
-  int32  age      = 6;
+  string id               = 1;
+  string name             = 2;
+  string email            = 3;
+  string status           = 4;
+  string password         = 5;
+  int32  age              = 6;
+  string current_password = 7; // the caller's current password, required to change their own password or email
 }
 
 message DeleteUserRequest {
@@ -71,19 +78,25 @@ message UserResponse {
 }
 
 message SearchUsersRequest {
-  string query = 1;
-  int32  size  = 2;
+  string query     = 1;
+  int32  size      = 2 [deprecated = true]; // use page_size
+  int32  page_size = 3; // maximum users returned; 0 means the server default
 }
 
 message FindSimilarRequest {
-  string user_id = 1;
-  int32  limit   = 2;
+  string user_id   = 1;
+  int32  limit     = 2 [deprecated = true]; // use page_size
+  int32  page_size = 3; // maximum users returned; 0 means the server default
 }
 
+// total, page, limit and total_pages are deprecated in favour of
+// next_page_token and total_size (AIP-158).
 message UsersResponse {
-  repeated UserResponse users      = 1;
-  int32                 total      = 2;
-  int32                 page       = 3;
-  int32                 limit      = 4;
-  int32                 total_pages = 5;
+  repeated UserResponse users           = 1;
+  int32                 total           = 2 [deprecated = true]; // use total_size
+  int32                 page            = 3 [deprecated = true];
+  int32                 limit           = 4 [deprecated = true];
+  int32                 total_pages     = 5 [deprecated = true];
+  string                next_page_token = 6; // empty on the last page
+  int32                 total_size      = 7; // total matching users across all pages
 }

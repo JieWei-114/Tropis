@@ -19,10 +19,12 @@ message LoginResponse {
 
 message EmptyRequest {}
 
-// Protected calls use the standard gRPC Authorization metadata header:
-//   Authorization: Bearer <jwt>
+// Not used by any RPC: protected calls carry the token in the Authorization
+// header (Authorization: Bearer <jwt>). Kept so the message name stays
+// resolvable for clients generated from older contracts.
 message TokenRequest {
-  string token = 1; // kept for backward compatibility with old clients
+  option deprecated = true;
+  string token = 1;
 }
 
 message CurrentUserResponse {
