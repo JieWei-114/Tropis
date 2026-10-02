@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package tropis.user.v1;
 
+import "google/protobuf/timestamp.proto";
+
 // ── User ──────────────────────────────────────────────────────────────────────
 service UserService {
   rpc Create      (CreateUserRequest)   returns (UserResponse);
@@ -75,6 +77,8 @@ message UserResponse {
   int32  age         = 4;
   string status      = 5;
   int32  login_count = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
 }
 
 message SearchUsersRequest {
