@@ -12,6 +12,8 @@ import {
   type OAuthProvider,
   type OnboardingWorkflows,
   type RestClient,
+  type UserRolesOptions,
+  type UserRolesPage,
 } from './rest/index';
 import {
   clearLegacyTokens,
@@ -21,6 +23,8 @@ import {
 } from './auth/token';
 import { createRefresher } from './auth/refresh';
 import { beginPkce, takePkceVerifier } from './auth/pkce';
+import type { SecureTokenStore } from './auth/session-store';
+import { DEFAULT_NATIVE_OAUTH_REDIRECT } from '@tropis/shared';
 import type { UserResponse } from './gen/user/v1/user_pb';
 import type { EventResponse } from './gen/analytics/v1/analytics_pb';
 import type { TraceparentProvider } from './trace/index';
@@ -209,6 +213,17 @@ export interface ApiOptions {
   tenantId?: string;
   /** Active W3C traceparent per call; a fresh trace when it returns none. */
   traceparent?: TraceparentProvider;
+  /**
+   * Native session mode, for the Tauri and Capacitor shells: the refresh
+   * token lives in this OS secure store instead of the httpOnly cookie.
+   * Omit it in a browser.
+   */
+  secureTokenStore?: SecureTokenStore;
+  /**
+   * Native mode: the custom-scheme URL an OAuth sign-in returns to; must be
+   * in the server's NATIVE_OAUTH_REDIRECTS. Defaults to tropis://auth/callback.
+   */
+  nativeOAuthRedirect?: string;
 }
 
 export interface Api {
@@ -221,14 +236,15 @@ export interface Api {
   getToken: () => string | null;
   login: (email: string, password: string) => Promise<void>;
   /**
-   * Restores the session on app start from the refresh cookie; resolves to
-   * whether a session exists. Also removes tokens older SDK versions left in
-   * localStorage.
+   * Restores the session on app start from the refresh cookie (native: the
+   * secure store); resolves to whether a session exists. Also removes tokens
+   * older SDK versions left in localStorage.
    */
   restoreSession: () => Promise<boolean>;
   /**
    * Starts an OAuth sign-in: keeps a PKCE verifier in sessionStorage and
-   * resolves to the URL to navigate the browser to.
+   * resolves to the URL to navigate the browser to (native: to open in the
+   * system browser; it returns to `nativeOAuthRedirect`).
    */
   startOAuthSignIn: (provider: OAuthProvider) => Promise<string>;
   /**
@@ -253,8 +269,8 @@ export interface Api {
   searchUsers: (query: string, size?: number) => Promise<User[]>;
   findSimilarUsers: (userId: string, limit?: number) => Promise<User[]>;
   uploadAvatar: (userId: string, file: File) => Promise<string>;
-  /** Roles of every user in the tenant, keyed by user id (admin only). */
-  getUserRoles: () => Promise<Record<string, string[]>>;
+  /** One page of user roles in the tenant (admin only). */
+  getUserRoles: (options?: UserRolesOptions) => Promise<UserRolesPage>;
   /** Replaces a user's roles (admin only). */
   setUserRoles: (
     id: string,
@@ -296,9 +312,12 @@ function authChannel(): BroadcastChannel | undefined {
 
 export function createApi(options: ApiOptions): Api {
   const getToken = options.getToken ?? getStoredToken;
+  const store = options.secureTokenStore;
+  const nativeSession = store !== undefined;
   // Shared single-flight refresher — both transports refresh-on-401 through it.
   const refresh = createRefresher(options.restBaseUrl, {
     traceparent: options.traceparent,
+    store,
   });
   const channel = authChannel();
   channel?.addEventListener('message', (e: MessageEvent) => {
@@ -318,7 +337,24 @@ export function createApi(options: ApiOptions): Api {
     tenantId: options.tenantId,
     traceparent: options.traceparent,
     refresh,
+    nativeSession,
   });
+
+  /** Keeps a new session: the refresh token (native) first, then the access token. */
+  const startSession = async (
+    {
+      accessToken,
+      refreshToken,
+    }: { accessToken?: string; refreshToken?: string },
+    failure: string,
+  ): Promise<void> => {
+    if (!accessToken) throw new Error(failure);
+    if (store) {
+      if (!refreshToken) throw new Error(failure);
+      await store.set(refreshToken);
+    }
+    setToken(accessToken);
+  };
 
   const listUsers = async ({
     pageSize = 0,
@@ -347,9 +383,10 @@ export function createApi(options: ApiOptions): Api {
       // Login over REST (not RPC): the REST endpoint runs the full
       // AuthService (lockout) and sets the refresh cookie that keeps the
       // session alive; RPC Login only returns an access token.
-      const { accessToken } = await rest.login(email, password);
-      if (!accessToken) throw new Error('Login failed: no token in response');
-      setToken(accessToken);
+      await startSession(
+        await rest.login(email, password),
+        'Login failed: no token in response',
+      );
     },
 
     async restoreSession() {
@@ -359,7 +396,13 @@ export function createApi(options: ApiOptions): Api {
     },
 
     async startOAuthSignIn(provider) {
-      return rest.oauthStartUrl(provider, await beginPkce());
+      return rest.oauthStartUrl(
+        provider,
+        await beginPkce(),
+        nativeSession
+          ? (options.nativeOAuthRedirect ?? DEFAULT_NATIVE_OAUTH_REDIRECT)
+          : undefined,
+      );
     },
 
     async completeOAuthSignIn(code) {
@@ -369,16 +412,23 @@ export function createApi(options: ApiOptions): Api {
           'This sign-in was not started in this browser tab; start it again',
         );
       }
-      const { accessToken } = await rest.exchangeOAuthCode(code, verifier);
-      if (!accessToken) throw new Error('Sign-in failed: no token in response');
-      setToken(accessToken);
+      await startSession(
+        await rest.exchangeOAuthCode(code, verifier),
+        'Sign-in failed: no token in response',
+      );
     },
 
     async logout() {
       // Server first, while the access token is still at hand: the server
-      // revokes it and the refresh cookie. rest.logout swallows its own
+      // revokes it and the refresh token. rest.logout swallows its own
       // errors, so a network failure still clears the local session.
-      await rest.logout();
+      if (store) {
+        const refreshToken = await store.get().catch(() => null);
+        await rest.logout(refreshToken ?? undefined);
+        await store.clear().catch(() => undefined);
+      } else {
+        await rest.logout();
+      }
       clearToken();
       channel?.postMessage('logout');
     },
@@ -451,7 +501,7 @@ export function createApi(options: ApiOptions): Api {
     },
 
     uploadAvatar: (userId, file) => rest.uploadAvatar(userId, file),
-    getUserRoles: () => rest.getUserRoles(),
+    getUserRoles: (options) => rest.getUserRoles(options),
     setUserRoles: (id, roles) => rest.setUserRoles(id, roles),
     listOnboardingWorkflows: () => rest.listOnboardingWorkflows(),
     getHealth: () => rest.getHealth(),

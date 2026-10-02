@@ -288,3 +288,230 @@ describe('api session', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+function memoryStore(initial: string | null = null) {
+  let value = initial;
+  return {
+    get value() {
+      return value;
+    },
+    get: vi.fn(async () => value),
+    set: vi.fn(async (token: string) => {
+      value = token;
+    }),
+    clear: vi.fn(async () => {
+      value = null;
+    }),
+  };
+}
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status });
+
+describe('native refresher', () => {
+  it('posts the stored token with the native header and no cookie, then rotates it', async () => {
+    const token = jwt();
+    const store = memoryStore('rt-1');
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(json({ accessToken: token, refreshToken: 'rt-2' }));
+    const refresh = createRefresher('http://api.test/', { fetchImpl, store });
+
+    await expect(refresh()).resolves.toBe(token);
+
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://api.test/api/auth/native/refresh');
+    expect(init.credentials).toBe('omit');
+    expect((init.headers as Record<string, string>)['x-tropis-client']).toBe(
+      'native',
+    );
+    expect(JSON.parse(init.body as string)).toEqual({ refreshToken: 'rt-1' });
+    expect(store.value).toBe('rt-2');
+    expect(getToken()).toBe(token);
+  });
+
+  it('reports no session without calling the server when the store is empty', async () => {
+    const fetchImpl = vi.fn();
+    const refresh = createRefresher('http://api.test', {
+      fetchImpl,
+      store: memoryStore(),
+    });
+    await expect(refresh()).resolves.toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([400, 401, 403])(
+    'clears the stored token when the server refuses it (%i)',
+    async (status) => {
+      setToken(jwt());
+      const store = memoryStore('rt-1');
+      const refresh = createRefresher('http://api.test', {
+        fetchImpl: vi.fn().mockResolvedValue(new Response(null, { status })),
+        store,
+      });
+      await expect(refresh()).resolves.toBeNull();
+      expect(store.clear).toHaveBeenCalled();
+      expect(getToken()).toBeNull();
+    },
+  );
+
+  it('keeps the stored token on a network failure or an outage', async () => {
+    const store = memoryStore('rt-1');
+    const refresh = createRefresher('http://api.test', {
+      fetchImpl: vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError('offline'))
+        .mockResolvedValueOnce(new Response(null, { status: 503 })),
+      store,
+    });
+    await expect(refresh()).resolves.toBeNull();
+    await expect(refresh()).resolves.toBeNull();
+    expect(store.value).toBe('rt-1');
+    expect(store.clear).not.toHaveBeenCalled();
+  });
+
+  it('shares one rotation between concurrent callers', async () => {
+    const store = memoryStore('rt-1');
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(json({ accessToken: jwt(), refreshToken: 'rt-2' }));
+    const refresh = createRefresher('http://api.test', { fetchImpl, store });
+    await Promise.all([refresh(), refresh(), refresh()]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('ends the session when the rotated token cannot be stored', async () => {
+    const store = memoryStore('rt-1');
+    store.set.mockRejectedValue(new Error('keyring unavailable'));
+    const refresh = createRefresher('http://api.test', {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(json({ accessToken: jwt(), refreshToken: 'rt-2' })),
+      store,
+    });
+    await expect(refresh()).resolves.toBeNull();
+    expect(getToken()).toBeNull();
+    expect(store.clear).toHaveBeenCalled();
+  });
+
+  it('ends the session when a native answer carries no refresh token', async () => {
+    const store = memoryStore('rt-1');
+    const refresh = createRefresher('http://api.test', {
+      fetchImpl: vi.fn().mockResolvedValue(json({ accessToken: jwt() })),
+      store,
+    });
+    await expect(refresh()).resolves.toBeNull();
+    expect(store.value).toBeNull();
+  });
+});
+
+describe('api native session', () => {
+  const api = (store: ReturnType<typeof memoryStore>, redirect?: string) =>
+    createApi({
+      rpcBaseUrl: 'http://rpc.test',
+      restBaseUrl: 'http://api.test',
+      tenantId: 'acme',
+      secureTokenStore: store,
+      nativeOAuthRedirect: redirect,
+    });
+
+  it('logs in with the native header, keeps the refresh token in the store and logs out with it', async () => {
+    const store = memoryStore();
+    const token = jwt();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json({ accessToken: token, refreshToken: 'rt-1' }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const a = api(store);
+
+    await a.login('a@b.co', 'password1');
+    expect(store.value).toBe('rt-1');
+    expect(getToken()).toBe(token);
+    const [, loginInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(loginInit.credentials).toBe('omit');
+    expect(
+      (loginInit.headers as Record<string, string>)['x-tropis-client'],
+    ).toBe('native');
+
+    await a.logout();
+    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe('http://api.test/api/auth/native/logout');
+    expect(JSON.parse(init.body as string)).toEqual({ refreshToken: 'rt-1' });
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      `Bearer ${token}`,
+    );
+    expect(store.value).toBeNull();
+    expect(getToken()).toBeNull();
+  });
+
+  it('refuses a native login answer without a refresh token', async () => {
+    const store = memoryStore();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(json({ accessToken: jwt() })),
+    );
+    await expect(api(store).login('a@b.co', 'password1')).rejects.toThrow(
+      /no token/,
+    );
+    expect(getToken()).toBeNull();
+  });
+
+  it('restores the session from the secure store on launch', async () => {
+    const store = memoryStore('rt-1');
+    const token = jwt();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(json({ accessToken: token, refreshToken: 'rt-2' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api(store).restoreSession()).resolves.toBe(true);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'http://api.test/api/auth/native/refresh',
+    );
+    expect(store.value).toBe('rt-2');
+  });
+
+  it('starts OAuth with the native redirect and keeps the exchanged refresh token', async () => {
+    vi.stubGlobal('sessionStorage', memoryStorage());
+    const store = memoryStore();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(json({ accessToken: jwt(), refreshToken: 'rt-o' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const a = api(store);
+
+    const url = new URL(await a.startOAuthSignIn('github'));
+    expect(url.searchParams.get('redirect')).toBe('tropis://auth/callback');
+    await a.completeOAuthSignIn('one-time');
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['x-tropis-client']).toBe(
+      'native',
+    );
+    expect(store.value).toBe('rt-o');
+
+    const custom = new URL(
+      await api(memoryStore(), 'other://cb').startOAuthSignIn('google'),
+    );
+    expect(custom.searchParams.get('redirect')).toBe('other://cb');
+  });
+
+  it('a browser session never sends a redirect or the native header', async () => {
+    vi.stubGlobal('sessionStorage', memoryStorage());
+    const fetchMock = vi.fn().mockResolvedValue(json({ accessToken: jwt() }));
+    vi.stubGlobal('fetch', fetchMock);
+    const a = createApi({
+      rpcBaseUrl: 'http://rpc.test',
+      restBaseUrl: 'http://api.test',
+    });
+    const url = new URL(await a.startOAuthSignIn('google'));
+    expect(url.searchParams.has('redirect')).toBe(false);
+    await a.login('a@b.co', 'password1');
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.credentials).toBe('include');
+    expect((init.headers as Record<string, string>)['x-tropis-client']).toBe(
+      '1',
+    );
+  });
+});

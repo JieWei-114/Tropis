@@ -41,6 +41,9 @@ export {
   type OAuthProvider,
   type OnboardingWorkflow,
   type OnboardingWorkflows,
+  type UserRoles,
+  type UserRolesPage,
+  type UserRolesOptions,
   type HealthCheck,
   type HealthStatus,
 } from './rest/index';
@@ -67,7 +70,8 @@ export {
 } from './errors/index';
 export { Code, ConnectError } from '@connectrpc/connect';
 
-// Access-token store (memory only; the refresh token is an httpOnly cookie)
+// Access-token store (memory only; the refresh token is an httpOnly cookie,
+// or a SecureTokenStore in a native shell)
 export {
   getToken,
   setToken,
@@ -81,6 +85,7 @@ export {
   type Refresher,
   type RefresherOptions,
 } from './auth/refresh';
+export type { SecureTokenStore } from './auth/session-store';
 export {
   OAUTH_VERIFIER_KEY,
   createCodeVerifier,

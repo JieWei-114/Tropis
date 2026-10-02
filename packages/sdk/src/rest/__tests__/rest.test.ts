@@ -288,7 +288,14 @@ describe('rest client roles and workflows', () => {
       .fn()
       .mockResolvedValueOnce(new Response(null, { status: 401 }))
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ u1: ['admin'] }), { status: 200 }),
+        new Response(
+          JSON.stringify({
+            items: [{ userId: 'u1', roles: ['admin'] }],
+            nextPageToken: '',
+            totalSize: 1,
+          }),
+          { status: 200 },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ id: 'u1', roles: ['viewer'] }), {
@@ -302,7 +309,11 @@ describe('rest client roles and workflows', () => {
       refresh: async () => (token = 'new'),
     });
 
-    expect(await client.getUserRoles()).toEqual({ u1: ['admin'] });
+    expect(await client.getUserRoles()).toEqual({
+      items: [{ userId: 'u1', roles: ['admin'] }],
+      nextPageToken: '',
+      totalSize: 1,
+    });
     expect(await client.setUserRoles('u1', ['viewer'])).toEqual({
       id: 'u1',
       roles: ['viewer'],
@@ -312,11 +323,33 @@ describe('rest client roles and workflows', () => {
     expect(
       calls.map(([, i]) => (i.headers as Record<string, string>).Authorization),
     ).toEqual(['Bearer old', 'Bearer new', 'Bearer new']);
+    expect(calls[0]![0]).toBe('http://api.test/api/users/roles');
     expect(calls[2]![0]).toBe('http://api.test/api/users/u1/roles');
     expect(calls[2]![1].method).toBe('PATCH');
     expect(JSON.parse(calls[2]![1].body as string)).toEqual({
       roles: ['viewer'],
     });
+  });
+
+  it('sends the page size and token only when set', async () => {
+    const page = { items: [], nextPageToken: '', totalSize: 0 };
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(
+        async () => new Response(JSON.stringify(page), { status: 200 }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const client = createRestClient({ baseUrl: 'http://api.test' });
+
+    await client.getUserRoles({ pageSize: 50, pageToken: 'tok/+=' });
+    await client.getUserRoles({ pageSize: 10 });
+    await client.getUserRoles({ pageToken: '' });
+
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([
+      'http://api.test/api/users/roles?pageSize=50&pageToken=tok%2F%2B%3D',
+      'http://api.test/api/users/roles?pageSize=10',
+      'http://api.test/api/users/roles',
+    ]);
   });
 
   it('surfaces a role change rejection as the problem it is', async () => {
@@ -350,7 +383,7 @@ describe('rest client roles and workflows', () => {
           workflowId: 'onboarding-u1',
           userId: 'u1',
           status: 'RUNNING',
-          startTime: 1,
+          startTime: '2026-10-02T08:00:00.000Z',
           closeTime: null,
         },
       ],

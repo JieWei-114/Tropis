@@ -6,10 +6,16 @@
  * Auth endpoints run with `credentials: 'include'` and the x-tropis-client
  * header: the server keeps the refresh token in an httpOnly cookie scoped to
  * /api/auth and rejects cookie-authenticated calls without that header
- * (AUTH_CSRF_REJECTED).
+ * (AUTH_CSRF_REJECTED). With `nativeSession`, a native shell sends
+ * `x-tropis-client: native` without credentials instead, and login and the
+ * OAuth exchange answer the refresh token in the body.
  */
 import { HEADERS } from '@tropis/shared';
-import { authEndpointHeaders, type Refresher } from '../auth/refresh';
+import {
+  authEndpointHeaders,
+  nativeEndpointHeaders,
+  type Refresher,
+} from '../auth/refresh';
 import {
   isProblemBody,
   readApiError,
@@ -34,6 +40,8 @@ export interface RestOptions {
   tenantId?: string;
   /** Active W3C traceparent per call; a fresh trace when it returns none. */
   traceparent?: TraceparentProvider;
+  /** Native session flow: refresh token in the body, no cookie. */
+  nativeSession?: boolean;
 }
 
 /**
@@ -42,9 +50,14 @@ export interface RestOptions {
  */
 const REST_TIMEOUT_MS = 10_000;
 
-/** Body of login and OAuth exchange; the refresh token is the cookie. */
+/**
+ * Body of login and OAuth exchange. The browser gets the access token only
+ * (the refresh token is the cookie); a native session also gets
+ * `refreshToken`.
+ */
 export interface AccessTokenResponse {
   accessToken: string;
+  refreshToken?: string;
 }
 
 export type OAuthProvider = 'google' | 'github';
@@ -54,9 +67,9 @@ export interface OnboardingWorkflow {
   userId: string;
   /** 'RUNNING' | 'COMPLETED' | 'FAILED' | ... */
   status: string;
-  /** Epoch milliseconds, or null while unknown. */
-  startTime: number | null;
-  closeTime: number | null;
+  /** ISO 8601 UTC, or null while unknown. */
+  startTime: string | null;
+  closeTime: string | null;
 }
 
 export interface OnboardingWorkflows {
@@ -64,6 +77,28 @@ export interface OnboardingWorkflows {
   available: boolean;
   summary: { running: number; completed: number };
   items: OnboardingWorkflow[];
+}
+
+/** One user's roles. */
+export interface UserRoles {
+  userId: string;
+  roles: string[];
+}
+
+/** One page of GET /api/users/roles (AIP-158). */
+export interface UserRolesPage {
+  items: UserRoles[];
+  /** Pass as `pageToken` to read the next page; empty on the last page. */
+  nextPageToken: string;
+  /** Users across all pages. */
+  totalSize: number;
+}
+
+export interface UserRolesOptions {
+  /** Maximum users per page; the server default (20, at most 100) when omitted. */
+  pageSize?: number;
+  /** `nextPageToken` of the previous page; omit for the first page. */
+  pageToken?: string;
 }
 
 export interface HealthCheck {
@@ -96,14 +131,24 @@ export interface RestClient {
     code: string,
     verifier: string,
   ): Promise<AccessTokenResponse>;
-  /** URL of GET /api/auth/{provider}, which starts an OAuth sign-in. */
-  oauthStartUrl(provider: OAuthProvider, challenge: string): string;
-  /** POST /api/auth/logout — revokes the session and clears the cookie. */
-  logout(): Promise<void>;
+  /**
+   * URL of GET /api/auth/{provider}, which starts an OAuth sign-in; a native
+   * shell passes its custom-scheme `redirect` to be returned to.
+   */
+  oauthStartUrl(
+    provider: OAuthProvider,
+    challenge: string,
+    redirect?: string,
+  ): string;
+  /**
+   * POST /api/auth/logout — revokes the session and clears the cookie; a
+   * native session posts /api/auth/native/logout with its refresh token.
+   */
+  logout(refreshToken?: string): Promise<void>;
   /** POST /api/users/:id/avatar — multipart upload, returns the avatar URL. */
   uploadAvatar(userId: string, file: File): Promise<string>;
-  /** GET /api/users/roles — roles of every user in the tenant, by id (admin). */
-  getUserRoles(): Promise<Record<string, string[]>>;
+  /** GET /api/users/roles — one page of user roles in the tenant (admin). */
+  getUserRoles(options?: UserRolesOptions): Promise<UserRolesPage>;
   /** PATCH /api/users/:id/roles — replaces a user's roles (admin). */
   setUserRoles(
     id: string,
@@ -165,6 +210,7 @@ export function createRestClient(options: RestOptions): RestClient {
     timeoutMs = REST_TIMEOUT_MS,
     tenantId,
     traceparent,
+    nativeSession = false,
   } = options;
   const tenantHeaders: Record<string, string> = tenantId
     ? { [HEADERS.TENANT]: tenantId }
@@ -228,16 +274,16 @@ export function createRestClient(options: RestOptions): RestClient {
     return (await res.json()) as T;
   }
 
-  /** POST to a cookie-authenticated auth endpoint. */
+  /** POST to an auth endpoint, in the cookie or the native session flow. */
   function authPost(path: string, body?: unknown): Promise<Response> {
     return timedFetch(`${apiBase}/auth/${path}`, {
       method: 'POST',
-      credentials: 'include',
+      credentials: nativeSession ? 'omit' : 'include',
       headers: {
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
         ...traceHeaders(),
         ...tenantHeaders,
-        ...authEndpointHeaders(),
+        ...(nativeSession ? nativeEndpointHeaders() : authEndpointHeaders()),
         ...bearer(),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -259,14 +305,19 @@ export function createRestClient(options: RestOptions): RestClient {
       );
     },
 
-    oauthStartUrl(provider, challenge) {
-      return `${apiBase}/auth/${provider}?challenge=${encodeURIComponent(challenge)}`;
+    oauthStartUrl(provider, challenge, redirect) {
+      const query = new URLSearchParams({ challenge });
+      if (redirect) query.set('redirect', redirect);
+      return `${apiBase}/auth/${provider}?${query.toString()}`;
     },
 
-    async logout() {
+    async logout(refreshToken) {
       // Best effort: a network failure must still let the caller clear the
       // local session rather than trap the user signed in.
-      await authPost('logout').catch(() => undefined);
+      const sent = nativeSession
+        ? authPost('native/logout', refreshToken ? { refreshToken } : {})
+        : authPost('logout');
+      await sent.catch(() => undefined);
     },
 
     async uploadAvatar(userId, file) {
@@ -279,9 +330,13 @@ export function createRestClient(options: RestOptions): RestClient {
       return (await json<{ url: string }>(res)).url;
     },
 
-    async getUserRoles() {
-      return json<Record<string, string[]>>(
-        await authedFetch(`${apiBase}/users/roles`),
+    async getUserRoles({ pageSize, pageToken }: UserRolesOptions = {}) {
+      const query = new URLSearchParams();
+      if (pageSize !== undefined) query.set('pageSize', String(pageSize));
+      if (pageToken) query.set('pageToken', pageToken);
+      const qs = query.toString();
+      return json<UserRolesPage>(
+        await authedFetch(`${apiBase}/users/roles${qs ? `?${qs}` : ''}`),
       );
     },
 

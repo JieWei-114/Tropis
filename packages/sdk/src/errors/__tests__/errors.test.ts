@@ -137,7 +137,7 @@ describe('parseApiError: Connect errors', () => {
   it('prefers the retryable flag the server sent', () => {
     expect(
       parseApiError(
-        withInfo(Code.Unavailable, 'off', 'CAPABILITY_DISABLED', 'false'),
+        withInfo(Code.Unimplemented, 'off', 'CAPABILITY_DISABLED', 'false'),
       ).retryable,
     ).toBe(false);
     expect(

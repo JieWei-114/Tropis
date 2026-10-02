@@ -3,13 +3,18 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: ['src/index.ts'],
   format: ['esm'],
-  dts: true,
+  // @tropis/shared is a private workspace package: the published SDK carries
+  // what it uses from it inside both the JS bundle (noExternal) and the
+  // declarations (dts.resolve), so dist/ never imports it.
+  dts: {
+    resolve: ['@tropis/shared'],
+    compilerOptions: {
+      baseUrl: '.',
+      paths: { '@tropis/shared': ['../shared/src/index.ts'] },
+    },
+  },
   sourcemap: true,
   clean: true,
   outDir: 'dist',
-  // @tropis/shared is a private workspace package, so the published SDK
-  // carries the catalog, header names and event types inside its JS bundle.
-  // The declarations still import its types: publishing needs @tropis/shared
-  // published too, or its types inlined.
   noExternal: ['@tropis/shared'],
 });
