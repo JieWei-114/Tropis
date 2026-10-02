@@ -86,6 +86,13 @@ updates:
       time: '09:00'
     open-pull-requests-limit: 3
   - package-ecosystem: docker
+    directory: /infra/opa
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+    open-pull-requests-limit: 3
+  - package-ecosystem: docker
     directory: /services/rust/signing
     schedule:
       interval: weekly

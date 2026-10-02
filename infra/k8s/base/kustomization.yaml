@@ -18,6 +18,11 @@ resources:
   - backend/secret.yaml
   # - backend/external-secret.yaml
   - backend/pdb.yaml
+  # opa/ = the policy engine; its image bakes in infra/opa/*.rego, so the
+  # policies ship with the release that tested them.
+  - opa/deployment.yaml
+  - opa/service.yaml
+  - opa/pdb.yaml
   # frontend/ = helm, the admin console (static SPA served by nginx)
   - frontend/deployment.yaml
   - frontend/service.yaml

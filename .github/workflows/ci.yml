@@ -338,7 +338,7 @@ jobs:
     name: Docker — ${{ matrix.image }} build & Trivy scan
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [frontend, harbor, rust]
+    needs: [frontend, harbor, rust, policy]
     strategy:
       fail-fast: false
       matrix:
@@ -349,6 +349,8 @@ jobs:
             file: apps/frontend/harbor/Dockerfile
           - image: signing
             file: services/rust/signing/Dockerfile
+          - image: opa
+            file: infra/opa/Dockerfile
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -434,6 +436,24 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  # ── Authorization policy ───────────────────────────────────────────
+  # The OPA policies decide every authorization and OPA's own API access, so
+  # their tests run on every change, on the OPA version the shipped image uses
+  # (the FROM line of infra/opa/Dockerfile, the one source of that version).
+  policy:
+    name: Policy — OPA check and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Check and test the policies
+        run: |
+          opa_image=$(sed -n 's/^FROM //p' infra/opa/Dockerfile)
+          docker run --rm -v "$PWD/infra/opa:/policies:ro" "$opa_image" check --strict /policies
+          docker run --rm -v "$PWD/infra/opa:/policies:ro" "$opa_image" test -v /policies
 
   # ── Formatting ─────────────────────────────────────────────────────
   # Enforced here as well as in the pre-commit hook: the hook only sees staged

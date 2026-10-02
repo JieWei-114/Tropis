@@ -40,7 +40,7 @@ vault kv put secret/tropis \
   MINIO_ACCESS_KEY="minioadmin" MINIO_SECRET_KEY="minioadmin123" MINIO_BUCKET="app-uploads" \
   SMTP_HOST="mailpit" SMTP_PORT="1025" SMTP_FROM="noreply@tropis.local" \
   SMTP_USER="" SMTP_PASS="" \
-  API_KEYS="{}" SERVICE_TOKEN="" \
+  API_KEYS="{}" SERVICE_TOKEN="" OPA_TOKEN="tropis-dev-opa-token" \
   GOOGLE_CLIENT_ID="" GOOGLE_CLIENT_SECRET="" \
   GITHUB_CLIENT_ID="" GITHUB_CLIENT_SECRET=""
 

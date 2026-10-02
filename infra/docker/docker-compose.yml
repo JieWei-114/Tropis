@@ -581,16 +581,23 @@ services:
   # ── OPA (Open Policy Agent) ───────────────────────────────────────
   # Centralised policy engine — NestJS asks OPA "can role X do action Y?"
   # instead of hardcoding rules in application code.
-  # REST API → http://localhost:8181. No authentication: reachable from the
-  # host loopback and the compose network only.
+  # REST API → http://localhost:8181. Token authentication: every call but
+  # the GET /health probe needs `Authorization: Bearer $OPA_TOKEN`
+  # (infra/opa/system_authz.rego); the backend sends its OPA_TOKEN, which
+  # must match.
   opa:
-    image: openpolicyagent/opa:1.20.1
+    build:
+      context: ../..
+      dockerfile: infra/opa/Dockerfile
+    image: tropis/opa:dev
     container_name: tropis_opa
     ports:
       - '127.0.0.1:8181:8181' # OPA REST API
+    environment:
+      OPA_TOKEN: '${OPA_TOKEN:-tropis-dev-opa-token}'
     volumes:
       - ../opa:/policies:ro
-    command: run --server --addr 0.0.0.0:8181 --log-format=json --log-level=info /policies
+    command: run --server --addr 0.0.0.0:8181 --authentication=token --authorization=basic --log-format=json --log-level=info /policies
     restart: unless-stopped
 
   # ── Temporal (workflow orchestration) ────────────────────────────

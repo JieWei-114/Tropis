@@ -29,6 +29,8 @@ images:
     newTag: latest
   - name: ghcr.io/tropis/frontend
     newTag: latest
+  - name: ghcr.io/tropis/opa
+    newTag: latest
 
 # Staging-specific config overrides (merged on top of base ConfigMap)
 configMapGenerator:

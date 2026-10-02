@@ -86,3 +86,4 @@ stringData:
   CLICKHOUSE_PASSWORD: ''
   POSTGRES_PASSWORD: 'tropis_dev_password'
   ELASTICSEARCH_PASSWORD: ''
+  OPA_TOKEN: 'tropis-dev-opa-token'

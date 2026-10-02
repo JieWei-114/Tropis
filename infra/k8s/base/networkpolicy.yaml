@@ -111,6 +111,29 @@ spec:
         - protocol: TCP
           port: 50061
 ---
+# 3b2. OPA (8181) — reachable only from the backend roles, which call it for
+#      every authorization; it opens no outbound connection (policies are
+#      baked into its image), so the namespace-wide DNS policy is all it gets.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-opa-from-backend
+  namespace: tropis
+spec:
+  podSelector:
+    matchLabels:
+      app: opa
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              component: backend
+      ports:
+        - protocol: TCP
+          port: 8181
+---
 # 3c. Ops port (9464: /livez, /readyz, /metrics) on every backend role —
 #     reachable only from the monitoring namespace (Prometheus). Kubelet
 #     probes come from the node and are not subject to this policy.
