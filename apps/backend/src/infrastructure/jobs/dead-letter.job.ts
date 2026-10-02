@@ -23,9 +23,15 @@ export class DeadLetterJob implements JobProcessor<Record<string, unknown>> {
         'job.name': job.name,
         'messaging.message.id': job.id,
         'job.source_queue': String(job.data.__sourceQueue),
-        'job.fail_reason': String(job.data.__failReason ?? 'unknown'),
+        'job.fail_reason': failReason(job.data.__failReason),
       },
     );
     return Promise.resolve();
   }
+}
+
+function failReason(reason: unknown): string {
+  if (reason === undefined || reason === null) return 'unknown';
+  if (typeof reason === 'string') return reason;
+  return JSON.stringify(reason) ?? 'unknown';
 }

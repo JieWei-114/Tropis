@@ -41,7 +41,7 @@ describe('workflow trace propagation', () => {
         );
       },
     );
-    const headers = (next.mock.calls[0][0] as { headers: never }).headers;
+    const [[{ headers }]] = next.mock.calls as [[{ headers: never }]];
     const carrier = carrierFromHeaders(headers);
     expect(carrier.traceparent).toMatch(new RegExp(`^00-${TRACE_ID}-`));
   });
@@ -73,11 +73,13 @@ describe('workflow trace propagation', () => {
       childNext,
     );
     await Promise.all([started, handle]);
-    expect(next.mock.calls[0][0].headers).toEqual({
+    const [[activity]] = next.mock.calls as [[{ headers: unknown }]];
+    const [[child]] = childNext.mock.calls as [[{ headers: unknown }]];
+    expect(activity.headers).toEqual({
       mine: own.mine,
       traceparent,
     });
-    expect(childNext.mock.calls[0][0].headers).toEqual({ traceparent });
+    expect(child.headers).toEqual({ traceparent });
   });
 
   it('runs an activity in a span continuing the workflow starter trace', async () => {

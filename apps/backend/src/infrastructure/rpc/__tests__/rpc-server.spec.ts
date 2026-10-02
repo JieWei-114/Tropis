@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { DiscoveryModule } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import { fromBinary } from '@bufbuild/protobuf';
+import { createAsyncIterable } from '@connectrpc/connect/protocol';
 import { FileDescriptorProtoSchema } from '@bufbuild/protobuf/wkt';
 import {
   Code,
@@ -322,7 +323,7 @@ describe('RpcServer (live listeners)', () => {
         traceId: TRACE_ID,
         outcome: AUDIT_OUTCOME.ERROR,
         error: 'A user with this email already exists',
-        timestamp: expect.any(Date),
+        timestamp: expect.any(Date) as unknown,
       });
     });
 
@@ -451,6 +452,35 @@ describe('RpcServer (live listeners)', () => {
       );
     });
 
+    it('checks the service identity before validating the request', async () => {
+      const client = createClient(
+        UserInternalService,
+        grpc(ports.internalPort),
+      );
+      const anonymous: Record<string, string>[] = [
+        {},
+        { 'x-service-token': 'wrong' },
+      ];
+      for (const headers of anonymous) {
+        const err = await expectCode(
+          client.getUserByEmail({ email: 'not-an-email' }, { headers }),
+          Code.PermissionDenied,
+        );
+        expect(err.findDetails(BadRequestSchema)).toEqual([]);
+        expect(err.rawMessage).not.toMatch(/email/i);
+      }
+
+      const err = await expectCode(
+        client.getUserByEmail(
+          { email: 'not-an-email' },
+          { headers: { 'x-service-token': SERVICE_TOKEN } },
+        ),
+        Code.InvalidArgument,
+      );
+      expect(err.findDetails(BadRequestSchema)).not.toEqual([]);
+      expect(userService.findByEmailWithPassword).not.toHaveBeenCalled();
+    });
+
     it('keeps public services off the internal listener', async () => {
       await expectCode(
         createClient(AuthService, grpc(ports.internalPort)).login({
@@ -486,9 +516,10 @@ describe('RpcServer (live listeners)', () => {
       requests: reflectionV1.ServerReflectionRequest['messageRequest'][],
     ) => {
       const client = createClient(reflectionV1.ServerReflection, grpc(port));
-      async function* input() {
-        for (const messageRequest of requests) yield { messageRequest };
-      }
+      const input = () =>
+        createAsyncIterable(
+          requests.map((messageRequest) => ({ messageRequest })),
+        );
       const out: reflectionV1.ServerReflectionResponse[] = [];
       for await (const res of client.serverReflectionInfo(input())) {
         out.push(res);
@@ -551,10 +582,14 @@ describe('RpcServer (live listeners)', () => {
             )
           : r.messageResponse.case,
       );
+      const userFiles = [
+        'user/v1/user.proto',
+        'google/protobuf/timestamp.proto',
+      ];
       expect(fileNames).toEqual([
-        ['user/v1/user.proto'],
-        ['user/v1/user.proto'],
-        ['user/v1/user.proto'],
+        userFiles,
+        userFiles,
+        userFiles,
         ['auth/v1/auth.proto'],
         'errorResponse',
       ]);
@@ -565,11 +600,10 @@ describe('RpcServer (live listeners)', () => {
         reflectionV1alpha.ServerReflection,
         grpc(ports.publicPort),
       );
-      async function* input() {
-        yield {
-          messageRequest: { case: 'listServices' as const, value: '' },
-        };
-      }
+      const input = () =>
+        createAsyncIterable([
+          { messageRequest: { case: 'listServices' as const, value: '' } },
+        ]);
       for await (const res of client.serverReflectionInfo(input())) {
         expect(res.messageResponse.case).toBe('listServicesResponse');
       }
@@ -639,11 +673,15 @@ describe('RpcServer (live listeners)', () => {
     it('reports NOT_SERVING once it starts draining', async () => {
       const client = createClient(Health, grpc(ports.publicPort));
       const watch = client.watch({})[Symbol.asyncIterator]();
-      expect((await watch.next()).value?.status).toBe(
+      const nextStatus = async () => {
+        const result = await watch.next();
+        return result.done ? undefined : result.value.status;
+      };
+      expect(await nextStatus()).toBe(
         HealthCheckResponse_ServingStatus.SERVING,
       );
       const stopping = server.stop();
-      expect((await watch.next()).value?.status).toBe(
+      expect(await nextStatus()).toBe(
         HealthCheckResponse_ServingStatus.NOT_SERVING,
       );
       await stopping;
@@ -658,14 +696,16 @@ describe('RpcServer (live listeners)', () => {
         reflectionV1.ServerReflection,
         grpc(ports.publicPort),
       );
-      async function* input() {
-        yield {
-          messageRequest: { case: 'listServices' as const, value: '' },
-        };
-      }
+      const input = () =>
+        createAsyncIterable([
+          { messageRequest: { case: 'listServices' as const, value: '' } },
+        ]);
       await expectCode(
         (async () => {
-          for await (const _ of client.serverReflectionInfo(input())) {
+          const responses = client
+            .serverReflectionInfo(input())
+            [Symbol.asyncIterator]();
+          while (!(await responses.next()).done) {
             // drain
           }
         })(),

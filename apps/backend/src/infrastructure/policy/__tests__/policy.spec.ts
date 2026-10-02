@@ -2,7 +2,7 @@ import { OpaPolicyAdapter } from '../adapters/opa/opa-policy.adapter';
 
 describe('OpaPolicyAdapter', () => {
   const input = { roles: ['admin'], resource: 'user', action: 'read' };
-  let fetchMock: jest.SpyInstance;
+  let fetchMock: jest.SpiedFunction<typeof fetch>;
 
   beforeEach(() => {
     fetchMock = jest.spyOn(globalThis, 'fetch');

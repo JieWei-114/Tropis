@@ -104,7 +104,7 @@ describe('AnalyticsService', () => {
             userId: 'user-123',
             eventType: AnalyticsEventType.PAGE_VIEW,
             tenantId: 'tenant-a',
-          }),
+          }) as unknown,
         }),
         tx,
       );

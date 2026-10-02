@@ -35,19 +35,22 @@ describe('TypeOrmRelationalAdapter.withTenant', () => {
       isTransactionActive: false,
       calls: [] as string[],
       connect: jest.fn().mockResolvedValue(undefined),
-      startTransaction: jest.fn(async () => {
+      startTransaction: jest.fn(() => {
         runner.isTransactionActive = true;
+        return Promise.resolve();
       }),
-      commitTransaction: jest.fn(async () => {
+      commitTransaction: jest.fn(() => {
         runner.isTransactionActive = false;
+        return Promise.resolve();
       }),
-      rollbackTransaction: jest.fn(async () => {
+      rollbackTransaction: jest.fn(() => {
         runner.isTransactionActive = false;
+        return Promise.resolve();
       }),
       release: jest.fn().mockResolvedValue(undefined),
-      query: jest.fn(async (sql: string, params?: unknown[]) => {
+      query: jest.fn((sql: string, params?: unknown[]) => {
         runner.calls.push(`${sql} ${JSON.stringify(params ?? [])}`);
-        return [];
+        return Promise.resolve([]);
       }),
     };
     return runner;

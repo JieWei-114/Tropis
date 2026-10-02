@@ -11,23 +11,27 @@ export function inMemoryDedup() {
   const owns = (key: string, owner?: string) =>
     keys.has(key) && (owner === undefined || keys.get(key) === owner);
   const claimMany = jest.fn(
-    async (ks: readonly string[], _ttl: number, owner = '1') =>
-      ks.map((key) => {
-        if (keys.has(key)) return false;
-        keys.set(key, owner);
-        return true;
-      }),
+    (ks: readonly string[], _ttl: number, owner: string = '1') =>
+      Promise.resolve(
+        ks.map((key) => {
+          if (keys.has(key)) return false;
+          keys.set(key, owner);
+          return true;
+        }),
+      ),
   );
   const extendMany = jest.fn(
-    async (ks: readonly string[], _ttl: number, owner?: string) =>
-      ks.map((key) => owns(key, owner)),
+    (ks: readonly string[], _ttl: number, owner?: string) =>
+      Promise.resolve(ks.map((key) => owns(key, owner))),
   );
-  const releaseMany = jest.fn(async (ks: readonly string[], owner?: string) =>
-    ks.map((key) => {
-      if (!owns(key, owner)) return false;
-      keys.delete(key);
-      return true;
-    }),
+  const releaseMany = jest.fn((ks: readonly string[], owner?: string) =>
+    Promise.resolve(
+      ks.map((key) => {
+        if (!owns(key, owner)) return false;
+        keys.delete(key);
+        return true;
+      }),
+    ),
   );
   return {
     keys,
@@ -61,9 +65,9 @@ export function consumerHarness<
 >(dedup: D = inMemoryDedup() as unknown as D) {
   let handler: MessageHandler | undefined;
   const subscribe = jest.fn(
-    async (_topic: string, _sub: string, fn: MessageHandler) => {
+    (_topic: string, _sub: string, fn: MessageHandler) => {
       handler = fn;
-      return { close: jest.fn() };
+      return Promise.resolve({ close: jest.fn() });
     },
   );
   const messaging = { subscribe } as unknown as MessagingPort;

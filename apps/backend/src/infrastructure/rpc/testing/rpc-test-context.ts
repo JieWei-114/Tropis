@@ -104,7 +104,8 @@ export function withAuthorization<T extends object>(
             throw toConnectError(AppError.validation(violations));
           }
         }
-        return method.call(target, req, ctx);
+        const result: unknown = method.call(target, req, ctx);
+        return result;
       };
     },
   }) as unknown as RpcCalls<T>;

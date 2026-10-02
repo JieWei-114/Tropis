@@ -1,4 +1,5 @@
 import { DiscoveryModule } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import type { ServiceImpl } from '@connectrpc/connect';
 import { AuditLogService } from '../../../common/audit/audit-log.service';
@@ -31,6 +32,7 @@ describe('RpcServer validation coverage', () => {
         { provide: AuditLogService, useValue: { record: jest.fn() } },
         { provide: POLICY, useValue: { allow: jest.fn() } },
         { provide: TOKEN_VERIFIER, useValue: { verify: jest.fn() } },
+        { provide: ConfigService, useValue: { getOrThrow: () => '' } },
       ],
     }).compile();
     const server = moduleRef.get(RpcServer);

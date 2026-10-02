@@ -109,11 +109,12 @@ export class VaultSecretsAdapter
     await this.connect(addr);
   }
 
-  async onModuleDestroy() {
+  onModuleDestroy(): Promise<void> {
     if (this.renewalTimer) clearInterval(this.renewalTimer);
     if (this.reloginTimer) clearTimeout(this.reloginTimer);
     this.renewalTimer = null;
     this.reloginTimer = null;
+    return Promise.resolve();
   }
 
   /**

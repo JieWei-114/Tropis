@@ -30,9 +30,9 @@ describe('SmtpMailAdapter', () => {
     new SmtpMailAdapter({ host: 'h', port: 25, from: 'x@y.test' });
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
-        connectionTimeout: expect.any(Number),
-        greetingTimeout: expect.any(Number),
-        socketTimeout: expect.any(Number),
+        connectionTimeout: expect.any(Number) as unknown,
+        greetingTimeout: expect.any(Number) as unknown,
+        socketTimeout: expect.any(Number) as unknown,
       }),
     );
     create.mockRestore();

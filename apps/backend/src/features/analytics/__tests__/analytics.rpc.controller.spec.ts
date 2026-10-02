@@ -65,10 +65,16 @@ const event = (fields = {}) =>
     ...fields,
   });
 
+interface AnalyticsServiceMock {
+  create: jest.MockedFunction<AnalyticsService['create']>;
+  getStats: jest.MockedFunction<AnalyticsService['getStats']>;
+  getRecent: jest.MockedFunction<AnalyticsService['getRecent']>;
+  getMinutelyStats: jest.MockedFunction<AnalyticsService['getMinutelyStats']>;
+}
+
 describe('AnalyticsRpcController', () => {
   let controller: RpcCalls<AnalyticsRpcController>;
-  let authz: RpcAuthzService;
-  let analyticsService: jest.Mocked<AnalyticsService>;
+  let analyticsService: AnalyticsServiceMock;
   let opa: { allow: jest.Mock };
 
   const ctx = (headers: Record<string, string> = bearer(tokenFor())) =>
@@ -83,7 +89,7 @@ describe('AnalyticsRpcController', () => {
       getStats: jest.fn(),
       getRecent: jest.fn(),
       getMinutelyStats: jest.fn(),
-    } as unknown as jest.Mocked<AnalyticsService>;
+    };
     opa = { allow: jest.fn().mockResolvedValue(true) };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -101,7 +107,6 @@ describe('AnalyticsRpcController', () => {
       module.get(AnalyticsRpcController),
       module.get(AuthorizationService),
     );
-    authz = module.get(RpcAuthzService);
   });
 
   // ── Authorization ────────────────────────────────────────────────────────
@@ -197,12 +202,12 @@ describe('AnalyticsRpcController', () => {
     // Reproduces the gap: an unknown event type was cast through, and
     // metadata that was not JSON threw from JSON.parse and answered INTERNAL.
     it.each([
-      ['an unknown event type', { eventType: 'drop_table' }, 'event_type'],
-      ['metadata that is not JSON', { metadata: '{not json' }, 'metadata'],
-      ['metadata that is not an object', { metadata: '[1,2]' }, 'metadata'],
+      ['an unknown event type', { eventType: 'drop_table' }],
+      ['metadata that is not JSON', { metadata: '{not json' }],
+      ['metadata that is not an object', { metadata: '[1,2]' }],
     ])(
       'rejects %s with INVALID_ARGUMENT before the service runs',
-      async (_label, extra, _field) => {
+      async (_label, extra) => {
         const err = await controller
           .createEvent(event(extra), ctx())
           .catch((e: unknown) => e);

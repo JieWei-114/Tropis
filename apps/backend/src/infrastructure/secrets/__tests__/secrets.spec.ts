@@ -2,6 +2,8 @@ import type { ConfigService } from '@nestjs/config';
 import { EnvSecretsAdapter } from '../adapters/env/env-secrets.adapter';
 import { VaultSecretsAdapter } from '../adapters/vault/vault-secrets.adapter';
 import type { SecretsPort } from '../secrets.port';
+import { inMemoryVault } from './in-memory-vault.client';
+import { describeSecretsPort } from './secrets.conformance';
 
 const config = (values: Record<string, string>) =>
   ({
@@ -87,8 +89,9 @@ describe('VaultSecretsAdapter', () => {
       void adapter.onModuleInit().then(() => adapter.onModuleDestroy());
     });
     await new Promise((r) => setImmediate(r));
+    jest.dontMock('node-vault');
     expect(created[0]).toMatchObject({
-      requestOptions: { timeout: expect.any(Number) },
+      requestOptions: { timeout: expect.any(Number) as unknown },
     });
   });
 
@@ -128,4 +131,41 @@ describe('VaultSecretsAdapter', () => {
     await adapter.onModuleDestroy();
     jest.useRealTimers();
   });
+});
+
+describeSecretsPort('env', {
+  live: {
+    seeded: { path: 'ignored', key: 'CONFORMANCE_SECRET', value: 's3cret' },
+    encryptionKey: null,
+    make: () => new EnvSecretsAdapter({ CONFORMANCE_SECRET: 's3cret' }),
+  },
+});
+
+describeSecretsPort('vault over an in-memory client', {
+  live: {
+    seeded: { path: 'secret/data/tropis', key: 'API_KEY', value: 'k-1' },
+    encryptionKey: 'user-data',
+    make: async () => {
+      const adapter = new VaultSecretsAdapter(
+        config({ VAULT_ADDR: 'http://vault', VAULT_TOKEN: 'root' }),
+        inMemoryVault({
+          kv: { 'secret/data/tropis': { API_KEY: 'k-1' } },
+          transitKeys: ['user-data'],
+        }),
+      );
+      await adapter.onModuleInit();
+      return adapter;
+    },
+    teardown: (port) => (port as VaultSecretsAdapter).onModuleDestroy(),
+  },
+  unreachable: {
+    make: async () => {
+      const adapter = new VaultSecretsAdapter(
+        config({ VAULT_ADDR: 'http://127.0.0.1:1', VAULT_TOKEN: 'root' }),
+      );
+      await adapter.onModuleInit();
+      return adapter;
+    },
+    teardown: (port) => (port as VaultSecretsAdapter).onModuleDestroy(),
+  },
 });

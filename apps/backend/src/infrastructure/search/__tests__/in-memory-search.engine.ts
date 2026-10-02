@@ -38,11 +38,7 @@ export class InMemorySearchEngine implements SearchEngine {
     const hits = [...(this.indices.get(index)?.values() ?? [])].filter(
       (doc) =>
         doc[query.filter.field] === query.filter.value &&
-        fields.some((f) =>
-          String(doc[f] ?? '')
-            .toLowerCase()
-            .includes(text),
-        ),
+        fields.some((f) => asText(doc[f]).toLowerCase().includes(text)),
     );
     return Promise.resolve({
       hits: hits.slice(query.from, query.from + query.size),
@@ -53,4 +49,10 @@ export class InMemorySearchEngine implements SearchEngine {
   health(): Promise<CapabilityHealth> {
     return Promise.resolve(capabilityUp('memory'));
   }
+}
+
+function asText(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value as string | number | boolean | bigint);
 }

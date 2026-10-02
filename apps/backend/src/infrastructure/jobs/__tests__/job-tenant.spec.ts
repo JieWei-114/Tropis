@@ -28,7 +28,7 @@ describe('job tenant scope', () => {
 
   it('rejects capture outside any scope with TENANT_REQUIRED', () => {
     expect(() => captureJobScope()).toThrow(
-      expect.objectContaining({ code: 'TENANT_REQUIRED' }),
+      expect.objectContaining({ code: 'TENANT_REQUIRED' }) as Error,
     );
   });
 
@@ -56,7 +56,7 @@ describe('job tenant scope', () => {
       detachJobScope({
         [JOB_TENANT_FIELD]: { scope: 'tenant', tenantId: 'bad id!' },
       }),
-    ).toThrow(expect.objectContaining({ code: 'TENANT_INVALID' }));
+    ).toThrow(expect.objectContaining({ code: 'TENANT_INVALID' }) as Error);
   });
 
   it('runs an attempt inside its tenant or global scope', async () => {

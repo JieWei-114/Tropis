@@ -3,10 +3,10 @@ import {
   type BeforeApplicationShutdown,
   type Type,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DiscoveryService, Reflector } from '@nestjs/core';
 import type { DescMethod, DescService } from '@bufbuild/protobuf';
 import {
-  createConnectRouter,
   type ConnectRouter,
   type Interceptor,
   type ServiceImpl,
@@ -43,6 +43,7 @@ import {
 } from './interceptors/audit.interceptor';
 import { authorizationInterceptor } from './interceptors/authorization.interceptor';
 import { validationInterceptor } from './interceptors/validation.interceptor';
+import { serviceIdentityInterceptor } from './interceptors/service-identity.interceptor';
 import { RPC_VALIDATE_KEY } from './rpc-validate.decorator';
 
 /** Largest request message accepted, the grpc-js default. */
@@ -81,7 +82,8 @@ type MethodTable = Record<string, (...args: unknown[]) => unknown>;
  * port, `internal` services (and health) on the internal port only, so which
  * tier an RPC belongs to is decided by which port routes it. Each call passes
  * through, outermost first: RED metrics, trace and correlation id, error
- * mapping, authentication, tenant scope, audit, authorization (@Authorize),
+ * mapping, the service identity (internal tier only), authentication, tenant
+ * scope, audit, authorization (@Authorize),
  * input validation (@RpcValidate), then the handler. A handler whose request
  * message has fields but declares no @RpcValidate stops the server from
  * starting, so no RPC takes unchecked input.
@@ -101,16 +103,18 @@ export class RpcServer implements BeforeApplicationShutdown {
     private readonly authz: RpcAuthzService,
     private readonly auditLog: AuditLogService,
     private readonly authorization: AuthorizationService,
+    private readonly config: ConfigService,
   ) {}
 
   async start(options: RpcServerOptions): Promise<RpcServerAddresses> {
     const services = this.discoverServices();
     for (const s of services) this.indexHandlers(s);
 
-    const interceptors: Interceptor[] = [
+    const chain = (identity: Interceptor[]): Interceptor[] => [
       metricsInterceptor(),
       correlationInterceptor,
       errorsInterceptor,
+      ...identity,
       authenticationInterceptor(this.authz),
       tenantInterceptor(),
       auditInterceptor(this.auditLog, (m) => this.auditTargets.get(m)),
@@ -136,9 +140,22 @@ export class RpcServer implements BeforeApplicationShutdown {
           ]).register(router);
         }
       };
+      const identity =
+        tier === 'internal'
+          ? [
+              serviceIdentityInterceptor(
+                () => this.config.getOrThrow<string>('SERVICE_TOKEN'),
+                new Set(
+                  own
+                    .filter((s) => !s.tiers.includes('public'))
+                    .map((s) => s.service.typeName),
+                ),
+              ),
+            ]
+          : [];
       return connectNodeAdapter({
         routes,
-        interceptors,
+        interceptors: chain(identity),
         readMaxBytes: READ_MAX_BYTES,
       }) as RpcRequestHandler;
     };
@@ -191,7 +208,8 @@ export class RpcServer implements BeforeApplicationShutdown {
     const found: RegisteredService[] = [];
     const seen = new Map<string, string>();
     for (const wrapper of this.discovery.getProviders()) {
-      const { instance, metatype } = wrapper;
+      const instance: unknown = wrapper.instance;
+      const { metatype } = wrapper;
       if (!instance || typeof metatype !== 'function') continue;
       const meta = this.reflector.get<RpcServiceMetadata | undefined>(
         RPC_SERVICE_KEY,
@@ -267,7 +285,8 @@ function bindMethods(s: RegisteredService): Partial<ServiceImpl<DescService>> {
   const impl: MethodTable = {};
   for (const method of s.service.methods) {
     const fn = table[method.localName];
-    if (typeof fn === 'function') impl[method.localName] = fn.bind(s.instance);
+    if (typeof fn === 'function')
+      impl[method.localName] = fn.bind(s.instance) as MethodTable[string];
   }
   return impl as unknown as Partial<ServiceImpl<DescService>>;
 }

@@ -52,6 +52,10 @@ const MONGOOSE = 'node_modules/(mongoose|@nestjs/mongoose)(/|$)';
 const TEMPORAL_WORKFLOW_SDK = 'node_modules/@temporalio/workflow(/|$)';
 
 const TEST_FILES = '(__tests__|\\.spec\\.ts$|\\.e2e-spec\\.ts$)';
+/** Unit tests next to the code; test/ is analysed (foundation-tests-not-into-features). */
+const SRC_TEST_FILES = '^src/.*(__tests__/|\\.spec\\.ts$)';
+/** Integration tests of one product feature, captured as $1. */
+const FEATURE_TESTS = '^test/integration/features/([^/]+)/';
 
 const ADAPTERS = '^src/infrastructure/[^/]+/adapters/';
 const CONNECTIONS = '^src/infrastructure/connections/';
@@ -120,6 +124,24 @@ module.exports = {
         pathNot: TEST_FILES,
       },
       to: { path: BUSINESS },
+    },
+    {
+      name: 'foundation-tests-not-into-features',
+      severity: 'error',
+      comment:
+        'The suites under test/ prove the foundation; deleting src/features/<name> must ' +
+        'leave them intact. A test that exercises a feature lives under ' +
+        'test/integration/features/<name>/ and goes with the feature.',
+      from: { path: '^test/', pathNot: FEATURE_TESTS },
+      to: { path: '^src/features/' },
+    },
+    {
+      name: 'feature-tests-only-into-own-feature',
+      severity: 'error',
+      comment:
+        'A feature test folder is removed with its feature, so it reaches no other feature.',
+      from: { path: FEATURE_TESTS },
+      to: { path: '^src/features/', pathNot: '^src/features/$1/' },
     },
     {
       name: 'modules-not-into-features',
@@ -393,7 +415,7 @@ module.exports = {
   ],
   options: {
     doNotFollow: { path: 'node_modules' },
-    exclude: { path: TEST_FILES },
+    exclude: { path: SRC_TEST_FILES },
     tsPreCompilationDeps: true, // needed to see (and classify) type-only imports
     tsConfig: { fileName: 'tsconfig.json' },
     enhancedResolveOptions: {

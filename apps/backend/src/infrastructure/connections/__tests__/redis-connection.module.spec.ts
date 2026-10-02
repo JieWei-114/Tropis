@@ -26,8 +26,8 @@ describe('RedisConnectionModule', () => {
     expect(moduleRef.get(REDIS_CLIENT)).toBeDefined();
     expect(RedisMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        commandTimeout: expect.any(Number),
-        connectTimeout: expect.any(Number),
+        commandTimeout: expect.any(Number) as unknown,
+        connectTimeout: expect.any(Number) as unknown,
       }),
     );
     await moduleRef.close();

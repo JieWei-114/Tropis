@@ -6,6 +6,14 @@ export interface PolicyConformanceTargets {
   live: ConformanceTarget<PolicyPort>;
   /** A port whose engine cannot be reached. */
   unreachable: ConformanceTarget<PolicyPort>;
+  /**
+   * For an engine that authenticates its callers: ports that present a
+   * wrong credential, and no credential at all.
+   */
+  credentials?: {
+    wrong: ConformanceTarget<PolicyPort>;
+    missing: ConformanceTarget<PolicyPort>;
+  };
 }
 
 /**
@@ -86,6 +94,49 @@ export function describePolicyPort(
       });
 
       it('rejects with SERVICE_UNAVAILABLE instead of denying', async () => {
+        await expect(
+          policy.allow({ roles: ['admin'], resource: 'user', action: 'read' }),
+        ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+      });
+    });
+
+    const credentials = targets.credentials;
+    if (!credentials) return;
+
+    describe('with a wrong credential', () => {
+      let policy: PolicyPort;
+
+      beforeAll(async () => {
+        policy = await credentials.wrong.make();
+      });
+
+      afterAll(async () => {
+        await credentials.wrong.teardown?.(policy);
+      });
+
+      it('reports down', async () => {
+        expect((await policy.health()).status).toBe('down');
+      });
+
+      it('rejects with SERVICE_UNAVAILABLE instead of denying', async () => {
+        await expect(
+          policy.allow({ roles: ['admin'], resource: 'user', action: 'read' }),
+        ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+      });
+    });
+
+    describe('without a credential', () => {
+      let policy: PolicyPort;
+
+      beforeAll(async () => {
+        policy = await credentials.missing.make();
+      });
+
+      afterAll(async () => {
+        await credentials.missing.teardown?.(policy);
+      });
+
+      it('rejects with SERVICE_UNAVAILABLE instead of deciding', async () => {
         await expect(
           policy.allow({ roles: ['admin'], resource: 'user', action: 'read' }),
         ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });

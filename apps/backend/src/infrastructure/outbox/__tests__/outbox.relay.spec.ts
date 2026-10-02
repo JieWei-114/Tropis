@@ -51,7 +51,7 @@ class FakeOutbox {
       createdAt: new Date(1_000 + this.seq),
       event: {
         id: `evt-${this.seq}`,
-        type: 'user.created',
+        type: 'identity.user.created',
         tenantId: 'acme',
         time: new Date(Date.UTC(2026, 8, 30)),
         schemaVersion: '1',
@@ -106,7 +106,7 @@ class FakeOutbox {
     return Promise.resolve(row.status);
   });
 
-  settleHead = jest.fn().mockResolvedValue(undefined);
+  settleHead = jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined);
   repairHeads = jest.fn().mockResolvedValue(0);
   deadLetterExhausted = jest.fn().mockResolvedValue(0);
   countDead = jest.fn().mockResolvedValue(0);
@@ -150,7 +150,7 @@ describe('OutboxRelay', () => {
     expect(broker.publish).toHaveBeenCalledWith(row.topic, row.payload, {
       event: {
         id: 'evt-1',
-        type: 'user.created',
+        type: 'identity.user.created',
         subject: 'user-1',
         tenantId: 'acme',
         schemaVersion: '1',

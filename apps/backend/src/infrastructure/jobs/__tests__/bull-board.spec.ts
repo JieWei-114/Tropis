@@ -34,7 +34,10 @@ describe('Bull Board', () => {
       headers: Record<string, string> = {},
     ) => {
       const next = jest.fn();
-      const res = { status: jest.fn().mockReturnThis(), end: jest.fn() };
+      const res = {
+        status: jest.fn<unknown, [number]>().mockReturnThis(),
+        end: jest.fn(),
+      };
       loopbackOnly(
         { socket: { remoteAddress }, headers } as never,
         res as never,

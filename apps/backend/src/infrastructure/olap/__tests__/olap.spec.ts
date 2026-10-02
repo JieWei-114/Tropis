@@ -124,7 +124,7 @@ describe('OlapClient', () => {
 describe('ClickHouseOlapEngine', () => {
   const ch = {
     insert: jest.fn().mockResolvedValue(undefined),
-    query: jest.fn(),
+    query: jest.fn<Promise<unknown>, [{ query_params?: unknown }]>(),
     ping: jest.fn(),
     close: jest.fn().mockResolvedValue(undefined),
   };

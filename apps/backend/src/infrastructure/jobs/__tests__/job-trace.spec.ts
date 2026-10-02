@@ -88,7 +88,9 @@ describe('job trace context', () => {
   });
 
   it('enqueues inside a PRODUCER span whose context the job data carries', async () => {
-    const add = jest.fn().mockResolvedValue({ id: 'job-1' });
+    const add = jest
+      .fn<Promise<{ id: string }>, [string, unknown, unknown]>()
+      .mockResolvedValue({ id: 'job-1' });
     const adapter = new BullmqJobsAdapter(registry(), {
       get: () => ({ add }),
       close: jest.fn(),

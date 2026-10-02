@@ -17,6 +17,8 @@ import { Test } from '@nestjs/testing';
 import { IsEmail, IsString, MinLength } from 'class-validator';
 import { ThrottlerException } from '@nestjs/throttler';
 import request from 'supertest';
+import type { App } from 'supertest/types';
+import type { ProblemDetails } from '@tropis/shared';
 import { register } from 'prom-client';
 import { AppError, validationExceptionFactory } from '../../errors';
 import { CorrelationIdMiddleware } from '../../middleware/correlation-id.middleware';
@@ -139,7 +141,7 @@ class TestAppModule implements NestModule {
 }
 
 describe('HTTP errors, trace ids and RED metrics', () => {
-  let app: INestApplication;
+  let app: INestApplication<App>;
   const otel = installTracing();
 
   beforeAll(async () => {
@@ -190,7 +192,9 @@ describe('HTTP errors, trace ids and RED metrics', () => {
       detail: 'User 42 is gone.',
       status: 404,
     });
-    expect(res.body.traceId).toBe(res.headers['x-request-id']);
+    expect((res.body as ProblemDetails).traceId).toBe(
+      res.headers['x-request-id'],
+    );
   });
 
   it('hides an unexpected error and logs it with the same trace id', async () => {
@@ -257,7 +261,7 @@ describe('HTTP errors, trace ids and RED metrics', () => {
   it('answers an unknown route without echoing the URL', async () => {
     const res = await http().get('/api/nowhere/at-all?secret=s3cret');
     expect(res.status).toBe(404);
-    expect(res.body.code).toBe('NOT_FOUND');
+    expect((res.body as ProblemDetails).code).toBe('NOT_FOUND');
     expect(res.body).not.toHaveProperty('detail');
     expect(JSON.stringify(res.body)).not.toContain('s3cret');
     expect(JSON.stringify(res.body)).not.toContain('Cannot');
@@ -266,7 +270,7 @@ describe('HTTP errors, trace ids and RED metrics', () => {
   it('answers a throttled request with RATE_LIMITED, no library text, and Retry-After', async () => {
     const res = await http().get('/api/limits/throttled');
     expect(res.status).toBe(429);
-    expect(res.body.code).toBe('RATE_LIMITED');
+    expect((res.body as ProblemDetails).code).toBe('RATE_LIMITED');
     expect(res.body).not.toHaveProperty('detail');
     expect(JSON.stringify(res.body)).not.toMatch(/ThrottlerException/i);
     expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
@@ -283,8 +287,8 @@ describe('HTTP errors, trace ids and RED metrics', () => {
       .post('/api/things')
       .send({ email: 'nope', name: 'ab', extra: 1 });
     expect(res.status).toBe(400);
-    expect(res.body.code).toBe('VALIDATION_FAILED');
-    expect(res.body.errors).toEqual(
+    expect((res.body as ProblemDetails).code).toBe('VALIDATION_FAILED');
+    expect((res.body as ProblemDetails).errors).toEqual(
       expect.arrayContaining([
         { field: 'email', description: 'email must be an email' },
         { field: 'extra', description: 'property extra should not exist' },
@@ -336,7 +340,9 @@ describe('HTTP errors, trace ids and RED metrics', () => {
     const strict = await Test.createTestingModule({
       imports: [TestAppModule],
     }).compile();
-    const strictApp = strict.createNestApplication({ logger: false });
+    const strictApp: INestApplication<App> = strict.createNestApplication({
+      logger: false,
+    });
     strictApp.useGlobalPipes(
       new ValidationPipe({ exceptionFactory: validationExceptionFactory }),
     );

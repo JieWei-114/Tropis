@@ -8,6 +8,7 @@ import {
   TENANT_DIRECTORY,
   assertTenantActive,
   type TenantDirectory,
+  type TenantRecord,
 } from '../../../common/tenant/tenant-directory.port';
 import { createLogger } from '../../../common/observability/logger';
 import {
@@ -40,7 +41,7 @@ import {
  * outbox. Behavioral events are high-volume and lossy-tolerant — losing a
  * batch during a broker hiccup costs nothing business-wise, while forcing
  * every beacon through a Mongo transaction would double the write load of
- * the hottest endpoint in the app. Domain events (user.created, …) still
+ * the hottest endpoint in the app. Domain events (identity.user.created, …) still
  * MUST go through the outbox.
  */
 @Injectable()
@@ -62,7 +63,7 @@ export class TrackingService {
    * SERVICE_UNAVAILABLE, so a retrying tracker keeps its batch.
    */
   async assertAccepting(tenantId: TenantId): Promise<void> {
-    let record;
+    let record: TenantRecord | null;
     try {
       record = await this.tenants.find(tenantId);
     } catch (err) {

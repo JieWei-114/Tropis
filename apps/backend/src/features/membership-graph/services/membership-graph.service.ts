@@ -14,7 +14,7 @@ import {
   USER_LABEL,
 } from '../constants/membership-graph.constants';
 
-/** A user's membership as carried by user.created / user.updated. */
+/** A user's membership as carried by identity.user.created / identity.user.updated. */
 export interface MembershipFacts {
   userId: string;
   /** User who invited this one, when the event names one. */
@@ -29,7 +29,7 @@ export interface MembershipFacts {
  * replayed event changes nothing. A removed user loses MEMBER_OF but keeps
  * its node and INVITED edges, so chains through it stay intact. Removal is
  * terminal (a deleted user never comes back under its id), so an event that
- * arrives after it, such as a redelivered user.updated, changes nothing.
+ * arrives after it, such as a redelivered identity.user.updated, changes nothing.
  */
 @Injectable()
 export class MembershipGraphService {
@@ -78,8 +78,8 @@ export class MembershipGraphService {
   }
 
   /**
-   * Leaves a tombstone even for a user never recorded, so a user.created
-   * that arrives after the user.deleted cannot record a deleted member.
+   * Leaves a tombstone even for a user never recorded, so an identity.user.created
+   * that arrives after the identity.user.deleted cannot record a deleted member.
    */
   async removeMember(tenantId: TenantId, userId: string): Promise<void> {
     await this.graph.write(

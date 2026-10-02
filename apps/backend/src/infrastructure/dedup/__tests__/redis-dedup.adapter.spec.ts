@@ -9,10 +9,16 @@ const KEY = defineKey({
   version: 'v1',
 });
 
+interface PipelineStub {
+  set: jest.Mock;
+  eval: jest.Mock;
+  exec: jest.Mock;
+}
+
 function redisWith(replies: [Error | null, unknown][] | Error) {
   const del = jest.fn(() => Promise.resolve(1));
   const evals: unknown[][] = [];
-  const pipeline = {
+  const pipeline: PipelineStub = {
     set: jest.fn().mockReturnThis(),
     eval: jest.fn((...args: unknown[]) => {
       evals.push(args);

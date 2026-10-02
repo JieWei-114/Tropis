@@ -1,13 +1,16 @@
 import { createServer, type Server as HttpServer } from 'http';
 import type { AddressInfo } from 'net';
-import { Server } from 'socket.io';
+import { Server, type DefaultEventsMap } from 'socket.io';
 import { io, type Socket as ClientSocket } from 'socket.io-client';
 import type {
   Principal,
   TokenVerifier,
 } from '../../../common/auth/token-verifier.port';
 import { toTenantId, type TenantId } from '../../../common/keyspace';
-import { NotificationGateway } from '../../../modules/websocket/gateways/notification.gateway';
+import {
+  NotificationGateway,
+  type SocketData,
+} from '../../../modules/websocket/gateways/notification.gateway';
 import { sleep } from '../../capability/__tests__/conformance-helpers';
 import type { RealtimeTransport } from '../realtime.port';
 import {
@@ -50,7 +53,12 @@ export async function startGatewayNode(
   transport: RealtimeTransport,
 ): Promise<GatewayNode> {
   const http: HttpServer = createServer();
-  const server = new Server(http);
+  const server = new Server<
+    DefaultEventsMap,
+    DefaultEventsMap,
+    DefaultEventsMap,
+    SocketData
+  >(http);
   const namespace = server.of(REALTIME_NAMESPACE);
   const gateway = new NotificationGateway(fakeVerifier, transport);
   gateway.server = namespace;

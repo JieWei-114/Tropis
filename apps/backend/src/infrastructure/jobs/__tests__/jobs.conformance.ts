@@ -257,9 +257,9 @@ export function describeJobsPort(
       expect(counts.completed).toBeGreaterThanOrEqual(1);
       expect(counts).toEqual(
         expect.objectContaining({
-          waiting: expect.any(Number),
-          active: expect.any(Number),
-          failed: expect.any(Number),
+          waiting: expect.any(Number) as unknown,
+          active: expect.any(Number) as unknown,
+          failed: expect.any(Number) as unknown,
         }),
       );
     });

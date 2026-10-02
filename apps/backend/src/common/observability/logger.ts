@@ -94,11 +94,15 @@ interface ErrorFields {
   'error.stack'?: string;
 }
 
+function tagOf(value: object): string {
+  return Object.prototype.toString.call(value) as string;
+}
+
 function describe(value: object): string {
   try {
-    return JSON.stringify(value) ?? Object.prototype.toString.call(value);
+    return JSON.stringify(value) ?? tagOf(value);
   } catch {
-    return Object.prototype.toString.call(value);
+    return tagOf(value);
   }
 }
 

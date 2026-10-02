@@ -25,11 +25,12 @@ const spec: ConsumerSpec<object> = {
 
 function subscription() {
   let stop: (err: unknown) => void = () => undefined;
+  const close = jest.fn(() => Promise.resolve());
   const sub: MessageSubscription = {
-    close: jest.fn(() => Promise.resolve()),
+    close,
     stopped: new Promise((resolve) => (stop = resolve)),
   };
-  return { sub, stop: (err: unknown) => stop(err) };
+  return { sub, close, stop: (err: unknown) => stop(err) };
 }
 
 function consumerWith(subscribe: jest.Mock) {
@@ -91,7 +92,7 @@ describe('EventConsumer.start', () => {
     expect(subscribe).toHaveBeenCalledTimes(2);
     expect(consumer.status()[0].state).toBe('running');
     await consumer.onModuleDestroy();
-    expect(second.sub.close).toHaveBeenCalled();
+    expect(second.close).toHaveBeenCalled();
   });
 
   it('stops retrying once closed', async () => {

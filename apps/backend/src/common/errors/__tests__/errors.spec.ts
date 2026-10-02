@@ -178,6 +178,7 @@ describe('normalizeError (other errors)', () => {
     });
     expect(normalizeError(disabled)).toMatchObject({
       code: 'CAPABILITY_DISABLED',
+      httpStatus: 501,
       unexpected: false,
     });
     const open = Object.assign(new Error('open'), {

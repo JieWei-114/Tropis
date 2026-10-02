@@ -121,7 +121,8 @@ export class SearchClient
       return {
         total: result.total,
         hits: result.hits.map((hit) => {
-          const { [SEARCH_TENANT_FIELD]: _tenant, ...rest } = hit;
+          const rest: SearchDocument = { ...hit };
+          delete rest[SEARCH_TENANT_FIELD];
           return rest as T;
         }),
       };

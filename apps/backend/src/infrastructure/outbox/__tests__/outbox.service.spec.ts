@@ -56,21 +56,27 @@ describe('OutboxService', () => {
         service.write({
           topic: 't',
           aggregateId: 'user-1',
-          type: 'user.created',
+          type: 'identity.user.created',
           tenantId: 'acme',
           data: { userId: 'user-1' },
         }),
     );
 
     const [[row]] = model.create.mock.calls[0] as [
-      [Record<string, any>],
+      [
+        {
+          aggregateId: string;
+          payload: unknown;
+          event: { time: unknown; traceparent: string };
+        },
+      ],
       unknown,
     ];
     expect(row.aggregateId).toBe('user-1');
     expect(row.payload).toEqual({ userId: 'user-1' });
     expect(row.event).toMatchObject({
       id,
-      type: 'user.created',
+      type: 'identity.user.created',
       subject: 'user-1',
       tenantId: 'acme',
       schemaVersion: '1',
@@ -200,7 +206,7 @@ describe('OutboxService', () => {
     );
     expect(heads.updateOne).toHaveBeenCalledWith(
       { _id: 'agg-1' },
-      { $setOnInsert: { dueAt: expect.any(Date) }, $inc: { v: 1 } },
+      { $setOnInsert: { dueAt: expect.any(Date) as unknown }, $inc: { v: 1 } },
       { upsert: true, session },
     );
     expect(heads.updateOne.mock.invocationCallOrder[0]).toBeLessThan(
@@ -236,7 +242,10 @@ describe('OutboxService', () => {
         {
           updateOne: {
             filter: { _id: 'user-1' },
-            update: { $set: { dueAt: expect.any(Date) }, $inc: { v: 1 } },
+            update: {
+              $set: { dueAt: expect.any(Date) as unknown },
+              $inc: { v: 1 },
+            },
             upsert: true,
           },
         },

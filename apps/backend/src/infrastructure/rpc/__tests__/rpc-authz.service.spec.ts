@@ -60,7 +60,7 @@ describe('RpcAuthzService', () => {
       expect.objectContaining({
         code: Code.Unauthenticated,
         rawMessage: 'Missing authorization token',
-      }),
+      }) as Error,
     );
   });
 
@@ -68,7 +68,7 @@ describe('RpcAuthzService', () => {
     const forged = signAccessToken({}, {}, 'other-secret-other-secret-other');
     const ctx = await rpcTestContext(authz, bearer(forged));
     expect(() => authz.caller(ctx)).toThrow(
-      expect.objectContaining({ code: Code.Unauthenticated }),
+      expect.objectContaining({ code: Code.Unauthenticated }) as Error,
     );
   });
 
@@ -84,7 +84,7 @@ describe('RpcAuthzService', () => {
       expect.objectContaining({
         code: Code.Unauthenticated,
         rawMessage: 'The access token has been revoked.',
-      }),
+      }) as Error,
     );
   });
 
@@ -95,7 +95,7 @@ describe('RpcAuthzService', () => {
       expect.objectContaining({
         code: Code.Unauthenticated,
         rawMessage: 'The account is not active.',
-      }),
+      }) as Error,
     );
   });
 

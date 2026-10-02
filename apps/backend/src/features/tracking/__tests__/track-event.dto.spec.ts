@@ -36,7 +36,8 @@ describe('TrackBatchDto validation', () => {
   });
 
   it('rejects events missing required fields', async () => {
-    const { eventName: _dropped, ...rest } = validEvent();
+    const rest: Partial<ReturnType<typeof validEvent>> = validEvent();
+    delete rest.eventName;
     const errors = await validateBatch({ events: [rest] });
     expect(errors.length).toBeGreaterThan(0);
   });

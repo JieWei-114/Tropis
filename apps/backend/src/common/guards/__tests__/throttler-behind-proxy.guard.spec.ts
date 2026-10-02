@@ -3,6 +3,8 @@ import { APP_GUARD } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { Throttle, ThrottlerModule } from '@nestjs/throttler';
 import request from 'supertest';
+import type { App } from 'supertest/types';
+import type { ProblemDetails } from '@tropis/shared';
 import { GlobalExceptionFilter } from '../../filters/http-exception.filter';
 import { ThrottlerBehindProxyGuard } from '../throttler-behind-proxy.guard';
 
@@ -35,7 +37,7 @@ class AuthRoutes {
 class TestModule {}
 
 describe('ThrottlerBehindProxyGuard', () => {
-  let app: INestApplication;
+  let app: INestApplication<App>;
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -65,7 +67,7 @@ describe('ThrottlerBehindProxyGuard', () => {
     await get('/auth/login');
     const res = await get('/auth/login');
     expect(res.status).toBe(429);
-    expect(res.body.code).toBe('RATE_LIMITED');
+    expect((res.body as ProblemDetails).code).toBe('RATE_LIMITED');
     expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
     expect(Number(res.headers['retry-after'])).toBeLessThanOrEqual(60);
     expect(res.headers).not.toHaveProperty('retry-after-auth');

@@ -62,7 +62,7 @@ function inRequest<T>(fn: () => Promise<T>): Promise<T> {
 
 const outboxMessage = {
   eventId: 'row-1',
-  eventType: 'user.created',
+  eventType: 'identity.user.created',
   aggregateId: 'user-9',
   payload: { userId: 'user-9', tenantId: 'acme' },
   timestamp: Date.UTC(2026, 8, 30, 8, 15),
@@ -70,7 +70,7 @@ const outboxMessage = {
 
 const outboxEvent = {
   id: 'row-1',
-  type: 'user.created',
+  type: 'identity.user.created',
   subject: 'user-9',
   tenantId: 'acme',
   time: '2026-09-30T08:15:00.000Z',
@@ -97,7 +97,7 @@ describe('messaging trace propagation and envelope', () => {
     expect(seen[0].envelope).toMatchObject({
       specversion: '1.0',
       id: 'row-1',
-      type: 'user.created',
+      type: 'identity.user.created',
       subject: 'user-9',
       tenantid: 'acme',
       time: '2026-09-30T08:15:00.000Z',
@@ -291,7 +291,7 @@ describe('Pulsar adapter propagation', () => {
 
     expect(pulsar.sent[0].properties).toMatchObject({
       ce_id: 'row-1',
-      ce_type: 'user.created',
+      ce_type: 'identity.user.created',
       ce_tenantid: 'acme',
     });
     expect(pulsar.sent[0].properties?.traceparent).toMatch(

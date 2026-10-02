@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Code, ConnectError } from '@connectrpc/connect';
 import { AppError } from '../../../common/errors';
+import { CapabilityDisabledError } from '../../capability';
 import {
   BadRequestSchema,
   ErrorInfoSchema,
@@ -87,6 +88,15 @@ describe('toConnectError', () => {
     const err = toConnectError(new AppError('SERVICE_UNAVAILABLE'));
     expect(err.code).toBe(Code.Unavailable);
     expect(info(err)?.metadata.retryable).toBe('true');
+  });
+
+  it('maps a disabled capability to Unimplemented, not retryable', () => {
+    const err = toConnectError(new CapabilityDisabledError('graph', 'read'));
+    expect(err.code).toBe(Code.Unimplemented);
+    expect(info(err)).toMatchObject({
+      reason: 'CAPABILITY_DISABLED',
+      metadata: { retryable: 'false' },
+    });
   });
 
   it('turns validation message arrays into google.rpc.BadRequest', () => {

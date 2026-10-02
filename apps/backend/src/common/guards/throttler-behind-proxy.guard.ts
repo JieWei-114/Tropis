@@ -40,7 +40,7 @@ export class ThrottlerBehindProxyGuard extends ThrottlerGuard {
     return super.handleRequest(props);
   }
 
-  protected async throwThrottlingException(
+  protected throwThrottlingException(
     context: ExecutionContext,
     detail: ThrottlerLimitDetail,
   ): Promise<void> {
@@ -54,8 +54,8 @@ export class ThrottlerBehindProxyGuard extends ThrottlerGuard {
     });
   }
 
-  protected async getTracker(req: Record<string, any>): Promise<string> {
-    return (req.ips?.length ? req.ips[0] : req.ip) as string;
+  protected getTracker(req: { ips?: string[]; ip?: string }): Promise<string> {
+    return Promise.resolve((req.ips?.length ? req.ips[0] : req.ip) as string);
   }
 }
 

@@ -64,7 +64,8 @@ export class ClickHouseOlapEngine implements OlapEngine, OnApplicationShutdown {
       { database, name },
     );
     if (!rows.length) throw new Error(`OLAP table ${table} does not exist`);
-    return String(rows[0].sorting_key ?? '')
+    const sortingKey = rows[0].sorting_key;
+    return (typeof sortingKey === 'string' ? sortingKey : '')
       .split(',')
       .map((column) => column.trim())
       .filter(Boolean);

@@ -67,8 +67,8 @@ describe('AuditInterceptor', () => {
         resource: 'POST /api/auth/logout',
         transport: 'http',
         outcome: AUDIT_OUTCOME.SUCCESS,
-        timestamp: expect.any(Date),
-        traceId: expect.any(String),
+        timestamp: expect.any(Date) as unknown,
+        traceId: expect.any(String) as unknown,
       }),
     );
   });

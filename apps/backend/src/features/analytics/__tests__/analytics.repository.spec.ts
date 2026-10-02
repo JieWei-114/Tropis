@@ -29,11 +29,10 @@ describe('AnalyticsRepository.insertEvent', () => {
   });
 
   it('inserts the event for the tenant', async () => {
-    const olap = {
-      insert: jest.fn().mockResolvedValue(undefined),
-    } as unknown as OlapPort;
+    const insert = jest.fn().mockResolvedValue(undefined);
+    const olap = { insert } as unknown as OlapPort;
     await new AnalyticsRepository(olap).insertEvent(TENANT, EVENT);
-    expect(olap.insert).toHaveBeenCalledWith(TENANT, 'logs.analytics_events', [
+    expect(insert).toHaveBeenCalledWith(TENANT, 'logs.analytics_events', [
       EVENT,
     ]);
   });

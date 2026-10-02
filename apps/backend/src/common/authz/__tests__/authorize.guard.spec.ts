@@ -8,9 +8,9 @@ import { AuthorizeGuard } from '../authorize.guard';
 
 class Routes {
   @Authorize('user', 'manage_roles')
-  guarded(): void {}
+  guarded(this: void): void {}
 
-  open(): void {}
+  open(this: void): void {}
 }
 
 const httpContext = (handler: () => void, user?: { roles: string[] }) =>

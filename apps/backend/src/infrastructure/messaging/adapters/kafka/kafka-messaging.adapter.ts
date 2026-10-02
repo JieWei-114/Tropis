@@ -82,8 +82,11 @@ const kafkaLogger = createLogger('messaging');
 /** Routes kafkajs log entries through the logger port. */
 export function kafkaLogCreator(): (entry: LogEntry) => void {
   return ({ namespace, level, log }) => {
-    const { message, timestamp: _timestamp, ...extra } = log;
-    const fields = { 'kafka.namespace': namespace, ...extra };
+    const { message, ...extra } = log;
+    const fields: Record<string, unknown> = { 'kafka.namespace': namespace };
+    for (const [key, value] of Object.entries(extra)) {
+      if (key !== 'timestamp') fields[key] = value;
+    }
     if (level === logLevel.ERROR) {
       kafkaLogger.error('kafka-client', message, undefined, fields);
     } else if (level === logLevel.WARN) {
@@ -231,7 +234,9 @@ export class KafkaMessagingAdapter
     try {
       await consumer.subscribe({ topics: [kafkaTopic], fromBeginning: false });
       await consumer.run({
-        eachMessage: async ({ partition, message, heartbeat }) => {
+        eachMessage: async (payload) => {
+          const { partition, message } = payload;
+          const heartbeat = () => payload.heartbeat();
           for (let attempt = 0; ; attempt += 1) {
             if (closing) throw new SubscriptionClosedError();
             try {

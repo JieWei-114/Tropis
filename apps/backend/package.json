@@ -28,7 +28,7 @@
     "migrate:up": "pnpm migrate up",
     "migrate:down": "pnpm migrate down",
     "migrate:create": "pnpm migrate create",
-    "lint:arch": "depcruise src --config .dependency-cruiser.cjs",
+    "lint:arch": "depcruise src test --config .dependency-cruiser.cjs",
     "promote-admin": "ts-node scripts/promote-admin.ts",
     "tenant-create": "ts-node --transpile-only scripts/tenant-create.ts",
     "lint:fix": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix"

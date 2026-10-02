@@ -82,9 +82,24 @@ describe('MembershipGraphProcessor', () => {
     expect(membership.recordMember).toHaveBeenCalledTimes(1);
   });
 
-  it('removes membership on user.deleted', async () => {
+  it('removes membership on identity.user.deleted', async () => {
     await handle({ userId: 'u4' }, envelope(USER_EVENTS.DELETED, 'e3'));
     expect(membership.removeMember).toHaveBeenCalledWith(ACME, 'u4');
+  });
+
+  it('accepts the legacy user event names', async () => {
+    await handle({ userId: 'u7' }, envelope('user.created', 'e6'));
+    await handle({ userId: 'u7' }, envelope('user.deleted', 'e7'));
+    expect(membership.recordMember).toHaveBeenCalledWith(ACME, {
+      userId: 'u7',
+      invitedBy: undefined,
+    });
+    expect(membership.removeMember).toHaveBeenCalledWith(ACME, 'u7');
+  });
+
+  it('ignores types outside the user events contract', async () => {
+    await handle({ userId: 'u8' }, envelope('user.account.created', 'e8'));
+    expect(membership.recordMember).not.toHaveBeenCalled();
   });
 
   it('drops a payload that names another tenant', async () => {

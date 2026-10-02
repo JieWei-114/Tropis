@@ -1,4 +1,5 @@
 import type { Interceptor } from '@connectrpc/connect';
+import type { TenantId } from '../../../common/keyspace';
 import { resolveTenant } from '../../../common/tenant/tenant-resolution';
 import { runInTenant } from '../../../common/tenant/tenant.context';
 import { RPC_CREDENTIALS } from '../rpc-authz.service';
@@ -16,7 +17,7 @@ import { setRequestTenant } from '../../../common/observability/request-context'
 export function tenantInterceptor(): Interceptor {
   return (next) => (req) => {
     const { principal } = req.contextValues.get(RPC_CREDENTIALS);
-    let tenantId;
+    let tenantId: TenantId | undefined;
     try {
       tenantId = resolveTenant(
         principal?.tenantId,

@@ -24,7 +24,7 @@ const event = (eventId: string) => ({
 });
 const batch = (...ids: string[]) => ({ events: ids.map(event) });
 
-async function start() {
+function start() {
   const h = consumerHarness();
   const insertEvents = jest.fn().mockResolvedValue(undefined);
   const realtime = {
@@ -49,7 +49,7 @@ async function start() {
 
 describe('TrackingProcessor', () => {
   it('writes a redelivered batch once, deduplicated on event id', async () => {
-    const { deliver, insertEvents, written } = await start();
+    const { deliver, insertEvents, written } = start();
 
     await deliver(batch('e1', 'e2'));
     await deliver(batch('e1', 'e2'));
@@ -59,7 +59,7 @@ describe('TrackingProcessor', () => {
   });
 
   it('writes only the events of a batch not written before', async () => {
-    const { deliver, written, dedup } = await start();
+    const { deliver, written, dedup } = start();
 
     await deliver(batch('e1'));
     await deliver(batch('e1', 'e2'));
@@ -73,7 +73,7 @@ describe('TrackingProcessor', () => {
   });
 
   it('releases its claims and rethrows when the insert fails, so a redelivery is written', async () => {
-    const { deliver, insertEvents, dedup, written } = await start();
+    const { deliver, insertEvents, dedup, written } = start();
     insertEvents.mockRejectedValueOnce(new Error('olap down'));
 
     await expect(deliver(batch('e1', 'e2'))).rejects.toThrow('olap down');
@@ -85,7 +85,7 @@ describe('TrackingProcessor', () => {
   });
 
   it('pushes the live nudge after a write and not for a fully duplicate batch', async () => {
-    const { deliver, realtime } = await start();
+    const { deliver, realtime } = start();
 
     await deliver(batch('e1'));
     await deliver(batch('e1'));

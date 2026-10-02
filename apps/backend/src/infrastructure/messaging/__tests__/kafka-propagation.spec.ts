@@ -128,10 +128,16 @@ describe('Kafka adapter propagation', () => {
           'user-events',
           {
             eventId: 'row-7',
-            eventType: 'user.updated',
+            eventType: 'identity.user.updated',
             payload: { tenantId: 'acme' },
           },
-          { event: { id: 'row-7', type: 'user.updated', tenantId: 'acme' } },
+          {
+            event: {
+              id: 'row-7',
+              type: 'identity.user.updated',
+              tenantId: 'acme',
+            },
+          },
         ),
     );
     await nextTick();
@@ -141,7 +147,7 @@ describe('Kafka adapter propagation', () => {
     expect(headers.traceparent).toMatch(new RegExp(`^00-${TRACE_ID}-`));
     expect(headers).toMatchObject({
       ce_id: 'row-7',
-      ce_type: 'user.updated',
+      ce_type: 'identity.user.updated',
       ce_tenantid: 'acme',
     });
     expect(seen).toEqual([
@@ -151,7 +157,7 @@ describe('Kafka adapter propagation', () => {
         tenant: 'acme',
         body: {
           eventId: 'row-7',
-          eventType: 'user.updated',
+          eventType: 'identity.user.updated',
           payload: { tenantId: 'acme' },
         },
       },

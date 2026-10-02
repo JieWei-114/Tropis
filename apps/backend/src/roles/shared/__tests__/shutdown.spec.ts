@@ -84,10 +84,12 @@ describe('shutdownRole', () => {
     early.attach(app.get(HealthProbesService));
     const url = `http://127.0.0.1:${port}`;
     let earlyDuringTeardown: number | undefined;
-    const original = Consumer.prototype.onModuleDestroy;
-    Consumer.prototype.onModuleDestroy = async function () {
+    const original = Reflect.get(Consumer.prototype, 'onModuleDestroy') as (
+      this: Consumer,
+    ) => Promise<void>;
+    Consumer.prototype.onModuleDestroy = async function (this: Consumer) {
       earlyDuringTeardown = (await fetch(`${url}/readyz`)).status;
-      return original.call(this);
+      return original.call(this) as Promise<void>;
     };
     try {
       await shutdownRole(app, [], { ops: early });

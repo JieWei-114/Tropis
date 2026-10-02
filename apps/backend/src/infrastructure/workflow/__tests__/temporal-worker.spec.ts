@@ -1,8 +1,8 @@
 import type { ConfigService } from '@nestjs/config';
 import type { ModuleRef } from '@nestjs/core';
 
-const connect = jest.fn();
-const create = jest.fn();
+const connect = jest.fn<Promise<unknown>, unknown[]>();
+const create = jest.fn<Promise<unknown>, unknown[]>();
 jest.mock('@temporalio/worker', () => ({
   NativeConnection: { connect: (...args: unknown[]) => connect(...args) },
   Worker: { create: (...args: unknown[]) => create(...args) },

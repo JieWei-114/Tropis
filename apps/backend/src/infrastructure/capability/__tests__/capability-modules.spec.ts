@@ -73,9 +73,8 @@ import { OlapHealthIndicator } from '../../olap/olap.health';
 import { envValidationSchema } from '../../../config/env.validation';
 
 function mockEmptyModule(name: string) {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Module } =
-    require('@nestjs/common') as typeof import('@nestjs/common');
+    jest.requireActual<typeof import('@nestjs/common')>('@nestjs/common');
   const cls = { [name]: class {} }[name];
   Module({})(cls);
   return cls;
@@ -84,15 +83,21 @@ function mockEmptyModule(name: string) {
 // The real connection modules open sockets; the stubs below stand in for
 // what they export.
 jest.mock('../../connections/redis/redis-connection.module', () => ({
-  ...jest.requireActual('../../connections/redis/redis.constants'),
+  ...jest.requireActual<Record<string, unknown>>(
+    '../../connections/redis/redis.constants',
+  ),
   RedisConnectionModule: mockEmptyModule('RedisConnectionModule'),
 }));
 jest.mock('../../connections/pulsar/pulsar-connection.module', () => ({
-  ...jest.requireActual('../../connections/pulsar/pulsar.constants'),
+  ...jest.requireActual<Record<string, unknown>>(
+    '../../connections/pulsar/pulsar.constants',
+  ),
   PulsarConnectionModule: mockEmptyModule('PulsarConnectionModule'),
 }));
 jest.mock('../../connections/aerospike/aerospike-connection.module', () => ({
-  ...jest.requireActual('../../connections/aerospike/aerospike.constants'),
+  ...jest.requireActual<Record<string, unknown>>(
+    '../../connections/aerospike/aerospike.constants',
+  ),
   AerospikeConnectionModule: mockEmptyModule('AerospikeConnectionModule'),
 }));
 jest.mock('../../relational/relational.module', () => {

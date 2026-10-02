@@ -1,3 +1,4 @@
+import { createAsyncIterable } from '@connectrpc/connect/protocol';
 import { WorkflowNotFoundError, type Client } from '@temporalio/client';
 import { toTenantId } from '../../../common/keyspace';
 import { CapabilityDisabledError } from '../../capability';
@@ -8,6 +9,11 @@ import {
   UnknownWorkflowTypeError,
   WorkflowRegistry,
 } from '../workflow.registry';
+import { InMemoryTemporalClient } from './in-memory-temporal.client';
+import {
+  conformanceRegistry,
+  describeWorkflowPort,
+} from './workflow.conformance';
 
 const ONBOARDING_WORKFLOW = 'testOnboardingWorkflow';
 const QUEUE = 'test-queue';
@@ -47,11 +53,7 @@ function fakeClient(prefix = 't.acme:') {
         Promise.resolve({ workflowId: opts.workflowId }),
       ),
       count: jest.fn().mockResolvedValue({ count: 4 }),
-      list: jest.fn(() =>
-        (async function* () {
-          for (const wf of listed) yield wf;
-        })(),
-      ),
+      list: jest.fn(() => createAsyncIterable(listed)),
       getHandle: jest.fn(() => ({ describe: jest.fn() })),
     },
     connection: {
@@ -178,7 +180,7 @@ describe('TemporalWorkflowAdapter', () => {
     expect(adapter.isAvailable()).toBe(true);
     await expect(
       adapter.start(ACME, ONBOARDING_WORKFLOW, []),
-    ).resolves.toMatchObject({ workflowId: expect.any(String) });
+    ).resolves.toMatchObject({ workflowId: expect.any(String) as unknown });
     expect(connect).toHaveBeenCalledTimes(2);
   });
 
@@ -229,4 +231,33 @@ describe('DisabledWorkflowAdapter', () => {
       status: 'disabled',
     });
   });
+});
+
+describeWorkflowPort('temporal over an in-memory client', {
+  live: {
+    make: async () => {
+      const client = new InMemoryTemporalClient().asClient();
+      const holder = new TemporalClientHolder(() => Promise.resolve(client));
+      await holder.get();
+      return new TemporalWorkflowAdapter(holder, conformanceRegistry());
+    },
+  },
+  unavailable: [
+    {
+      label: 'the adapter is disabled',
+      status: 'disabled',
+      make: () => new DisabledWorkflowAdapter(),
+    },
+    {
+      label: 'Temporal is unreachable',
+      status: 'down',
+      make: async () => {
+        const holder = new TemporalClientHolder(() =>
+          Promise.reject(new Error('ECONNREFUSED')),
+        );
+        await holder.get();
+        return new TemporalWorkflowAdapter(holder, conformanceRegistry());
+      },
+    },
+  ],
 });

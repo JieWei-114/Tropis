@@ -151,12 +151,13 @@ describe('TrackingService', () => {
       await service.ingest(toTenantId('tenant-a'), batch());
 
       expect(broker.publish).toHaveBeenCalledTimes(1);
-      const [topic, payload] = broker.publish.mock.calls[0] as [
+      const [topic, payload, options] = broker.publish.mock.calls[0] as [
         string,
         { events: Record<string, unknown>[] },
+        unknown,
       ];
       expect(topic).toBe('tracking-events');
-      expect(broker.publish.mock.calls[0][2]).toMatchObject({
+      expect(options).toMatchObject({
         event: { tenantId: 'tenant-a' },
       });
       expect(payload.events).toHaveLength(1);

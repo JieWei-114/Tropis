@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import {
+  canonicalEventType,
   EVENT_TYPES,
   USER_EVENTS_TOPIC,
   type UserEventData,
@@ -23,8 +24,8 @@ const PROJECTED: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Consumes user.created / user.updated / user.deleted (the shared user
- * events contract) on its own key_shared subscription and projects them
+ * Consumes identity.user.created / updated / deleted (the shared user
+ * events contract, legacy names included) on its own key_shared subscription and projects them
  * into the membership graph, once per envelope id. When the graph capability
  * is disabled it does not subscribe at all. A nacked event can still come
  * back after a later one, so the projection ignores anything that arrives
@@ -70,7 +71,8 @@ export class MembershipGraphProcessor implements OnModuleInit, OnModuleDestroy {
     const userId =
       typeof data.userId === 'string' ? data.userId : envelope.subject;
     if (typeof userId !== 'string' || !userId) return;
-    if (!PROJECTED.has(envelope.type)) return;
+    const type = canonicalEventType(envelope.type);
+    if (!PROJECTED.has(type)) return;
     const invitedBy =
       'invitedBy' in data && typeof data.invitedBy === 'string'
         ? data.invitedBy || undefined
@@ -79,7 +81,7 @@ export class MembershipGraphProcessor implements OnModuleInit, OnModuleDestroy {
     await this.consumer.once(
       MEMBERSHIP_GRAPH_EVENT_SEEN.global(envelope.id),
       async () => {
-        if (envelope.type === EVENT_TYPES.USER_DELETED) {
+        if (type === EVENT_TYPES.USER_DELETED) {
           await this.membership.removeMember(tenantId, userId);
           return;
         }

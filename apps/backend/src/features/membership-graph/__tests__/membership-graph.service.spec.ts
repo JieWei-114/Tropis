@@ -87,7 +87,7 @@ describe('MembershipGraphService', () => {
   });
 
   // Reproduces the gap: removing a user the graph had not seen yet matched
-  // nothing, so a later user.created recorded the deleted user.
+  // nothing, so a later identity.user.created recorded the deleted user.
   it('leaves a tombstone when the removal arrives before the user', async () => {
     await service.removeMember(tenant, 'late');
     expect(engine.calls[0].cypher).toMatch(/^\s*MERGE \(u:User/);

@@ -17,11 +17,10 @@ const body = (eventId = 'e1') => ({
   timestamp: 1,
 });
 
-async function start(olapInsert: jest.Mock) {
+function start(olapInsert: jest.Mock) {
   const h = consumerHarness();
-  const realtime = {
-    publishToRoles: jest.fn().mockResolvedValue(undefined),
-  } as unknown as RealtimePort;
+  const publishToRoles = jest.fn().mockResolvedValue(undefined);
+  const realtime = { publishToRoles } as unknown as RealtimePort;
   const repo = new AnalyticsRepository({
     insert: olapInsert,
   } as unknown as OlapPort);
@@ -32,7 +31,7 @@ async function start(olapInsert: jest.Mock) {
   );
   processor.onModuleInit();
   const deliver = (data: unknown) => h.deliver(data, { id: 'env-1' });
-  return { deliver, dedup: h.dedup, realtime };
+  return { deliver, dedup: h.dedup, publishToRoles };
 }
 
 describe('AnalyticsProcessor', () => {
@@ -41,7 +40,7 @@ describe('AnalyticsProcessor', () => {
       .fn()
       .mockRejectedValueOnce(new Error('olap down'))
       .mockResolvedValueOnce(undefined);
-    const { deliver, dedup } = await start(insert);
+    const { deliver, dedup } = start(insert);
 
     const err = await deliver(body()).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(AppError);
@@ -59,7 +58,7 @@ describe('AnalyticsProcessor', () => {
 
   it('writes a redelivered event once, deduplicated on its event id', async () => {
     const insert = jest.fn().mockResolvedValue(undefined);
-    const { deliver } = await start(insert);
+    const { deliver } = start(insert);
 
     await deliver(body('e1'));
     await deliver(body('e1'));
@@ -70,19 +69,19 @@ describe('AnalyticsProcessor', () => {
 
   it('keeps the event stored when the live push fails', async () => {
     const insert = jest.fn().mockResolvedValue(undefined);
-    const { deliver, realtime } = await start(insert);
-    (realtime.publishToRoles as jest.Mock).mockRejectedValue(new Error('x'));
+    const { deliver, publishToRoles } = start(insert);
+    publishToRoles.mockRejectedValue(new Error('x'));
 
     await expect(deliver(body())).resolves.toBeUndefined();
   });
 
   it('pushes the live feed only to roles that may read analytics', async () => {
     const insert = jest.fn().mockResolvedValue(undefined);
-    const { deliver, realtime } = await start(insert);
+    const { deliver, publishToRoles } = start(insert);
 
     await deliver(body());
 
-    expect(realtime.publishToRoles).toHaveBeenCalledWith(
+    expect(publishToRoles).toHaveBeenCalledWith(
       TENANT,
       ['admin', 'editor', 'viewer'],
       'analytics.event',
