@@ -1,4 +1,4 @@
-FROM openpolicyagent/opa:1.20.1
+FROM openpolicyagent/opa:1.21.0
 COPY --chown=1000:1000 infra/opa/authz.rego infra/opa/system_authz.rego /policies/
 USER 1000:1000
 EXPOSE 8181
