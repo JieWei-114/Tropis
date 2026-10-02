@@ -16,6 +16,13 @@
  * surface.
  */
 
+import {
+  DEFAULT_NATIVE_OAUTH_REDIRECT,
+  NATIVE_SESSION_ORIGINS,
+} from '@tropis/shared';
+
+export { DEFAULT_NATIVE_OAUTH_REDIRECT, NATIVE_SESSION_ORIGINS };
+
 /** Web console (Vite dev server). */
 export const DEFAULT_CORS_ORIGIN = 'http://localhost:5173';
 
@@ -60,4 +67,69 @@ export function corsOriginList(value: string | undefined): string[] {
  */
 export function primaryWebOrigin(): string {
   return corsOriginFromEnv()[0] ?? DEFAULT_CORS_ORIGIN;
+}
+
+/**
+ * Whether a request Origin may use the native session flow (refresh token
+ * in the body): one of NATIVE_SESSION_ORIGINS and not a configured web
+ * origin, so the console's own pages never obtain a refresh token. A local
+ * page on https://localhost or http://tauri.localhost can send these
+ * origins too, but must still present credentials it already holds.
+ */
+export function isNativeSessionOrigin(
+  origin: string | undefined,
+  corsOrigin: string | undefined = process.env['CORS_ORIGIN'],
+): boolean {
+  if (!origin) return false;
+  if (!(NATIVE_SESSION_ORIGINS as readonly string[]).includes(origin)) {
+    return false;
+  }
+  const web = (corsOrigin ?? DEFAULT_CORS_ORIGIN)
+    .split(',')
+    .map((o) => o.trim());
+  return !web.includes(origin);
+}
+
+const WEB_SCHEMES = new Set([
+  'http:',
+  'https:',
+  'javascript:',
+  'data:',
+  'file:',
+  'blob:',
+  'about:',
+  'vbscript:',
+  'ftp:',
+  'ws:',
+  'wss:',
+]);
+
+/**
+ * A custom-scheme callback URL a native shell registers (`tropis://auth/callback`):
+ * a parsable URL with a non-web scheme, no credentials and no fragment.
+ */
+export function isNativeCallbackUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (WEB_SCHEMES.has(url.protocol)) return false;
+  if (!/^[a-z][a-z0-9+.-]*:$/.test(url.protocol)) return false;
+  if (url.username || url.password || url.hash || value.includes('#')) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * The OAuth return allow-list for native shells from NATIVE_OAUTH_REDIRECTS
+ * (comma-separated; empty disables native OAuth).
+ */
+export function nativeOAuthRedirectList(value: string | undefined): string[] {
+  return (value ?? DEFAULT_NATIVE_OAUTH_REDIRECT)
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
 }

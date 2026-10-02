@@ -17,6 +17,11 @@ import {
 } from '../constants/auth.constants';
 import { TENANT_DIRECTORY } from '../../../common/tenant/tenant-directory.port';
 import { activeTenant } from './token-fixtures';
+import type { IUserWithPassword } from '../../user/interfaces/user.interface';
+
+const asUserWithPassword = (
+  fields: Partial<IUserWithPassword>,
+): IUserWithPassword => fields as IUserWithPassword;
 
 const TEST_SECRET = 'test-jwt-secret-at-least-32-characters!!';
 const TENANT = toTenantId('initech');
@@ -184,10 +189,12 @@ describe('AuthService', () => {
 
     it('throws UnauthorizedException when password is wrong', async () => {
       const hash = await bcrypt.hash('correct', 10);
-      userService.findByEmailWithPassword.mockResolvedValue({
-        ...mockUserWithPassword,
-        passwordHash: hash,
-      } as any);
+      userService.findByEmailWithPassword.mockResolvedValue(
+        asUserWithPassword({
+          ...mockUserWithPassword,
+          passwordHash: hash,
+        }),
+      );
 
       await expect(
         service.login(TENANT, {
@@ -199,10 +206,12 @@ describe('AuthService', () => {
 
     it('returns access + refresh token pair on valid credentials', async () => {
       const hash = await bcrypt.hash('secret123', 10);
-      userService.findByEmailWithPassword.mockResolvedValue({
-        ...mockUserWithPassword,
-        passwordHash: hash,
-      } as any);
+      userService.findByEmailWithPassword.mockResolvedValue(
+        asUserWithPassword({
+          ...mockUserWithPassword,
+          passwordHash: hash,
+        }),
+      );
 
       const result = await service.login(TENANT, {
         email: 'alice@example.com',
@@ -216,8 +225,8 @@ describe('AuthService', () => {
           sub: 'user-123',
           email: 'alice@example.com',
           roles: [],
-          tenantId: expect.any(String),
-          jti: expect.any(String),
+          tenantId: expect.any(String) as unknown,
+          jti: expect.any(String) as unknown,
         }),
       );
       // refresh token persisted in kv, tenant-scoped, with a TTL
@@ -236,10 +245,12 @@ describe('AuthService', () => {
     it('records a session on successful login (fire-and-forget)', async () => {
       const createSpy = jest.spyOn(sessions, 'create');
       const hash = await bcrypt.hash('secret123', 10);
-      userService.findByEmailWithPassword.mockResolvedValue({
-        ...mockUserWithPassword,
-        passwordHash: hash,
-      } as any);
+      userService.findByEmailWithPassword.mockResolvedValue(
+        asUserWithPassword({
+          ...mockUserWithPassword,
+          passwordHash: hash,
+        }),
+      );
 
       await service.login(
         TENANT,
@@ -257,10 +268,12 @@ describe('AuthService', () => {
 
     it('fires recordLogin after successful login (non-blocking)', async () => {
       const hash = await bcrypt.hash('secret123', 10);
-      userService.findByEmailWithPassword.mockResolvedValue({
-        ...mockUserWithPassword,
-        passwordHash: hash,
-      } as any);
+      userService.findByEmailWithPassword.mockResolvedValue(
+        asUserWithPassword({
+          ...mockUserWithPassword,
+          passwordHash: hash,
+        }),
+      );
 
       await service.login(TENANT, {
         email: 'alice@example.com',
@@ -285,10 +298,12 @@ describe('AuthService', () => {
 
     it('records a lockout failure on wrong password', async () => {
       const hash = await bcrypt.hash('correct', 10);
-      userService.findByEmailWithPassword.mockResolvedValue({
-        ...mockUserWithPassword,
-        passwordHash: hash,
-      } as any);
+      userService.findByEmailWithPassword.mockResolvedValue(
+        asUserWithPassword({
+          ...mockUserWithPassword,
+          passwordHash: hash,
+        }),
+      );
 
       await expect(
         service.login(
@@ -306,10 +321,12 @@ describe('AuthService', () => {
 
     it('resets the lockout counter on successful login', async () => {
       const hash = await bcrypt.hash('secret123', 10);
-      userService.findByEmailWithPassword.mockResolvedValue({
-        ...mockUserWithPassword,
-        passwordHash: hash,
-      } as any);
+      userService.findByEmailWithPassword.mockResolvedValue(
+        asUserWithPassword({
+          ...mockUserWithPassword,
+          passwordHash: hash,
+        }),
+      );
 
       await service.login(
         TENANT,
@@ -323,6 +340,28 @@ describe('AuthService', () => {
         '1.2.3.4',
       );
       expect(lockout.recordFailure).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('refreshTokenOwner', () => {
+    it('names the tenant and user of a token we signed', () => {
+      expect(
+        service.refreshTokenOwner(encodeRefreshToken('user-123', 'tok-1')),
+      ).toEqual({ tenantId: 'initech', userId: 'user-123' });
+    });
+
+    it('names nobody for a forged, malformed or missing token', () => {
+      const forged = Buffer.from(
+        JSON.stringify({
+          tenantId: 'initech',
+          userId: 'user-123',
+          tokenId: 'tok-1',
+          sig: 'f'.repeat(64),
+        }),
+      ).toString('base64url');
+      expect(service.refreshTokenOwner(forged)).toBeNull();
+      expect(service.refreshTokenOwner('garbage')).toBeNull();
+      expect(service.refreshTokenOwner(undefined)).toBeNull();
     });
   });
 
@@ -450,13 +489,15 @@ describe('AuthService', () => {
 
     it('rotates the token and issues a new pair', async () => {
       await storeRefreshToken('user-123', 'tok-1');
-      userService.findByIdForAuth.mockResolvedValue({
-        id: 'user-123',
-        email: 'alice@example.com',
-        passwordHash: 'x',
-        status: UserStatus.ACTIVE,
-        tenantId: 'initech',
-      } as any);
+      userService.findByIdForAuth.mockResolvedValue(
+        asUserWithPassword({
+          id: 'user-123',
+          email: 'alice@example.com',
+          passwordHash: 'x',
+          status: UserStatus.ACTIVE,
+          tenantId: 'initech',
+        }),
+      );
 
       const result = await service.refresh(
         encodeRefreshToken('user-123', 'tok-1'),
@@ -475,13 +516,15 @@ describe('AuthService', () => {
 
     it('lets only one of two concurrent refreshes of the same token succeed', async () => {
       await storeRefreshToken('user-123', 'tok-1');
-      userService.findByIdForAuth.mockResolvedValue({
-        id: 'user-123',
-        email: 'alice@example.com',
-        passwordHash: 'x',
-        status: UserStatus.ACTIVE,
-        tenantId: 'initech',
-      } as any);
+      userService.findByIdForAuth.mockResolvedValue(
+        asUserWithPassword({
+          id: 'user-123',
+          email: 'alice@example.com',
+          passwordHash: 'x',
+          status: UserStatus.ACTIVE,
+          tenantId: 'initech',
+        }),
+      );
       const token = encodeRefreshToken('user-123', 'tok-1');
 
       const results = await Promise.allSettled([
@@ -495,13 +538,15 @@ describe('AuthService', () => {
     it('re-creates the session on refresh rotation', async () => {
       const createSpy = jest.spyOn(sessions, 'create');
       await storeRefreshToken('user-123', 'tok-1');
-      userService.findByIdForAuth.mockResolvedValue({
-        id: 'user-123',
-        email: 'alice@example.com',
-        passwordHash: 'x',
-        status: UserStatus.ACTIVE,
-        tenantId: 'initech',
-      } as any);
+      userService.findByIdForAuth.mockResolvedValue(
+        asUserWithPassword({
+          id: 'user-123',
+          email: 'alice@example.com',
+          passwordHash: 'x',
+          status: UserStatus.ACTIVE,
+          tenantId: 'initech',
+        }),
+      );
 
       await service.refresh(encodeRefreshToken('user-123', 'tok-1'));
 
@@ -517,13 +562,15 @@ describe('AuthService', () => {
     // minting access tokens.
     it('refuses to refresh an account that is no longer active', async () => {
       await storeRefreshToken('user-123', 'tok-1');
-      userService.findByIdForAuth.mockResolvedValue({
-        id: 'user-123',
-        email: 'alice@example.com',
-        passwordHash: 'x',
-        status: UserStatus.INACTIVE,
-        tenantId: 'initech',
-      } as any);
+      userService.findByIdForAuth.mockResolvedValue(
+        asUserWithPassword({
+          id: 'user-123',
+          email: 'alice@example.com',
+          passwordHash: 'x',
+          status: UserStatus.INACTIVE,
+          tenantId: 'initech',
+        }),
+      );
 
       await expect(
         service.refresh(encodeRefreshToken('user-123', 'tok-1')),

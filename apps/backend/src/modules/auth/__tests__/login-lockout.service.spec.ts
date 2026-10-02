@@ -1,3 +1,4 @@
+import type { CredentialAttempts } from '../../../common/auth/credential-attempts.port';
 import { toTenantId } from '../../../common/keyspace';
 import { InMemoryKvAdapter } from '../../../infrastructure/kv/__tests__/in-memory-kv.adapter';
 import { InMemoryRateLimitAdapter } from '../../../infrastructure/ratelimit/__tests__/in-memory-ratelimit.adapter';
@@ -53,13 +54,17 @@ describe('LoginLockoutService', () => {
 
     it('throws 429 once the per-IP threshold is reached', async () => {
       await fail(LOCKOUT_MAX_ATTEMPTS);
-      const err = await service.assertNotLocked(T, EMAIL, IP).catch((e) => e);
+      const err = await service
+        .assertNotLocked(T, EMAIL, IP)
+        .catch((e: unknown) => e);
       expect(status(err)).toBe(429);
     });
 
     it('says how long the lockout lasts, for the Retry-After header', async () => {
       await fail(LOCKOUT_MAX_ATTEMPTS);
-      const err = await service.assertNotLocked(T, EMAIL, IP).catch((e) => e);
+      const err = await service
+        .assertNotLocked(T, EMAIL, IP)
+        .catch((e: unknown) => e);
       expect(err).toMatchObject({
         metadata: { retryAfterSeconds: String(LOCKOUT_WINDOW_S) },
       });
@@ -78,7 +83,7 @@ describe('LoginLockoutService', () => {
       }
       const err = await service
         .assertNotLocked(T, EMAIL, '192.168.1.1')
-        .catch((e) => e);
+        .catch((e: unknown) => e);
       expect(status(err)).toBe(429);
     });
 
@@ -86,7 +91,7 @@ describe('LoginLockoutService', () => {
       await fail(LOCKOUT_MAX_ATTEMPTS, 'ALICE@example.com');
       const err = await service
         .assertNotLocked(T, 'alice@EXAMPLE.com', IP)
-        .catch((e) => e);
+        .catch((e: unknown) => e);
       expect(status(err)).toBe(429);
     });
 
@@ -96,6 +101,25 @@ describe('LoginLockoutService', () => {
       await expect(
         service.assertNotLocked(T, EMAIL, IP),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  // Reproduces the gap: a wrong current password on a self email or
+  // password change never counted toward the lockout.
+  describe('as CredentialAttempts', () => {
+    it('counts wrong current passwords toward the same lockout as login', async () => {
+      const attempts: CredentialAttempts = service;
+      for (let i = 0; i < LOCKOUT_MAX_ATTEMPTS; i++) {
+        await attempts.assertAllowed(T, EMAIL, IP);
+        await attempts.recordFailure(T, EMAIL, IP);
+      }
+      const err = await attempts
+        .assertAllowed(T, EMAIL, IP)
+        .catch((e: unknown) => e);
+      expect(status(err)).toBe(429);
+      await expect(service.assertNotLocked(T, EMAIL, IP)).rejects.toMatchObject(
+        { code: 'AUTH_LOGIN_LOCKED' },
+      );
     });
   });
 

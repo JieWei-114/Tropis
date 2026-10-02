@@ -6,6 +6,11 @@ import type { Request } from 'express';
 import { OAuthUserProfile } from '../interfaces/oauth-profile.interface';
 import type { StateStore } from 'passport-oauth2';
 import { SignedOAuthStateStore } from './oauth-state.store';
+import { nativeOAuthRedirectList } from '../../../config/cors.constants';
+
+interface FailingStrategy {
+  fail(challenge: { message: string }): void;
+}
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
@@ -25,6 +30,8 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       scope: ['email', 'profile'],
       store: new SignedOAuthStateStore(
         config.getOrThrow<string>('JWT_SECRET'),
+        Date.now,
+        nativeOAuthRedirectList(config.get<string>('NATIVE_OAUTH_REDIRECTS')),
       ) as unknown as StateStore,
     });
 
@@ -35,7 +42,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   // instead of attempting an OAuth flow with dummy credentials.
   authenticate(req: Request, options?: object) {
     if (!this.configured) {
-      (this as any).fail({
+      (this as unknown as FailingStrategy).fail({
         message: 'Google OAuth is not configured on this server',
       });
       return;

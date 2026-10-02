@@ -17,12 +17,15 @@ import {
 } from '../constants/auth.constants';
 import { AuthService, type AuthTokens } from './auth.service';
 import { OAuthUserProfile } from '../interfaces/oauth-profile.interface';
+import type { SessionClient } from '../interfaces/session-client.interface';
 
 interface SignInCode {
   tenantId: string;
   userId: string;
   /** base64url(SHA-256(verifier)) the browser that started the flow holds. */
   challenge: string;
+  /** The session flow the code may be exchanged by; absent means web. */
+  client?: SessionClient;
 }
 
 /** PKCE verifier: 43-128 base64url characters (RFC 7636). */
@@ -61,7 +64,10 @@ const codeKey = (code: string) =>
  * The callback never puts a token in a URL: it hands the browser a one-time
  * code (valid OAUTH_SIGNIN_CODE_TTL_SECONDS), bound to the PKCE challenge the
  * browser sent when it started the flow, that exchange() trades once for a
- * token pair given the matching verifier.
+ * token pair given the matching verifier. A code is also bound to the flow
+ * that started the sign-in: a native shell's code (returned to its custom
+ * scheme) trades only through a native exchange, a web code only through a
+ * web one.
  */
 @Injectable()
 export class OAuthService {
@@ -86,13 +92,14 @@ export class OAuthService {
     clientIp: string,
     challenge: string,
     tenantId: TenantId = this.tenant(),
+    client: SessionClient = 'web',
   ): Promise<string> {
     if (!CHALLENGE_PATTERN.test(challenge)) {
       throw new AppError('OAUTH_STATE_INVALID');
     }
     const user = await this.findOrCreate(profile, clientIp, tenantId);
     const code = randomBytes(32).toString('base64url');
-    const value: SignInCode = { tenantId, userId: user.id, challenge };
+    const value: SignInCode = { tenantId, userId: user.id, challenge, client };
     await this.kv.set(codeKey(code), value, {
       ttlSeconds: OAUTH_SIGNIN_CODE_TTL_SECONDS,
     });
@@ -104,7 +111,11 @@ export class OAuthService {
    * code is spent by the first attempt, right or wrong, so its verifier
    * cannot be guessed.
    */
-  async exchange(code: string, verifier: string): Promise<AuthTokens> {
+  async exchange(
+    code: string,
+    verifier: string,
+    client: SessionClient = 'web',
+  ): Promise<AuthTokens> {
     if (typeof code !== 'string' || !code) {
       throw new AppError('OAUTH_CODE_INVALID');
     }
@@ -117,7 +128,8 @@ export class OAuthService {
       typeof verifier !== 'string' ||
       !VERIFIER_PATTERN.test(verifier) ||
       typeof stored.challenge !== 'string' ||
-      !sameText(challengeOf(verifier), stored.challenge)
+      !sameText(challengeOf(verifier), stored.challenge) ||
+      (stored.client ?? 'web') !== client
     ) {
       throw new AppError('OAUTH_CODE_INVALID');
     }

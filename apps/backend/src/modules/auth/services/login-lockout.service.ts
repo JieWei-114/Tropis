@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { AppError } from '../../../common/errors';
 import { createLogger } from '../../../common/observability/logger';
 import type { KvKey, RateLimitKey, TenantId } from '../../../common/keyspace';
+import type { CredentialAttempts } from '../../../common/auth/credential-attempts.port';
 import { KV, type KvPort } from '../../../infrastructure/kv/kv.port';
 import {
   RATE_LIMIT,
@@ -46,7 +47,7 @@ const EMAIL_POLICY: RateLimitPolicy = {
  * victim) is bounded by the higher threshold.
  */
 @Injectable()
-export class LoginLockoutService {
+export class LoginLockoutService implements CredentialAttempts {
   private readonly logger = createLogger('auth');
 
   constructor(
@@ -72,6 +73,11 @@ export class LoginLockoutService {
         metadata: { retryAfterSeconds: String(LOCKOUT_WINDOW_S) },
       });
     }
+  }
+
+  /** CredentialAttempts: the same check as login. */
+  assertAllowed(tenantId: TenantId, email: string, ip: string): Promise<void> {
+    return this.assertNotLocked(tenantId, email, ip);
   }
 
   /** Counts one failure on both counters, locking whichever reached its limit. */

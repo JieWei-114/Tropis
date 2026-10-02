@@ -2,6 +2,7 @@ import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
+import type { Server } from 'node:http';
 import request from 'supertest';
 import { AppError, validationExceptionFactory } from '../../../common/errors';
 import { GlobalExceptionFilter } from '../../../common/filters/http-exception.filter';
@@ -19,6 +20,12 @@ import {
 } from '../constants/auth.constants';
 
 const ORIGIN = 'http://localhost:5173';
+const NATIVE_ORIGINS = [
+  'tauri://localhost',
+  'http://tauri.localhost',
+  'capacitor://localhost',
+  'https://localhost',
+];
 const VERIFIER = 'v'.repeat(43);
 
 const principal = {
@@ -37,6 +44,7 @@ describe('AuthController (REST)', () => {
     login: jest.fn(),
     refresh: jest.fn(),
     logout: jest.fn(),
+    refreshTokenOwner: jest.fn(),
   };
   const oauth = { exchange: jest.fn(), signIn: jest.fn() };
   const verifier = { verify: jest.fn() };
@@ -96,7 +104,9 @@ describe('AuthController (REST)', () => {
 
   afterEach(() => app.close());
 
-  const http = () => request(app.getHttpServer());
+  const http = () => request(app.getHttpServer() as Server);
+  const bodyOf = (res: request.Response) =>
+    res.body as { code?: string; refreshToken?: string };
   const cookieOf = (res: request.Response): string | undefined =>
     ([] as string[])
       .concat(res.headers['set-cookie'] ?? [])
@@ -195,7 +205,7 @@ describe('AuthController (REST)', () => {
       http().post('/api/auth/refresh').set('Cookie', `${REFRESH_COOKIE}=rt-1`),
     );
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe('AUTH_CSRF_REJECTED');
+    expect(bodyOf(res).code).toBe('AUTH_CSRF_REJECTED');
     expect(auth.refresh).not.toHaveBeenCalled();
   });
 
@@ -261,7 +271,11 @@ describe('AuthController (REST)', () => {
       .send({ code: 'c'.repeat(43), verifier: VERIFIER });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ accessToken: 'at' });
-    expect(oauth.exchange).toHaveBeenCalledWith('c'.repeat(43), VERIFIER);
+    expect(oauth.exchange).toHaveBeenCalledWith(
+      'c'.repeat(43),
+      VERIFIER,
+      'web',
+    );
     expect(cookieOf(res)).toContain(`${REFRESH_COOKIE}=rt-1`);
   });
 
@@ -270,7 +284,183 @@ describe('AuthController (REST)', () => {
       .post('/api/auth/oauth/exchange')
       .send({ code: 'c'.repeat(43), verifier: 'short' });
     expect(res.status).toBe(400);
-    expect(res.body.code).toBe('VALIDATION_FAILED');
+    expect(bodyOf(res).code).toBe('VALIDATION_FAILED');
     expect(oauth.exchange).not.toHaveBeenCalled();
+  });
+
+  describe('native shells', () => {
+    const native = (req: request.Test, origin = 'tauri://localhost') =>
+      req.set('Origin', origin).set('X-Tropis-Client', 'native');
+    const login = () =>
+      http()
+        .post('/api/auth/login')
+        .send({ email: 'alice@example.com', password: 'password1' });
+
+    it.each(NATIVE_ORIGINS)(
+      'login from %s answers both tokens in the body and sets no cookie',
+      async (origin) => {
+        const res = await native(login(), origin);
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ accessToken: 'at', refreshToken: 'rt-1' });
+        expect(cookieOf(res)).toBeUndefined();
+      },
+    );
+
+    // A browser page must never receive the refresh token in a body.
+    it.each([
+      ['the web console', ORIGIN],
+      ['a foreign site', 'https://evil.example'],
+      ['plain http://localhost', 'http://localhost'],
+      ['the string null', 'null'],
+    ])(
+      'refuses a native login from %s before checking credentials',
+      async (_label, origin) => {
+        const res = await native(login(), origin);
+        expect(res.status).toBe(403);
+        expect(bodyOf(res).code).toBe('AUTH_CSRF_REJECTED');
+        expect(bodyOf(res).refreshToken).toBeUndefined();
+        expect(auth.login).not.toHaveBeenCalled();
+      },
+    );
+
+    it('refuses a native login without an Origin', async () => {
+      const res = await login().set('X-Tropis-Client', 'native');
+      expect(res.status).toBe(403);
+      expect(auth.login).not.toHaveBeenCalled();
+    });
+
+    it('never treats a configured web origin as native', async () => {
+      await app.close();
+      await boot();
+      const saved = process.env.CORS_ORIGIN;
+      process.env.CORS_ORIGIN = 'https://localhost';
+      try {
+        const res = await native(login(), 'https://localhost');
+        expect(res.status).toBe(403);
+        expect(auth.login).not.toHaveBeenCalled();
+      } finally {
+        if (saved === undefined) delete process.env.CORS_ORIGIN;
+        else process.env.CORS_ORIGIN = saved;
+      }
+    });
+
+    it('a web login from a native origin still uses the cookie', async () => {
+      const res = await login().set('Origin', 'tauri://localhost');
+      expect(res.body).toEqual({ accessToken: 'at' });
+      expect(cookieOf(res)).toContain(`${REFRESH_COOKIE}=rt-1`);
+    });
+
+    it('native refresh rotates the body token and answers a new pair', async () => {
+      const res = await native(
+        http().post('/api/auth/native/refresh').send({ refreshToken: 'rt-1' }),
+      );
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ accessToken: 'at2', refreshToken: 'rt-2' });
+      expect(auth.refresh).toHaveBeenCalledWith('rt-1');
+      expect(cookieOf(res)).toBeUndefined();
+    });
+
+    it('native refresh ignores the cookie', async () => {
+      const res = await native(
+        http()
+          .post('/api/auth/native/refresh')
+          .set('Cookie', `${REFRESH_COOKIE}=rt-cookie`)
+          .send({}),
+      );
+      expect(res.status).toBe(400);
+      expect(auth.refresh).not.toHaveBeenCalled();
+    });
+
+    it('native refresh answers a refused token as 401', async () => {
+      auth.refresh.mockRejectedValue(new AppError('AUTH_TOKEN_REVOKED'));
+      const res = await native(
+        http().post('/api/auth/native/refresh').send({ refreshToken: 'rt-1' }),
+      );
+      expect(res.status).toBe(401);
+      expect(bodyOf(res).code).toBe('AUTH_TOKEN_REVOKED');
+    });
+
+    it.each([
+      [
+        'from the web console',
+        (r: request.Test) =>
+          r.set('Origin', ORIGIN).set('X-Tropis-Client', 'native'),
+      ],
+      [
+        'with the web client header',
+        (r: request.Test) =>
+          r.set('Origin', 'tauri://localhost').set('X-Tropis-Client', '1'),
+      ],
+      [
+        'without the client header',
+        (r: request.Test) => r.set('Origin', 'tauri://localhost'),
+      ],
+    ])('refuses a native refresh %s', async (_label, shape) => {
+      const res = await shape(
+        http().post('/api/auth/native/refresh').send({ refreshToken: 'rt-1' }),
+      );
+      expect(res.status).toBe(403);
+      expect(bodyOf(res).code).toBe('AUTH_CSRF_REJECTED');
+      expect(auth.refresh).not.toHaveBeenCalled();
+    });
+
+    it('the cookie endpoints refuse the native client header', async () => {
+      const res = await native(
+        http()
+          .post('/api/auth/refresh')
+          .set('Cookie', `${REFRESH_COOKIE}=rt-1`),
+      );
+      expect(res.status).toBe(403);
+      expect(auth.refresh).not.toHaveBeenCalled();
+    });
+
+    it('native logout revokes the body token and the access token', async () => {
+      const res = await native(
+        http()
+          .post('/api/auth/native/logout')
+          .set('Authorization', 'Bearer access')
+          .send({ refreshToken: 'rt-1' }),
+      );
+      expect(res.status).toBe(204);
+      expect(auth.logout).toHaveBeenCalledWith('jti-1', principal.exp, 'rt-1');
+      expect(cookieOf(res)).toBeUndefined();
+    });
+
+    it('native logout from a web origin is refused', async () => {
+      const res = await http()
+        .post('/api/auth/native/logout')
+        .set('Origin', ORIGIN)
+        .set('X-Tropis-Client', 'native')
+        .send({ refreshToken: 'rt-1' });
+      expect(res.status).toBe(403);
+      expect(auth.logout).not.toHaveBeenCalled();
+    });
+
+    it('native exchange answers both tokens for a native code', async () => {
+      const res = await native(
+        http()
+          .post('/api/auth/oauth/exchange')
+          .send({ code: 'c'.repeat(43), verifier: VERIFIER }),
+        'capacitor://localhost',
+      );
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ accessToken: 'at', refreshToken: 'rt-1' });
+      expect(oauth.exchange).toHaveBeenCalledWith(
+        'c'.repeat(43),
+        VERIFIER,
+        'native',
+      );
+      expect(cookieOf(res)).toBeUndefined();
+    });
+
+    it('a native exchange from a web origin is refused before the code is spent', async () => {
+      const res = await http()
+        .post('/api/auth/oauth/exchange')
+        .set('Origin', ORIGIN)
+        .set('X-Tropis-Client', 'native')
+        .send({ code: 'c'.repeat(43), verifier: VERIFIER });
+      expect(res.status).toBe(403);
+      expect(oauth.exchange).not.toHaveBeenCalled();
+    });
   });
 });

@@ -6,6 +6,11 @@ import type { Request } from 'express';
 import { OAuthUserProfile } from '../interfaces/oauth-profile.interface';
 import type { StateStore } from 'passport-oauth2';
 import { SignedOAuthStateStore } from './oauth-state.store';
+import { nativeOAuthRedirectList } from '../../../config/cors.constants';
+
+interface FailingStrategy {
+  fail(challenge: { message: string }): void;
+}
 
 // Uses passport-oauth2 (maintained) instead of the abandoned passport-github2 /
 // unmaintained passport-github. GitHub's OAuth2 endpoints are standard; no
@@ -27,6 +32,8 @@ export class GithubStrategy extends PassportStrategy(Strategy, 'github') {
       scope: ['user:email'],
       store: new SignedOAuthStateStore(
         config.getOrThrow<string>('JWT_SECRET'),
+        Date.now,
+        nativeOAuthRedirectList(config.get<string>('NATIVE_OAUTH_REDIRECTS')),
       ) as unknown as StateStore,
     });
 
@@ -35,7 +42,7 @@ export class GithubStrategy extends PassportStrategy(Strategy, 'github') {
 
   authenticate(req: Request, options?: object) {
     if (!this.configured) {
-      (this as any).fail({
+      (this as unknown as FailingStrategy).fail({
         message: 'GitHub OAuth is not configured on this server',
       });
       return;

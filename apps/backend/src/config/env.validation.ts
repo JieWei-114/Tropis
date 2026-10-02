@@ -1,5 +1,10 @@
 import * as Joi from 'joi';
-import { DEFAULT_CORS_ORIGIN } from './cors.constants';
+import {
+  DEFAULT_CORS_ORIGIN,
+  DEFAULT_NATIVE_OAUTH_REDIRECT,
+  isNativeCallbackUrl,
+  nativeOAuthRedirectList,
+} from './cors.constants';
 
 const TENANT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 
@@ -66,6 +71,20 @@ export const envValidationSchema = Joi.object({
   // development or test.
   COOKIE_SECURE: Joi.boolean().optional(),
   OAUTH_TENANT_ID: Joi.string().pattern(TENANT_ID_PATTERN).allow('').optional(),
+  // Custom-scheme URLs an OAuth sign-in may return a native shell to
+  // (comma-separated, exact match; empty disables native OAuth).
+  NATIVE_OAUTH_REDIRECTS: Joi.string()
+    .allow('')
+    .default(DEFAULT_NATIVE_OAUTH_REDIRECT)
+    .custom((value: string, helpers) =>
+      nativeOAuthRedirectList(value).every(isNativeCallbackUrl)
+        ? value
+        : helpers.error('any.invalid'),
+    )
+    .messages({
+      'any.invalid':
+        'NATIVE_OAUTH_REDIRECTS must be comma-separated custom-scheme URLs without a fragment (e.g. tropis://auth/callback)',
+    }),
 
   // OAuth providers — a provider without both client values answers its
   // routes with OAUTH_NOT_CONFIGURED (501).

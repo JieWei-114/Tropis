@@ -191,6 +191,18 @@ export class AuthService {
     }
   }
 
+  /**
+   * The tenant and user a refresh token names, when its signature is ours;
+   * no store lookup, so a rotated or revoked token still names its owner.
+   */
+  refreshTokenOwner(
+    refreshToken: string | undefined,
+  ): { tenantId: TenantId; userId: string } | null {
+    if (!refreshToken) return null;
+    const parsed = this.decodeRefreshToken(refreshToken);
+    return parsed ? { tenantId: parsed.tenantId, userId: parsed.userId } : null;
+  }
+
   /** Returns true when the access token's jti has been revoked. */
   async isBlacklisted(jti: string): Promise<boolean> {
     return this.kv.exists(TOKEN_REVOKED_KEY.global(jti));

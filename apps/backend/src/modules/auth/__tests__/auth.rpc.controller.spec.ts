@@ -237,7 +237,7 @@ describe('AuthRpcController', () => {
     ])('answers a %s token with UNAUTHENTICATED', async (_n, headers) => {
       const context = await rpcTestContext(authz, headers);
       expect(() => controller.getCurrentUser({} as never, context)).toThrow(
-        expect.objectContaining({ code: Code.Unauthenticated }),
+        expect.objectContaining({ code: Code.Unauthenticated }) as Error,
       );
     });
   });

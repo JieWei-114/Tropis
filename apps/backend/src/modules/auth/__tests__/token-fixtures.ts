@@ -96,13 +96,20 @@ export function credentialsFor(token?: string): {
 } {
   if (!token) return {};
   try {
-    const c = jwt.verify(token, TEST_JWT_SECRET) as Record<string, unknown>;
+    const c = jwt.verify(token, TEST_JWT_SECRET) as {
+      sub?: string;
+      email?: string;
+      roles?: string[];
+      tenantId?: string;
+      jti?: string;
+      exp?: number;
+    };
     return {
       token,
       principal: {
         userId: String(c.sub),
         email: String(c.email ?? ''),
-        roles: (c.roles as string[]) ?? [],
+        roles: c.roles ?? [],
         tenantId: c.tenantId as TenantId,
         jti: String(c.jti),
         exp: Number(c.exp),

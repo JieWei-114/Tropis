@@ -151,6 +151,34 @@ describe('OAuthService', () => {
     });
   });
 
+  it('trades a native code only through a native exchange, and a web code only through a web one', async () => {
+    const nativeCode = await service.signIn(
+      profile,
+      'ip',
+      CHALLENGE,
+      ACME,
+      'native',
+    );
+    await expect(service.exchange(nativeCode, VERIFIER)).rejects.toMatchObject({
+      code: 'OAUTH_CODE_INVALID',
+    });
+    const webCode = await service.signIn(profile, 'ip', CHALLENGE, ACME);
+    await expect(
+      service.exchange(webCode, VERIFIER, 'native'),
+    ).rejects.toMatchObject({ code: 'OAUTH_CODE_INVALID' });
+
+    const second = await service.signIn(
+      profile,
+      'ip',
+      CHALLENGE,
+      ACME,
+      'native',
+    );
+    await expect(service.exchange(second, VERIFIER, 'native')).resolves.toEqual(
+      { accessToken: 'at', refreshToken: 'rt' },
+    );
+  });
+
   describe('account linking', () => {
     // Reproduces the pre-hijack: an OAuth sign-in linked itself to any
     // existing account with the same email, so whoever registered that email
