@@ -99,7 +99,7 @@ jobs:
 
       # ── Build + push frontend ──────────────────────────────────────────
       - name: Build and push frontend image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: . # repo root — Dockerfile needs the pnpm workspace
           file: apps/frontend/helm/Dockerfile
@@ -120,7 +120,7 @@ jobs:
 
       # ── Build + push harbor (public Next.js SSR site) ──────────────────
       - name: Build and push harbor image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: . # repo root — Dockerfile needs the pnpm workspace
           file: apps/frontend/harbor/Dockerfile
@@ -135,7 +135,7 @@ jobs:
 
       # ── Build + push OPA (policy engine with the tested policies) ──────
       - name: Build and push OPA image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: infra/opa/Dockerfile
