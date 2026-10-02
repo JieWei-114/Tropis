@@ -34,7 +34,8 @@ non-Node services under `services/`. How it fits together:
      foundation module importing a product feature, a feature importing
      another feature, or a feature reaching a foundation module past its
      public surface (`*.module.ts`, `services/`, `constants/`,
-     `interfaces/`, `dto/`);
+     `interfaces/`, `dto/`); a backend suite under `test/` importing a
+     feature unless it lives in `test/integration/features/<feature>/`;
    - `controllers/`, `gateways/` and `processors/` importing `repositories/`
      or `schemas/`; any unit importing another's `repositories/`,
      `schemas/` or `event-store/`;

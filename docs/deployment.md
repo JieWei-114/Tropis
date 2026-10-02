@@ -204,13 +204,15 @@ ROLES="public private worker scheduler"
 for r in $ROLES; do docker build -f apps/backend/Dockerfile --target $r -t tropis/backend-$r:local .; done
 docker build -f apps/frontend/helm/Dockerfile   -t tropis/frontend:local .
 docker build -f apps/frontend/harbor/Dockerfile -t tropis/harbor:local .
-kind load docker-image $(for r in $ROLES; do echo tropis/backend-$r:local; done) tropis/frontend:local tropis/harbor:local --name tropis
+docker build -f infra/opa/Dockerfile            -t tropis/opa:local .
+kind load docker-image $(for r in $ROLES; do echo tropis/backend-$r:local; done) tropis/frontend:local tropis/harbor:local tropis/opa:local --name tropis
 
 kubectl apply -k infra/k8s                         # base: backend, helm, harbor, policies
 kubectl apply -f infra/k8s/local-kind/host-datastores.yaml
 for r in $ROLES; do kubectl -n tropis set image deployment/backend-$r backend=tropis/backend-$r:local; done
 kubectl -n tropis set image deployment/frontend frontend=tropis/frontend:local
 kubectl -n tropis set image deployment/harbor   harbor=tropis/harbor:local
+kubectl -n tropis set image deployment/opa      opa=tropis/opa:local
 ```
 
 **`ImagePullBackOff` is expected at this point.** The base images are tagged
@@ -220,7 +222,7 @@ the loaded image and tries a registry. Switch to `IfNotPresent`:
 
 ```bash
 kubectl -n tropis describe pod <pod>               # read Events first
-for d in backend-public backend-private backend-worker backend-scheduler frontend harbor; do
+for d in backend-public backend-private backend-worker backend-scheduler frontend harbor opa; do
   kubectl -n tropis patch deployment $d --type=json \
     -p='[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]'
 done
@@ -280,9 +282,19 @@ Cleanup: `kind delete cluster --name tropis`.
 | `infra/k8s/local-kind/`                       | Host-datastore ConfigMap/Secret for local `kind` only                                                                                                                                                                                                                  |
 
 The repo ships no datastore manifests. MongoDB, PostgreSQL, Redis, ClickHouse,
-Pulsar, Elasticsearch, object storage (a managed S3 service), Temporal, OPA and
+Pulsar, Elasticsearch, object storage (a managed S3 service), Temporal and
 Aerospike run as managed services or are installed separately, and the backend reaches them through its
 ConfigMap and Secret.
+
+OPA is not a datastore: it is stateless and decides every authorization, so it
+ships with the release. `infra/opa/Dockerfile` bakes the policies
+(`authz.rego`, `system_authz.rego`) into `ghcr.io/tropis/opa`, built and
+Trivy-scanned in CI and pinned per release like the backend images; the base
+runs it as the `opa` Deployment behind `opa-svc:8181` (two replicas, a PDB,
+non-root, read-only root filesystem), with `OPA_TOKEN` from `backend-secret`
+and token authentication on. Only backend pods reach it (`allow-opa-from-backend`),
+and it opens no outbound connection. Shipping the policies in the image means a
+release always runs the policies its CI tested.
 
 Every Deployment runs as non-root with a read-only root filesystem, drops all
 capabilities, uses the `RuntimeDefault` seccomp profile, mounts no
@@ -502,8 +514,10 @@ data. These steps are the operator's, against the target environment, before
 `kubectl apply` or the Argo CD sync of a release that needs them.
 
 1. **PostgreSQL migrations.** The manifests contain no migration Job or
-   initContainer, and the backend does not run them at startup, so run them from
-   a machine that reaches the database; they are forward-compatible
+   initContainer, and the backend neither runs them nor creates any table at
+   startup (it only verifies the schema and reports `vector` as `down` until it
+   matches), so run them from a machine that reaches the database; they are
+   forward-compatible
    ([Rollback](#2-database-forward-compatible-migrations-only)), so the running
    release keeps working on the schema they produce:
 
@@ -560,6 +574,27 @@ data. These steps are the operator's, against the target environment, before
 
 5. **`PROD_TENANT_ID`** is set as a repository variable, because the helm
    image bakes it in at build time ([Frontends](#frontends-endpoints-are-baked-in-at-build-time)).
+
+6. **Renamed event types.** The release emits the user events as
+   `identity.user.created` / `updated` / `deleted`. Messages already in
+   `user-events`, its `-DLQ` or unrelayed outbox rows under the old names
+   `user.created` / `user.updated` / `user.deleted` are still consumed:
+   every consumer accepts `LEGACY_EVENT_TYPES` and needs no operator step. A
+   consumer outside this repository that matches on the type adds the new
+   names before this release. On a cluster that runs an older release, roll
+   the worker role first and wait for it
+   (`kubectl -n tropis rollout status deployment/backend-worker`) before the
+   public and private roles: an older worker does not know the new names and
+   would acknowledge and drop them. Removing legacy acceptance is a later step,
+   taken only once no old-named message can still arrive
+   ([api-conventions.md](api-conventions.md#event-payloads)).
+7. **OPA token.** Set `OPA_TOKEN` in the backend Secret (and at
+   `secret/tropis` when ESO syncs it) and roll the backend first: an OPA
+   without authentication ignores the header. Then roll the `opa`
+   Deployment (its image runs with `--authentication=token
+--authorization=basic` and `system_authz.rego`, reading the same
+   `OPA_TOKEN`); in the other order every authorization check fails as
+   `SERVICE_UNAVAILABLE` until the backend has the token.
 
 ### Post-deploy verification
 
@@ -637,6 +672,7 @@ every hour:
 | `POSTGRES_PASSWORD`                                                                    | no password; the backup CronJob reads it too                                  |
 | `API_KEYS`                                                                             | never empty: `{}` turns the signed tier off; an empty string fails validation |
 | `SERVICE_TOKEN`                                                                        | internal RPCs answer `UNIMPLEMENTED`                                          |
+| `OPA_TOKEN`                                                                            | no bearer token: a token-protected OPA refuses every authorization check      |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | that OAuth provider stays unconfigured                                        |
 | `SMTP_USER`, `SMTP_PASS`                                                               | unauthenticated SMTP                                                          |
 
@@ -735,21 +771,21 @@ is cached per process, so restart the backend after each change.
 
 Local defaults are for development only. Before production:
 
-| Item            | Local                                        | Production                                                                                                                                                                                                                                                                                                                          |
-| --------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NODE_ENV`      | `development`                                | `production`: disables Swagger (`/api/docs`) and switches Pino from pretty to JSON logs; Bull Board is never served by a deployed role                                                                                                                                                                                              |
-| `JWT_SECRET`    | dev value in `.env.example`                  | Random 64+ chars from Vault; validation requires at least 32                                                                                                                                                                                                                                                                        |
-| `CORS_ORIGIN`   | `http://localhost:5173`                      | Comma-separated web origins; the first is used for OAuth redirects. Native origins are always appended ([Native origins and CORS](#native-origins-and-cors))                                                                                                                                                                        |
-| MongoDB         | Single-node replica set                      | 3-node replica set or Atlas ([Production MongoDB](#production-mongodb))                                                                                                                                                                                                                                                             |
-| Redis           | No password                                  | `REDIS_PASSWORD` set; the client has no TLS option, so keep Redis on a private network                                                                                                                                                                                                                                              |
-| PostgreSQL      | `POSTGRES_SSL=false`                         | `POSTGRES_SSL=true`. The driver then uses TLS and always verifies the server certificate, against `POSTGRES_SSL_CA` (PEM) when set or the system roots otherwise. Leave `TYPEORM_SYNC` unset (it defaults to `false`); migrations own the schema                                                                                    |
-| Object storage  | MinIO (`pgsty/minio`, `MINIO_USE_SSL=false`) | A managed S3 service (AWS S3, Cloudflare R2, GCS in S3 mode) through the same S3-protocol adapter (`OBJECTS_ADAPTER=minio`, `MINIO_ENDPOINT` set to the provider, `MINIO_USE_SSL=true`). No MinIO server runs in production: MinIO publishes no official images, so the `pgsty/minio` build serves local development and tests only |
-| SMTP            | Mailpit                                      | A real provider via `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`SMTP_FROM`                                                                                                                                                                                                                                                     |
-| OPA             | No auth                                      | Run OPA with `--authentication=token` and set the same token as `OPA_TOKEN`, which the backend sends as a bearer token; keep OPA in-cluster or as a sidecar, unreachable from outside                                                                                                                                               |
-| Vault           | Dev mode                                     | Production mode, HA, auto-unseal                                                                                                                                                                                                                                                                                                    |
-| gRPC reflection | Auto-enabled outside production              | Off unless `GRPC_REFLECTION=true`; leave it unset (reflection exposes the full schema)                                                                                                                                                                                                                                              |
-| Logs            | Pino pretty-print                            | JSON to stdout, shipped to your log backend                                                                                                                                                                                                                                                                                         |
-| Traces          | Jaeger via the OTel collector                | Point `OTEL_EXPORTER_OTLP_ENDPOINT` at your collector or vendor                                                                                                                                                                                                                                                                     |
+| Item            | Local                                        | Production                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`      | `development`                                | `production`: disables Swagger (`/api/docs`) and switches Pino from pretty to JSON logs; Bull Board is never served by a deployed role                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `JWT_SECRET`    | dev value in `.env.example`                  | Random 64+ chars from Vault; validation requires at least 32                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `CORS_ORIGIN`   | `http://localhost:5173`                      | Comma-separated web origins; the first is used for OAuth redirects. Native origins are always appended ([Native origins and CORS](#native-origins-and-cors))                                                                                                                                                                                                                                                                                                                                                                                          |
+| MongoDB         | Single-node replica set                      | 3-node replica set or Atlas ([Production MongoDB](#production-mongodb))                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Redis           | No password                                  | `REDIS_PASSWORD` set; the client has no TLS option, so keep Redis on a private network                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| PostgreSQL      | `POSTGRES_SSL=false`                         | `POSTGRES_SSL=true`. The driver then uses TLS and always verifies the server certificate, against `POSTGRES_SSL_CA` (PEM) when set or the system roots otherwise. Leave `TYPEORM_SYNC` unset (it defaults to `false`); migrations own the schema                                                                                                                                                                                                                                                                                                      |
+| Object storage  | MinIO (`pgsty/minio`, `MINIO_USE_SSL=false`) | A managed S3 service (AWS S3, Cloudflare R2, GCS in S3 mode) through the same S3-protocol adapter (`OBJECTS_ADAPTER=minio`, `MINIO_ENDPOINT` set to the provider, `MINIO_USE_SSL=true`). No MinIO server runs in production: MinIO publishes no official images, so the `pgsty/minio` build serves local development and tests only                                                                                                                                                                                                                   |
+| SMTP            | Mailpit                                      | A real provider via `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`SMTP_FROM`                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| OPA             | Token auth, dev token `tropis-dev-opa-token` | In Kubernetes the `opa` Deployment (`ghcr.io/tropis/opa`, policies baked in) runs with `--authentication=token --authorization=basic`, the policies in `infra/opa/` (including the system policy `system_authz.rego`) and `OPA_TOKEN` in its environment; the backend's `OPA_TOKEN` (Secret) holds the same random value. The system policy admits only that token, plus an unauthenticated `GET /health` for probes; an OPA started without `OPA_TOKEN` answers nothing but `/health`. Keep OPA in-cluster or as a sidecar, unreachable from outside |
+| Vault           | Dev mode                                     | Production mode, HA, auto-unseal                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| gRPC reflection | Auto-enabled outside production              | Off unless `GRPC_REFLECTION=true`; leave it unset (reflection exposes the full schema)                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Logs            | Pino pretty-print                            | JSON to stdout, shipped to your log backend                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Traces          | Jaeger via the OTel collector                | Point `OTEL_EXPORTER_OTLP_ENDPOINT` at your collector or vendor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 The base ConfigMap (`infra/k8s/base/backend/configmap.yaml`) sets `PORT`,
 `RPC_PUBLIC_PORT`, `RPC_INTERNAL_PORT`, `OPS_PORT`, `NODE_ENV`, `LOG_LEVEL`,
@@ -774,7 +810,7 @@ when `SECRETS_ADAPTER=vault`, `VAULT_ADDR`. A required dependency of a role
 (`READINESS_PROBES`) that is unreachable keeps its pods unready; any other is
 reported as `degraded`. `infra/k8s/local-kind/host-datastores.yaml` shows the
 shape against the Compose datastores. It has no MinIO credentials or bucket,
-no Aerospike, `API_KEYS` or `SERVICE_TOKEN`. `SERVICE_VERSION` (the release
+no Aerospike, `API_KEYS` or `SERVICE_TOKEN`; its `OPA_TOKEN` is the Compose dev token. `SERVICE_VERSION` (the release
 tag, reported in logs, traces and metrics) is set by `deploy-prod.yml`, and
 `KEYSPACE_ENV` per overlay ([Overlays](#overlays)).
 Which managed services can replace each component is in
@@ -905,7 +941,7 @@ ClickHouse operator's `BACKUP ... TO S3(...)` or a clickhouse-backup sidecar.
 - [ ] `API_KEYS` in the object form `{"<keyId>": {"secret": ..., "tenantId": ...}}`
 - [ ] Release tags trigger `deploy-prod.yml`: `RELEASE_PLEASE_TOKEN` set to a PAT or App token, or tags pushed by hand ([Pipeline](#pipeline))
 - [ ] Datastores provisioned (managed or self-hosted) and every endpoint set in the ConfigMap
-- [ ] Secrets in Vault, synced by ESO (chart serves `external-secrets.io/v1beta1`, or the manifests moved to `v1`); `backend/secret.yaml` swapped out; every needed key mapped in the `ExternalSecret`; all dev defaults rotated (`JWT_SECRET`, DB passwords, MinIO keys)
+- [ ] Secrets in Vault, synced by ESO (chart serves `external-secrets.io/v1beta1`, or the manifests moved to `v1`); `backend/secret.yaml` swapped out; every needed key mapped in the `ExternalSecret`; all dev defaults rotated (`JWT_SECRET`, DB passwords, MinIO keys, `OPA_TOKEN`)
 - [ ] Ingress controller installed and DNS pointed at its load balancer; client IPs preserved (`externalTrafficPolicy: Local` or PROXY protocol, [Ingress and TLS](#ingress-and-tls))
 - [ ] cert-manager and the `letsencrypt-prod` ClusterIssuer in place
 - [ ] metrics-server installed (HPAs)
@@ -980,7 +1016,8 @@ pnpm --filter @tropis/helm cap:android           # opens Android Studio: Run, or
 cd apps/frontend/helm/android && ./gradlew assembleDebug   # headless debug APK (needs the SDK)
 ```
 
-`cap sync` copies `dist/` into `android/app/src/main/assets/public`. The config
+`cap sync` copies `dist/` into `android/app/src/main/assets/public` and links
+the native plugins (secure storage, browser, app) into the Gradle project. The config
 sets `androidScheme: 'https'`, so the app's origin is `https://localhost`: the
 OAuth PKCE challenge (WebCrypto) and the service worker exist only in a secure
 context. An https page may not call plain-http endpoints and Android blocks
@@ -1038,41 +1075,74 @@ public RPC listener):
 | Android (default scheme)         | `http://localhost`       |
 | Android (`androidScheme: https`) | `https://localhost`      |
 
-Any other gateway in front of the API needs the same five entries. Without
+Any other gateway in front of the API needs the same five entries. Four of
+them (all but `http://localhost`) are also the native session origins that may
+receive a refresh token in a body ([Native sessions](#native-sessions)). Without
 them each app builds, launches and shows the login screen, then fails at
 sign-in with a CORS error.
 
 ### Native sessions
 
-The shells' origins are cross-site to the API, so the browser never sends the
-`SameSite=Strict` refresh cookie (`tropis_rt`) from them. The access token is
-held in memory only, so a native shell cannot restore or refresh a session:
-it signs in again when the access token expires and on every launch. OAuth
-sign-in does not return to the app either, because the providers redirect to
-the primary web origin (`CORS_ORIGIN`'s first entry), never to a native one.
-Password sign-in is the native path; session restore and OAuth in the shells
-require a native token flow or a native cookie store, which the shells do not
-have.
+The shells' origins are cross-site to the API, so the browser never stores or
+sends the `SameSite=Strict` refresh cookie (`tropis_rt`) for them. They keep
+the refresh token in OS secure storage instead and use the native session
+flow (contract and rules:
+[api-conventions.md](api-conventions.md#native-sessions)):
+
+| Shell   | Refresh token                                                                                                                                                                                                                                                                                                                                                                                                              | OAuth start                                                         | OAuth return                                                                                                                          |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| iOS     | Keychain, `afterFirstUnlockThisDeviceOnly`, never synced (`@aparajita/capacitor-secure-storage` 7.1.6)                                                                                                                                                                                                                                                                                                                     | `@capacitor/browser` 7.0.5 (SFSafariViewController)                 | `tropis` URL type in `ios/App/App/Info.plist` (`CFBundleURLTypes`) → `@capacitor/app` `appUrlOpen`                                    |
+| Android | Android Keystore-encrypted storage (same plugin)                                                                                                                                                                                                                                                                                                                                                                           | `@capacitor/browser` (Custom Tabs)                                  | intent filter `tropis://auth/callback` in `android/app/src/main/AndroidManifest.xml` → `appUrlOpen`                                   |
+| Desktop | OS keyring through the shell's `session_token_get` / `set` / `clear` commands (`keyring` 4.2: macOS Keychain, Windows Credential Manager, Secret Service; on Linux a Secret Service provider such as GNOME Keyring or KWallet must be running, otherwise the session cannot be stored and native sign-in fails; a failed write after a refresh ends the session at once, because the server has already rotated the token) | `open_oauth_url` (opens only `http(s)://…/api/auth/google\|github`) | `tauri-plugin-deep-link` 2.6 (scheme `tropis` in `tauri.conf.json`), `tauri-plugin-single-instance` forwards it to the running window |
+
+- **Detection**: helm uses the native flow when it runs in a shell
+  (`Capacitor.isNativePlatform()` or the Tauri runtime) **and** the page origin
+  is a native session origin (`src/lib/native.ts`). `pnpm tauri dev` and
+  Capacitor live reload load the Vite dev server, a web origin, so they keep the
+  cookie flow.
+- **OAuth**: the console opens the provider in the system browser with
+  `&redirect=tropis://auth/callback`; the backend returns the one-time code to
+  that deep link, the shell routes it to the in-app `/auth/callback`, and the
+  code is exchanged with the PKCE verifier like the web flow. The return URL
+  must be listed in the backend's `NATIVE_OAUTH_REDIRECTS` (default
+  `tropis://auth/callback`). A rebranded app with its own scheme changes the
+  scheme in `AndroidManifest.xml`, `Info.plist`, `tauri.conf.json`
+  (`plugins.deep-link`), `src-tauri/src/oauth.rs`, `src/lib/native.ts` and
+  `NATIVE_OAUTH_REDIRECTS`.
+- **Why the OS store**: a refresh token in Web Storage would be readable by any
+  script in the webview; the Keychain, Keystore and keyring keep it outside the
+  page and tied to the installed app.
+- **Desktop permissions**: `capabilities/default.json` grants `core:default`
+  and the five shell commands only (an app manifest in `build.rs` makes them
+  deny-by-default); the deep-link and opener plugins are used from Rust and
+  expose nothing to the page.
+
+To try a device build: point the `VITE_*` endpoints at a reachable backend
+([Build-time endpoints](#build-time-endpoints)), build helm, sync or bundle the
+shell, sign in with a password, quit and relaunch (the session restores), then
+sign in with Google or GitHub (the system browser opens and returns to the
+app). An OAuth provider must allow the backend's callback URL, and
+`OAUTH_TENANT_ID` must be set ([development.md](development.md#oauth)).
 
 ### Desktop content security policy
 
-`apps/desktop/src-tauri/tauri.conf.json` sets `app.security.csp` to `null`, so
-the webview enforces no CSP. A fixed `connect-src` would be wrong for every
-deployment but one, because the endpoints come from `VITE_*` at build time.
-Generate the CSP at package time from the same env, along these lines:
-
-```
-default-src 'self';
-connect-src 'self' <VITE_API_BASE_URL> <VITE_RPC_URL> <VITE_WS_URL> ws: wss:;
-img-src 'self' data:;
-style-src 'self' 'unsafe-inline'
-```
-
-`'unsafe-inline'` for styles is required because helm injects inline styles.
+`apps/desktop/src-tauri/tauri.conf.json` sets `app.security.csp`:
+`default-src 'self'`, `script-src 'self'` (Tauri adds the hash of the inline
+theme script at build time), `style-src 'self' 'unsafe-inline'` (helm injects
+inline styles), `object-src 'none'`, `frame-ancestors 'none'` and a
+`connect-src` of `'self'`, the IPC origins and the local default endpoints.
+`pnpm run build` / `bundle` in `apps/desktop` first run
+`scripts/csp-config.mjs`, which writes `src-tauri/gen/csp.conf.json` with a
+`connect-src` naming the endpoints of this build (the `VITE_*` values from
+helm's `.env` files and the environment, as Vite reads them), and pass it to
+`tauri build --config`. A build without it (`cargo` alone, CI's
+`tauri build --no-bundle`) can reach only the local default endpoints.
 
 ### Verification status
 
-`cap sync` and `tauri build` succeed, and CI compiles the desktop shell. No CI
+`cap sync` and `tauri build` succeed, CI compiles the desktop shell, and the
+native session code has unit tests (SDK, helm with mocked plugins, the Rust
+command wrappers). No CI
 job builds the Android or iOS apps, nothing runs them on a device or
 simulator, and the desktop window has no visual check. Test on real devices
 before shipping a native build.

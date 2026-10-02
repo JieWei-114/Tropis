@@ -175,7 +175,7 @@ Off unless `GRAPH_ADAPTER=neo4j`.
   `membership-graph-sub` on `user-events`.
 - **Remove:** delete `apps/backend/src/features/membership-graph/`; delete
   `MembershipGraphWorkerModule` from `roles/worker/worker.module.ts`; delete
-  `test/integration/membership-graph.integration.spec.ts`; then the graph
+  `test/integration/features/membership-graph/`; then the graph
   data and the subscription (`pulsar-admin topics unsubscribe … -s
 membership-graph-sub`).
 - **Remaining coupling:** none in code; it reads the shared user events
@@ -435,12 +435,16 @@ Product features are listed in [Feature documentation](#feature-documentation).
 
 Config: `apps/backend/.dependency-cruiser.cjs`; run with
 `pnpm --filter @tropis/backend lint:arch` (CI runs it in the backend job). All
-rules are `error` severity; test files are excluded.
+rules are `error` severity. It cruises `src/` and `test/`; unit tests under
+`src/` are excluded, and the suites under `test/` are checked only by the two
+test rules.
 
 | Rule                                          | Blocks                                                                                                                                                                                                                                                                                                          |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `no-circular`                                 | Runtime dependency cycles (type-only cycles are allowed)                                                                                                                                                                                                                                                        |
 | `foundation-not-into-business`                | `src/infrastructure/`, `src/common/` or `src/config/` importing `src/modules/` or `src/features/`                                                                                                                                                                                                               |
+| `foundation-tests-not-into-features`          | A suite under `apps/backend/test/` importing `src/features/`, unless it lives under `test/integration/features/<name>/`, so deleting a feature leaves the foundation suites intact                                                                                                                              |
+| `feature-tests-only-into-own-feature`         | A suite under `test/integration/features/<name>/` importing another feature                                                                                                                                                                                                                                     |
 | `modules-not-into-features`                   | A foundation module (`src/modules/`) importing a product feature (`src/features/`)                                                                                                                                                                                                                              |
 | `no-cross-feature-imports`                    | One feature importing another                                                                                                                                                                                                                                                                                   |
 | `features-use-module-public-surface`          | A feature importing anything of a foundation module except its `*.module.ts` files and its `services/`, `constants/`, `interfaces/`, `dto/`                                                                                                                                                                     |
@@ -563,6 +567,7 @@ tenantId, data }, tx)` stores the event with its CloudEvents attributes;
 14. **Tests** — unit: `__tests__/order.service.spec.ts` with a mocked repository
     (pattern: `modules/user/__tests__/user.service.spec.ts`); integration:
     `apps/backend/test/integration/order.integration.spec.ts` with Testcontainers
+    (a product feature's suite goes in `test/integration/features/<feature>/`)
     (`make test-int`). Details: [testing.md](testing.md).
 15. **Wire it up** — import each module file in the role root that runs it
     (`src/roles/public/public.module.ts`, `src/roles/worker/worker.module.ts`,

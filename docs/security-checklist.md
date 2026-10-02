@@ -4,7 +4,7 @@ Work through every item before exposing an environment to real users. "Done" mea
 
 ## Secrets & credentials
 
-- [ ] All default/dev credentials rotated (Mongo, Postgres, Redis, MinIO, Grafana admin, pgAdmin, Vault), including the ones the Compose stack (`infra/docker/docker-compose.yml`) leaves open: the ClickHouse `default` user (empty password), Elasticsearch (`xpack.security.enabled: false`), Temporal Postgres (`temporal`/`temporal`), OPA, and MongoDB and Redis, which run without authentication. Compose binds every published port to `127.0.0.1`, so they are reachable from the host only, never from the network
+- [ ] All default/dev credentials rotated (Mongo, Postgres, Redis, MinIO, Grafana admin, pgAdmin, Vault), including the ones the Compose stack (`infra/docker/docker-compose.yml`) leaves open: the ClickHouse `default` user (empty password), Elasticsearch (`xpack.security.enabled: false`), Temporal Postgres (`temporal`/`temporal`), the OPA dev token (`tropis-dev-opa-token`), and MongoDB and Redis, which run without authentication. Compose binds every published port to `127.0.0.1`, so they are reachable from the host only, never from the network
 - [ ] No secrets committed — `infra/k8s/base/backend/secret.yaml` placeholders replaced by External Secrets Operator + Vault (see [deployment.md](deployment.md)); `.env` files gitignored
   - **Implemented (manifest ready)**: ESO `SecretStore` + `ExternalSecret` in `infra/k8s/base/backend/external-secret.yaml`. It is not in the default kustomization; enable it per its header comment (install ESO, create the Vault token secret, swap `backend/secret.yaml` for `backend/external-secret.yaml` in `infra/k8s/base/kustomization.yaml`).
 - [ ] **gitleaks** secret scan green in CI and run once over the full git history
@@ -49,14 +49,15 @@ Work through every item before exposing an environment to real users. "Done" mea
 - [ ] SonarCloud quality gate passing (`sonar-project.properties`); CodeQL SAST job green
   - **Implemented**: `sonar.qualitygate.wait=true` — a failing quality gate fails the CI `sonarcloud` job. The scan step is skipped when no `SONAR_TOKEN` secret is set, so it needs that secret and a linked SonarCloud project to run.
   - **Implemented**: the `ci.yml` `codeql` job runs GitHub CodeQL with the `security-and-quality` queries on push/PR to `main` and `develop`.
-- [ ] OPA policies (`infra/opa/authz.rego`) reviewed: default deny, every role→resource→action pair intentional, unit-tested with `opa test` (no tests exist in `infra/opa/` — they must be written first)
-- [ ] OPA reachable only from the backend, and run with `--authentication=token` with the same token in the backend's `OPA_TOKEN` (sent as a bearer token; unset sends none)
+- [ ] OPA policies (`infra/opa/authz.rego`) reviewed: default deny, every role→resource→action pair intentional, unit-tested with `opa test` (`infra/opa/*_test.rego`)
+- [ ] OPA reachable only from the backend, and run with `--authentication=token --authorization=basic`, the system policy `infra/opa/system_authz.rego` and a random `OPA_TOKEN` in its environment; the backend's `OPA_TOKEN` holds the same value (sent as a bearer token)
+  - **Implemented**: Compose and the Kubernetes `opa` Deployment run OPA this way, and CI runs `opa check --strict` and `opa test` on every change (`policy` job); only backend pods reach it (`allow-opa-from-backend`); the system policy admits only that token, plus an unauthenticated `GET /health` for probes, and an OPA without `OPA_TOKEN` admits nothing else (`infra/opa/system_authz_test.rego`, policy conformance with token auth on and off).
   - **Implemented**: an OPA that cannot answer (unreachable, or its circuit open) is `503 SERVICE_UNAVAILABLE`, never a denial, so an outage is retried instead of reported as missing permission (`infrastructure/policy/adapters/opa/opa-policy.adapter.ts`).
 - [ ] Revocation and suspension hold on every transport
   - **Implemented**: one `TokenVerifier` (`modules/auth/services/token-verifier.service.ts`) authenticates REST (`JwtAuthGuard`), RPC (the RPC server's authentication interceptor) and the WebSocket handshake: signature and expiry, revocation (`TOKEN_REVOKED_KEY`), the suspension marker, a live `active` member record in the token's tenant whose token version equals the token's `tv` claim, and a registered, active tenant. It fails closed with `SERVICE_UNAVAILABLE` when kv, the member lookup or the tenant directory is down. RPC login runs the REST credential path (lockout, account status, active tenant). Refresh and the OAuth code exchange refuse an inactive account or tenant. Sockets are disconnected at token expiry and re-verified every 60 s.
   - Roles are read from the member record on every verification, never from the token's `roles` claim and never from the profile cache (a cache refill racing a change could serve old values), so a role or status change applies at once on every process.
   - **Implemented**: a password, email, role or status change bumps the account's token version, which ends its sessions: tokens issued before the change fail verification (`AUTH_TOKEN_REVOKED`), and its refresh tokens are refused (`modules/user/repositories/`, `modules/auth/services/auth.service.ts`).
-  - **Implemented**: a user changing their own password or email must give the current password (`current_password`, else `403 AUTH_CURRENT_PASSWORD_REQUIRED`), so a stolen session cannot take the account over; an account created through an OAuth provider has none to give (`modules/user/services/user.service.ts`).
+  - **Implemented**: a user changing their own password or email must give the current password (`current_password`, else `403 AUTH_CURRENT_PASSWORD_REQUIRED`), so a stolen session cannot take the account over; an account created through an OAuth provider has none to give (`modules/user/services/user.service.ts`); a wrong current password counts toward the login lockout through the `CREDENTIAL_ATTEMPTS` port (`common/auth/credential-attempts.port.ts`, implemented by `LoginLockoutService`), so a session cannot be used to guess the password.
 - [ ] Tenant isolation holds in every store: no default tenant, token tenant authoritative, `X-Tenant-ID` only without a token or matching it, and a fence per store ([architecture.md](architecture.md#multi-tenancy)); conformance suites prove tenant A never reads tenant B
   - The Postgres app user must not be a superuser or hold `BYPASSRLS` outside `withTenant()`, and must be a member of `tropis_tenant_scope` (granted by `infra/postgres/init.sql` / the tenancy migration).
   - **Implemented**: Vault-issued dynamic users (role `tropis-app`, `infra/vault/init.sh`) are created `NOSUPERUSER NOBYPASSRLS` with `GRANT tropis_tenant_scope TO "{{name}}"`. The Vault connection user needs `CREATEROLE` and `tropis_tenant_scope WITH ADMIN OPTION`; the backend never runs as it ([deployment.md](deployment.md#vault-from-the-backend-itself)).
@@ -85,10 +86,22 @@ Work through every item before exposing an environment to real users. "Done" mea
     (`modules/auth/services/auth.service.ts`). The rotation is one kv `del` that
     reports whether the token existed, so two concurrent refreshes with the same
     token cannot both succeed.
+  - **Implemented — native sessions**: the Tauri and Capacitor shells keep the
+    refresh token in OS secure storage (Keychain, Android Keystore, desktop OS
+    keyring) and use `/api/auth/native/*` with `X-Tropis-Client: native`. The
+    backend returns a refresh token in a body only to a native session origin
+    that is not a configured web origin, so no web page can obtain one, and
+    native OAuth returns only to an allow-listed custom scheme
+    (`NATIVE_OAUTH_REDIRECTS`)
+    ([api-conventions.md](api-conventions.md#native-sessions)). Keep
+    `NATIVE_OAUTH_REDIRECTS` to schemes your shells register, and never add a
+    native session origin to `CORS_ORIGIN`.
   - **Implemented — strict CSP**: helm's nginx sends a Content-Security-Policy whose
     only inline script is allowed by its hash and whose `connect-src` is rendered
     per build (`apps/frontend/helm/nginx.conf`, `scripts/render-nginx-conf.mjs`);
     harbor sends its own from `apps/frontend/harbor/next.config.mjs`.
+    The desktop shell sets its own CSP in `tauri.conf.json`, with `connect-src`
+    rendered per build by `apps/desktop/scripts/csp-config.mjs`.
 - [ ] **HMAC request signing verified end-to-end**: SDK signer
       (`packages/sdk/src/signing/`) and backend `SignatureGuard`
       (`apps/backend/src/common/guards/signature.guard.ts`) share one canonical string
@@ -110,7 +123,7 @@ Work through every item before exposing an environment to real users. "Done" mea
 ## Auditing & recovery
 
 - [ ] Audit logging for sensitive actions (logins, permission changes, deletions) shipped to durable storage
-  - **Implemented**: `@Audited(...)` handlers (`user.create`, `user.update`, `user.replace`, `user.delete`, `user.manage_roles`, `user.avatar.upload`, `auth.login`, `auth.logout`) write action, actor, tenant, resource, transport, outcome, error and trace id to ClickHouse `logs.audit_log` via `AuditInterceptor` for HTTP and the RPC server's audit interceptor (`common/audit/`). Schema: `infra/clickhouse/init-audit.sql` (2-year TTL), mounted in `infra/docker/docker-compose.yml` as `04-audit.sql` and applied on first ClickHouse start.
+  - **Implemented**: `@Audited(...)` handlers (`user.create`, `user.update`, `user.replace`, `user.delete`, `user.manage_roles`, `user.avatar.upload`, `auth.login`, `auth.logout`) write action, actor (for logout, which is public: the access token's user when one is sent, else the refresh token's, `LogoutActorGuard`), tenant, resource, transport, outcome, error and trace id to ClickHouse `logs.audit_log` via `AuditInterceptor` for HTTP and the RPC server's audit interceptor (`common/audit/`). Schema: `infra/clickhouse/init-audit.sql` (2-year TTL), mounted in `infra/docker/docker-compose.yml` as `04-audit.sql` and applied on first ClickHouse start.
 - [ ] Backups configured **and restore-tested** (`infra/backup/`): MongoDB, PostgreSQL and ClickHouse; `infra/backup/` excludes MinIO, so mirror its buckets separately with `mc mirror`; Pulsar retention sized for replay
 - [ ] Alerting on auth failure spikes, 5xx rate, and health-check flaps (Prometheus/Grafana, `infra/prometheus/alerts.yml`); in Kubernetes, Prometheus scrapes each backend pod's ops port (`:9464/metrics`, NetworkPolicy `allow-backend-ops` admits the `monitoring` namespace only)
 - [ ] Incident contact + vulnerability policy published ([SECURITY.md](../SECURITY.md))

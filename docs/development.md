@@ -36,6 +36,7 @@ git clone <this-repo> && cd <repo>
 nvm use                                        # Node 22 from .nvmrc
 make install                                   # pnpm install + creates apps/backend/.env and apps/frontend/helm/.env from the examples
 make up                                        # core + every profile the backend needs (first run pulls images)
+make migrate                                   # PostgreSQL schema (vector_embeddings); until it runs, `vector` reports down
 make dev                                       # backend, every role in one process (:3100 REST/WS, :50051/:50061 RPC, :9464 ops) + helm (:5173), watch mode
 # second terminal, once the backend is up:
 make seed                                      # tenant dev + admin@example.com (admin) + 20 demo users (role: member) + ~50 analytics events
@@ -168,8 +169,9 @@ the backend does not boot on core alone.
 
 Host ports as published by `infra/docker/docker-compose.yml` and the app
 defaults. "Profile" is blank for core services and the app itself. Every
-Compose port binds to `127.0.0.1` only: the datastores, Vault's root token and
-OPA run without authentication, so nothing is reachable from the network.
+Compose port binds to `127.0.0.1` only: the datastores run without
+authentication and Vault and OPA with fixed dev tokens, so nothing is
+reachable from the network.
 
 | Service                     | Host port        | Profile         | URL / notes                                                                                                                                                        |
 | --------------------------- | ---------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -544,20 +546,32 @@ socket.on('pong', ({ ts }) => console.log('round-trip ms:', Date.now() - ts));
 Policy: `infra/opa/authz.rego` (package `authz`). Input is
 `{"roles": [...], "resource": "...", "action": "..."}`.
 
+OPA runs with `--authentication=token --authorization=basic`: the system
+policy `infra/opa/system_authz.rego` admits a request only with
+`Authorization: Bearer <OPA_TOKEN>`, except an unauthenticated `GET /health`
+for probes. Compose starts OPA with `OPA_TOKEN` (default
+`tropis-dev-opa-token`, overridable from the shell), and the backend sends its
+own `OPA_TOKEN` from `apps/backend/.env`; the two must match, or every
+authorization check fails as `SERVICE_UNAVAILABLE` and the policy health
+reports `down`. Rego unit tests:
+`docker run --rm -v "$PWD/infra/opa:/policies:ro" openpolicyagent/opa:1.20.1 test /policies`.
+
 ```bash
+OPA_TOKEN=tropis-dev-opa-token
+
 # Can an editor update a user? → true
 curl -s -X POST http://localhost:8181/v1/data/authz/allow \
-  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $OPA_TOKEN" -H 'Content-Type: application/json' \
   -d '{"input":{"roles":["editor"],"resource":"user","action":"update"}}' | jq
 
 # Can a viewer delete a user? → false
 curl -s -X POST http://localhost:8181/v1/data/authz/allow \
-  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $OPA_TOKEN" -H 'Content-Type: application/json' \
   -d '{"input":{"roles":["viewer"],"resource":"user","action":"delete"}}' | jq
 
 # Every action a role may take on a resource
 curl -s -X POST http://localhost:8181/v1/data/authz/allowed_actions \
-  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $OPA_TOKEN" -H 'Content-Type: application/json' \
   -d '{"input":{"roles":["editor"],"resource":"user"}}' | jq
 
 # Apply a Rego edit — no backend redeploy needed
@@ -572,17 +586,21 @@ docker compose -f infra/docker/docker-compose.yml restart opa
   `apps/backend/src/modules/user/workflows/onboarding.workflow.ts` with its activities in
   `onboarding.activities.ts`, executed by the worker role (one Temporal worker per registered
   queue, here `user-onboarding`; in-process under `make dev`), started by `OnboardingService`
-  when the user consumer applies `user.created`, and read
+  when the user consumer applies `identity.user.created`, and read
   back through `GET /api/workflows/onboarding` (admin only). The delay is
   `ONBOARDING_FOLLOWUP_DELAY_MS`. In the Web UI an execution's id is
   `t.<tenantId>:onboarding-<userId>`: the adapter prefixes every id with its
   tenant.
 - **Demo:** `make wf-demo` (add `CRASH=1` for the crash-recovery variant). The
-  script kills any `dist/main` process and starts its own backend from
-  `apps/backend/dist`, so stop `make dev` and build first:
-  `pnpm --filter @tropis/backend build`. The script waits for `GET /api/health`
-  to return 200, so the whole core stack must be healthy (`make up`); the
-  follow-up emails land in Mailpit (http://localhost:8025).
+  script runs the shipped role bundles, `dist/public/main.js` (API on :3100)
+  and `dist/worker/main.js` (consumers, relay and the Temporal worker; ops on
+  :9465), rebuilding them first when `src/` is newer, and stops both on exit;
+  the crash variant kills both mid-timer and starts them again. It refuses to
+  start while something else answers on :3100, so stop `make dev` first. It
+  waits for `GET /api/health`, the worker's `/readyz` and the Temporal worker
+  to start, so the core stack must be healthy (`make up`); logs go to
+  `$TMPDIR/tropis-wf-demo/`, and the follow-up emails land in Mailpit
+  (http://localhost:8025).
 
 ```bash
 docker logs tropis_temporal                                          # Temporal server
@@ -658,6 +676,7 @@ default). Variables read by the code but outside the schema are marked below.
 | `JWT_SECRET` / `JWT_EXPIRES_IN`                                                                      | required / `15m`                                                                | secret must be ≥ 32 chars                                                                                                                                                                                                                               |
 | `COOKIE_SECURE`                                                                                      | on unless `NODE_ENV` is `development` or `test`                                 | `Secure` flag of the `tropis_rt` refresh cookie; set `false` only to serve plain HTTP outside development                                                                                                                                               |
 | `OAUTH_TENANT_ID`                                                                                    | empty                                                                           | tenant Google/GitHub sign-ins land in; empty makes OAuth callbacks fail with `TENANT_REQUIRED`. It must be registered and active, and first sign-ins need its `selfSignup` on                                                                           |
+| `NATIVE_OAUTH_REDIRECTS`                                                                             | `tropis://auth/callback`                                                        | comma-separated custom-scheme URLs an OAuth sign-in may return a native shell to (exact match; no http(s), no fragment); empty turns native OAuth off ([api-conventions.md](api-conventions.md#native-sessions))                                        |
 | `API_KEYS`                                                                                           | dev key `svc-ingest` for tenant `dev` in the example; schema default `{}`       | JSON map `{"<keyId>": {"secret": "...", "tenantId": "..."}}` for HMAC-signed REST; a signed request runs in its key's tenant; any other shape fails validation at startup; `{}` disables the signed tier — see [api-conventions.md](api-conventions.md) |
 | `SERVICE_TOKEN`                                                                                      | empty                                                                           | internal RPC tier identity (`x-service-token`); empty disables the tier (`UNIMPLEMENTED`)                                                                                                                                                               |
 | `RATE_LIMIT_TTL_MS` / `RATE_LIMIT_DEFAULT` / `RATE_LIMIT_AUTH` / `RATE_LIMIT_REFRESH`                | `60000` / `100` / `10` / `60`                                                   | per-client-address limits, counted in Redis across replicas; `RATE_LIMIT_AUTH` covers login, the OAuth code exchange and OAuth callbacks; refresh has its own `RATE_LIMIT_REFRESH`, because it runs on every page load                                  |
@@ -689,7 +708,7 @@ default). Variables read by the code but outside the schema are marked below.
 | `TYPEORM_SYNC`                                                                                       | `false`; `true` in the example                                                  | TypeORM `synchronize` (boolean) — keep it off outside local dev                                                                                                                                                                                         |
 | `POSTGRES_RETRY_ATTEMPTS` / `POSTGRES_RETRY_DELAY`                                                   | `30` / `3000`                                                                   | connection retries at startup                                                                                                                                                                                                                           |
 | `ELASTICSEARCH_NODE` / `_USERNAME` / `_PASSWORD`                                                     | `http://localhost:9200` / empty / empty                                         |                                                                                                                                                                                                                                                         |
-| `OPA_URL` / `OPA_TOKEN`                                                                              | `http://localhost:8181` / empty                                                 | `OPA_TOKEN`, when set, is sent as a bearer token (OPA `--authentication=token`)                                                                                                                                                                         |
+| `OPA_URL` / `OPA_TOKEN`                                                                              | `http://localhost:8181` / empty; `tropis-dev-opa-token` in the example          | `OPA_TOKEN` is sent as a bearer token and must equal the token OPA runs with (`--authentication=token`; Compose default `tropis-dev-opa-token`)                                                                                                         |
 | `MINIO_ENDPOINT` / `_PORT` / `_USE_SSL` / `_ACCESS_KEY` / `_SECRET_KEY` / `_BUCKET`                  | `localhost` / `9900` / `false` / `minioadmin` / `minioadmin123` / `app-uploads` |                                                                                                                                                                                                                                                         |
 | `SMTP_HOST` / `_PORT` / `_FROM` / `_USER` / `_PASS`                                                  | `localhost` / `1025` / `noreply@tropis.local` / empty / empty                   | Mailpit in dev                                                                                                                                                                                                                                          |
 | `OTEL_SERVICE_NAME` / `OTEL_EXPORTER_OTLP_ENDPOINT`                                                  | `tropis-backend` / `http://localhost:4318/v1/traces`                            | traces go to the OTel Collector (`observability` profile)                                                                                                                                                                                               |
@@ -846,10 +865,16 @@ pnpm --filter @tropis/backend migrate:create my-change-name       # new migratio
 `infra/postgres/init.sql` runs once on the first start of an empty volume, as
 the superuser, and provides only what a migration user may lack the privilege
 to create: the `vector` extension and the `tropis_tenant_scope` role, granted
-to the connecting user. The pgvector adapter also creates `vector_embeddings`
-with its row-level security at backend startup if it is missing (idempotent),
-so similarity search works before the first `make migrate`; `make test-e2e`
-runs the migrations itself. Rollback rules for production:
+to the connecting user. The backend never changes the schema, so its runtime
+user needs no DDL privilege and replicas cannot race on it: at startup and on
+every health check until it matches, the pgvector adapter verifies that
+`vector_embeddings` exists with the 384-dimension `embedding` column, forced
+row-level security and the `tenant_isolation` policy, and until then reports
+`vector` as `down` with the missing piece and `run the relational migrations
+(make migrate)`. `vector` is not a readiness dependency of any role, so the
+role stays ready and lists it in `degraded`; it turns `up` without a restart
+once `make migrate` has run. `make test-e2e` runs the migrations itself.
+Rollback rules for production:
 [deployment.md](deployment.md).
 
 ### ClickHouse tables
