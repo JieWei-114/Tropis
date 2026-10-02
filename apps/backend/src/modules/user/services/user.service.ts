@@ -1,5 +1,14 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Optional } from '@nestjs/common';
+import {
+  CREDENTIAL_ATTEMPTS,
+  type CredentialAttempts,
+} from '../../../common/auth/credential-attempts.port';
 import * as bcrypt from 'bcrypt';
+import {
+  decodeOffsetPageToken,
+  encodeOffsetPageToken,
+  resolvePageSize,
+} from '@tropis/shared';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { AppError } from '../../../common/errors';
 import { createLogger } from '../../../common/observability/logger';
@@ -17,7 +26,11 @@ import {
   SUSPENDED_TTL_SECONDS,
   USER_ERROR_CODES,
 } from '../constants/user.constants';
-import { IUserResponse, IUserWithPassword } from '../interfaces/user.interface';
+import {
+  IUserResponse,
+  IUserWithPassword,
+  type UserRolesPage,
+} from '../interfaces/user.interface';
 import {
   CreateUserCommand,
   type ProviderIdentity,
@@ -42,6 +55,8 @@ export interface UpdateActor {
   userId: string;
   /** The caller's current password, required to change their own password or email. */
   currentPassword?: string;
+  /** The caller's client address, for the login lockout. */
+  ip?: string;
 }
 
 /** Profile of an account created on first sign-in with an OAuth provider. */
@@ -83,6 +98,11 @@ export class UserService {
     @Inject(KV) private readonly kv: KvPort,
     private readonly tenantCtx: TenantContext,
     private readonly signupPolicy: SignupPolicyService,
+    // Absent in the worker role, which loads UserModule without AuthModule
+    // and never runs a self-change.
+    @Optional()
+    @Inject(CREDENTIAL_ATTEMPTS)
+    private readonly attempts?: CredentialAttempts,
   ) {}
 
   // ── Create ─────────────────────────────────────────────────────────
@@ -98,7 +118,7 @@ export class UserService {
 
   /**
    * First sign-in with an OAuth provider: the same create command as
-   * sign-up, so the account gets the default role and user.created reaches
+   * sign-up, so the account gets the default role and identity.user.created reaches
    * every projection. The tenant must accept self sign-up.
    */
   async signUpWithProvider(
@@ -246,8 +266,26 @@ export class UserService {
       dto.email !== undefined && dto.email.toLowerCase() !== user.email;
     if (!dto.password && !changesEmail) return;
     if (!user.passwordHash) return;
-    const given = actor.currentPassword ?? '';
-    if (!given || !(await bcrypt.compare(given, user.passwordHash))) {
+    await this.verifyCurrentPassword(
+      user.email,
+      user.passwordHash,
+      actor.currentPassword ?? '',
+      actor.ip ?? 'unknown',
+    );
+  }
+
+  /** The one place a self-change checks the current password. */
+  private async verifyCurrentPassword(
+    email: string,
+    passwordHash: string,
+    given: string,
+    ip: string,
+  ): Promise<void> {
+    const tenant = this.tenantCtx.tenant;
+    await this.attempts?.assertAllowed(tenant, email, ip);
+    const matches = !!given && (await bcrypt.compare(given, passwordHash));
+    if (!matches) {
+      await this.attempts?.recordFailure(tenant, email, ip);
       throw new AppError('AUTH_CURRENT_PASSWORD_REQUIRED');
     }
   }
@@ -281,13 +319,29 @@ export class UserService {
 
   // ── Roles ──────────────────────────────────────────────────────────
   /** Current roles for every user, keyed by id — powers the Users page column. */
-  async listRoles(): Promise<Record<string, UserRole[]>> {
-    const users = await this.userRepo.findAllRaw(this.tenantCtx.tenant);
-    const map: Record<string, UserRole[]> = {};
-    for (const u of users) {
-      map[u._id.toString()] = u.roles ?? [];
+  async listRoles(pageSize?: number, pageToken = ''): Promise<UserRolesPage> {
+    const limit = resolvePageSize(pageSize);
+    const offset = decodeOffsetPageToken(pageToken);
+    if (offset === undefined) {
+      throw AppError.validation([
+        { field: 'pageToken', description: 'pageToken is not valid' },
+      ]);
     }
-    return map;
+    const { data, total } = await this.userRepo.findRolesPage(
+      this.tenantCtx.tenant,
+      offset,
+      limit,
+    );
+    const next = offset + data.length;
+    return {
+      items: data.map((u) => ({
+        userId: u._id.toString(),
+        roles: u.roles ?? [],
+      })),
+      nextPageToken:
+        data.length > 0 && next < total ? encodeOffsetPageToken(next) : '',
+      totalSize: total,
+    };
   }
 
   /**

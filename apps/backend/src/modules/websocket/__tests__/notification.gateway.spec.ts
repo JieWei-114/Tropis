@@ -184,7 +184,7 @@ describe('NotificationGateway', () => {
     gateway.handlePing(socket as never);
     expect(socket.emit).toHaveBeenCalledWith(
       'pong',
-      expect.objectContaining({ ts: expect.any(Number) }),
+      expect.objectContaining({ ts: expect.any(Number) as unknown }),
     );
   });
 
@@ -224,19 +224,21 @@ describe('NotificationGateway', () => {
       await connected(WS_REVALIDATE_CONCURRENCY * 3);
       let active = 0;
       let peak = 0;
-      const real = t.verifier.verify.bind(t.verifier);
-      jest.spyOn(t.verifier, 'verify').mockImplementation(async (token) => {
-        active += 1;
-        peak = Math.max(peak, active);
-        await new Promise((r) => setTimeout(r, 1));
-        active -= 1;
-        return real(token);
-      });
+      const real = t.verifier.verify.bind(
+        t.verifier,
+      ) as TestVerifier['verifier']['verify'];
+      const verify = jest
+        .spyOn(t.verifier, 'verify')
+        .mockImplementation(async (token) => {
+          active += 1;
+          peak = Math.max(peak, active);
+          await new Promise((r) => setTimeout(r, 1));
+          active -= 1;
+          return real(token);
+        });
       await gateway.revalidateConnections();
       expect(peak).toBeLessThanOrEqual(WS_REVALIDATE_CONCURRENCY);
-      expect(t.verifier.verify).toHaveBeenCalledTimes(
-        WS_REVALIDATE_CONCURRENCY * 3,
-      );
+      expect(verify).toHaveBeenCalledTimes(WS_REVALIDATE_CONCURRENCY * 3);
     });
 
     it('skips a tick while the previous sweep is still running', async () => {

@@ -31,7 +31,7 @@ export class UpdateRolesCommand implements ICommand {
 
 /**
  * Replaces a user's roles in one transaction with the event-store entry and
- * the `user.updated` outbox event (carrying the roles), and bumps the token
+ * the `identity.user.updated` outbox event (carrying the roles), and bumps the token
  * version so sessions issued under the old roles end. Demoting an admin
  * requires another active admin, checked inside the same transaction
  * (UserRepository.touchOtherAdmins), so concurrent demotions cannot remove

@@ -7,7 +7,7 @@ import {
   SubscribeMessage,
   ConnectedSocket,
 } from '@nestjs/websockets';
-import type { Namespace, Socket } from 'socket.io';
+import type { DefaultEventsMap, Namespace, Socket } from 'socket.io';
 import {
   Inject,
   Injectable,
@@ -74,13 +74,30 @@ function allowOrigin(
 interface RoomMember {
   join(rooms: string | string[]): unknown;
   leave(room: string): unknown;
-  data: { session?: SocketSession };
+  data: SocketData;
 }
 
 interface SocketSession {
   principal: Principal;
   token: string;
 }
+
+export interface SocketData {
+  session?: SocketSession;
+}
+
+type SessionSocket = Socket<
+  DefaultEventsMap,
+  DefaultEventsMap,
+  DefaultEventsMap,
+  SocketData
+>;
+type SessionNamespace = Namespace<
+  DefaultEventsMap,
+  DefaultEventsMap,
+  DefaultEventsMap,
+  SocketData
+>;
 
 /**
  * Socket.IO gateway at /ws. The handshake token goes through the shared
@@ -109,7 +126,7 @@ export class NotificationGateway
     OnGatewayDisconnect,
     OnModuleDestroy
 {
-  @WebSocketServer() server: Namespace;
+  @WebSocketServer() server: SessionNamespace;
 
   private readonly logger = createLogger('websocket');
   private revalidation: NodeJS.Timeout | null = null;
@@ -160,7 +177,7 @@ export class NotificationGateway
     this.revalidation = null;
   }
 
-  async handleConnection(client: Socket): Promise<void> {
+  async handleConnection(client: SessionSocket): Promise<void> {
     const token =
       (client.handshake.auth?.token as string | undefined) ??
       bearerFromHeader(client.handshake.headers?.authorization);
@@ -195,12 +212,12 @@ export class NotificationGateway
     this.userSockets.get(key)!.add(client.id);
   }
 
-  handleDisconnect(client: Socket): void {
+  handleDisconnect(client: SessionSocket): void {
     const timer = this.expiryTimers.get(client.id);
     if (timer) clearTimeout(timer);
     this.expiryTimers.delete(client.id);
 
-    const session = client.data.session as SocketSession | undefined;
+    const session = client.data.session;
     if (!session) return;
     const key = userRoom(session.principal.tenantId, session.principal.userId);
     this.userSockets.get(key)?.delete(client.id);
@@ -220,7 +237,7 @@ export class NotificationGateway
     const worker = async () => {
       while (next < sockets.length) {
         const socket = sockets[next++];
-        const session = socket.data.session as SocketSession | undefined;
+        const session = socket.data.session;
         if (!session) {
           socket.disconnect(true);
           continue;
@@ -270,7 +287,7 @@ export class NotificationGateway
   }
 
   @SubscribeMessage('ping')
-  handlePing(@ConnectedSocket() client: Socket) {
+  handlePing(@ConnectedSocket() client: SessionSocket) {
     client.emit('pong', { ts: Date.now() });
   }
 
@@ -278,7 +295,7 @@ export class NotificationGateway
     return this.userSockets.size;
   }
 
-  private armExpiry(client: Socket, exp: number): void {
+  private armExpiry(client: SessionSocket, exp: number): void {
     const delay = exp * 1000 - Date.now();
     if (delay <= 0) {
       client.disconnect(true);

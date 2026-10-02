@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { create } from '@bufbuild/protobuf';
+import { timestampDate, type Timestamp } from '@bufbuild/protobuf/wkt';
 import { Code, ConnectError, type HandlerContext } from '@connectrpc/connect';
 import { toConnectError } from '../../../infrastructure/rpc/rpc-errors';
 import { AppError } from '../../../common/errors';
@@ -74,21 +75,18 @@ const rpcCode = async (promise: Promise<unknown>): Promise<Code> => {
   throw new Error('expected an error');
 };
 
+type UserRpcServices = Pick<
+  UserService,
+  'create' | 'signUp' | 'findAll' | 'findById' | 'update' | 'delete'
+> &
+  Pick<UserSearchService, 'search' | 'findSimilar'>;
+
 describe('UserRpcController', () => {
   let controller: RpcCalls<UserRpcController>;
-  let authz: RpcAuthzService;
-  let userService: Record<
-    | 'create'
-    | 'signUp'
-    | 'findAll'
-    | 'findById'
-    | 'update'
-    | 'delete'
-    | 'search'
-    | 'findSimilar',
-    jest.Mock
-  >;
-  let opaService: jest.Mocked<PolicyPort>;
+  let userService: {
+    [K in keyof UserRpcServices]: jest.MockedFunction<UserRpcServices[K]>;
+  };
+  let opaService: { allow: jest.MockedFunction<PolicyPort['allow']> };
 
   const ctx = (token?: string): HandlerContext =>
     rpcContextFor(credentialsFor(token));
@@ -106,8 +104,10 @@ describe('UserRpcController', () => {
     };
 
     opaService = {
-      allow: jest.fn().mockResolvedValue(true),
-    } as unknown as jest.Mocked<PolicyPort>;
+      allow: jest
+        .fn<Promise<boolean>, Parameters<PolicyPort['allow']>>()
+        .mockResolvedValue(true),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -125,7 +125,6 @@ describe('UserRpcController', () => {
       module.get(UserRpcController),
       module.get(AuthorizationService),
     );
-    authz = module.get(RpcAuthzService);
   });
 
   // ── Create ───────────────────────────────────────────────────────────────
@@ -266,6 +265,34 @@ describe('UserRpcController', () => {
 
       expect(res.id).toBe('user-123');
       expect(res.age).toBe(30);
+    });
+
+    it('carries the record timestamps as proto Timestamps', async () => {
+      userService.findById.mockResolvedValue(
+        mockUser({
+          createdAt: '2026-09-30T08:15:00.000Z',
+          updatedAt: '2026-10-01T09:00:00.500Z',
+        }),
+      );
+
+      const res = await controller.findById(
+        create(FindByIdRequestSchema, { id: 'user-123' }),
+        ctx(validToken),
+      );
+
+      const iso = (t: unknown) => timestampDate(t as Timestamp).toISOString();
+      expect(iso(res.createdAt)).toBe('2026-09-30T08:15:00.000Z');
+      expect(iso(res.updatedAt)).toBe('2026-10-01T09:00:00.500Z');
+    });
+
+    it('leaves the timestamps unset when the record has none', async () => {
+      userService.findById.mockResolvedValue(mockUser());
+      const res = await controller.findById(
+        create(FindByIdRequestSchema, { id: 'user-123' }),
+        ctx(validToken),
+      );
+      expect(res.createdAt).toBeUndefined();
+      expect(res.updatedAt).toBeUndefined();
     });
 
     it("rejects a non-admin reading someone else's record", async () => {
@@ -424,7 +451,11 @@ describe('UserRpcController', () => {
       expect(userService.update).toHaveBeenCalledWith(
         'user-123',
         expect.objectContaining({ status: 'inactive' }),
-        { userId: 'admin-1', currentPassword: undefined },
+        {
+          userId: 'admin-1',
+          currentPassword: undefined,
+          ip: expect.any(String) as unknown,
+        },
       );
     });
   });

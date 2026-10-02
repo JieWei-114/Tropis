@@ -19,8 +19,9 @@ export interface OnboardingItem {
   workflowId: string;
   userId: string;
   status: string;
-  startTime: number | null;
-  closeTime: number | null;
+  /** ISO 8601 UTC, or null while unknown. */
+  startTime: string | null;
+  closeTime: string | null;
 }
 
 export interface OnboardingSummary {
@@ -109,7 +110,11 @@ function toItem(wf: WorkflowExecution): OnboardingItem {
       ? wf.workflowId.slice(ONBOARDING_ID_PREFIX.length)
       : wf.workflowId,
     status: wf.status,
-    startTime: wf.startTime,
-    closeTime: wf.closeTime,
+    startTime: isoOrNull(wf.startTime),
+    closeTime: isoOrNull(wf.closeTime),
   };
+}
+
+function isoOrNull(epochMs: number | null): string | null {
+  return epochMs === null ? null : new Date(epochMs).toISOString();
 }

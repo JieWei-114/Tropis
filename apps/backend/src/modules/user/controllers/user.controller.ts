@@ -22,7 +22,9 @@ import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { AppError } from '../../../common/errors';
 import { USER_RESOURCE } from '../constants/user.constants';
 import { UserRole } from '../constants/user.enums';
+import { ListRolesQueryDto } from '../dto/list-roles-query.dto';
 import { UpdateRolesDto } from '../dto/update-roles.dto';
+import type { UserRolesPage } from '../interfaces/user.interface';
 import {
   UserAvatarService,
   type AvatarActor,
@@ -58,16 +60,14 @@ export class UserController {
   ) {}
 
   /**
-   * GET /api/users/roles — current roles for every user, keyed by id.
-   * Admin-only: the id→roles map identifies which account holds admin.
+   * GET /api/users/roles?pageSize=&pageToken= — one page of user ids with
+   * their roles (AIP-158). Admin-only: it identifies which accounts hold admin.
    */
   @Get('roles')
   @Authorize(USER_RESOURCE, 'manage_roles')
-  @ApiOperation({
-    summary: 'Roles of every user, keyed by user id (admin only)',
-  })
-  listRoles(): Promise<Record<string, UserRole[]>> {
-    return this.userService.listRoles();
+  @ApiOperation({ summary: 'Roles of the tenant users, paged (admin only)' })
+  listRoles(@Query() query: ListRolesQueryDto): Promise<UserRolesPage> {
+    return this.userService.listRoles(query.pageSize, query.pageToken);
   }
 
   /** PATCH /api/users/:id/roles — replaces a user's roles (admin only). */

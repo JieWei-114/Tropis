@@ -52,7 +52,7 @@ describe('UserProcessor', () => {
     age: 36,
   });
 
-  beforeEach(async () => {
+  beforeEach(() => {
     dedup = {
       claimMany: jest.fn((keys: string[]) =>
         Promise.resolve(keys.map(() => true)),
@@ -163,6 +163,25 @@ describe('UserProcessor', () => {
       'users',
       'user-7',
       expect.objectContaining({ name: 'Ada' }),
+    );
+  });
+
+  it('applies an event under its legacy name as the current type', async () => {
+    await handle(created('user-9'), { id: 'evt-9', type: 'user.created' });
+    expect(search.index).toHaveBeenCalledTimes(1);
+    expect(workflows.start).toHaveBeenCalledTimes(1);
+
+    await handle(
+      { userId: 'user-9', tenantId: 'acme' },
+      {
+        id: 'evt-10',
+        type: 'user.deleted',
+      },
+    );
+    expect(search.remove).toHaveBeenCalledWith(
+      toTenantId('acme'),
+      'users',
+      'user-9',
     );
   });
 

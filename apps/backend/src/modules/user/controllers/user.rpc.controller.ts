@@ -1,4 +1,5 @@
 import type { MessageInitShape } from '@bufbuild/protobuf';
+import { timestampFromDate } from '@bufbuild/protobuf/wkt';
 import type { HandlerContext, ServiceImpl } from '@connectrpc/connect';
 import { decodeOffsetPageToken, encodeOffsetPageToken } from '@tropis/shared';
 import { Audited } from '../../../common/audit/audited.decorator';
@@ -54,6 +55,12 @@ function toRpcUser(u: IUserResponse): UserResponse {
     age: u.age ?? 0,
     status: u.status,
     loginCount: u.loginCount,
+    createdAt: u.createdAt
+      ? timestampFromDate(new Date(u.createdAt))
+      : undefined,
+    updatedAt: u.updatedAt
+      ? timestampFromDate(new Date(u.updatedAt))
+      : undefined,
   };
 }
 
@@ -205,6 +212,7 @@ export class UserRpcController implements ServiceImpl<typeof UserServiceDesc> {
       await this.userService.update(req.id, dto, {
         userId: caller.sub,
         currentPassword: req.currentPassword || undefined,
+        ip: rpcClientAddress(ctx),
       }),
     );
   }
@@ -235,6 +243,7 @@ export class UserRpcController implements ServiceImpl<typeof UserServiceDesc> {
       await this.userService.update(req.id, dto, {
         userId: caller.sub,
         currentPassword: req.currentPassword || undefined,
+        ip: rpcClientAddress(ctx),
       }),
     );
   }

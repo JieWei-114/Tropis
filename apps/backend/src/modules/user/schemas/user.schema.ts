@@ -66,6 +66,9 @@ export class User {
   // Soft delete — null means active, a date means deleted
   @Prop({ type: Date, default: null, index: true })
   deletedAt: Date | null;
+
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

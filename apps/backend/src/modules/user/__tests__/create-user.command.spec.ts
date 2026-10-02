@@ -140,9 +140,21 @@ describe('CreateUserHandler idempotency', () => {
         aggregateId: 'user-1',
         type: USER_EVENTS.CREATED,
         tenantId: 'acme',
-        data: expect.objectContaining({ userId: 'user-1', tenantId: 'acme' }),
+        data: expect.objectContaining({
+          userId: 'user-1',
+          tenantId: 'acme',
+        }) as unknown,
       }),
       expect.anything(),
     );
+  });
+
+  it('emits the event under its current name only', async () => {
+    await handler.execute(command());
+
+    const types = outbox.write.mock.calls.map(
+      ([event]: Parameters<OutboxService['write']>) => event.type,
+    );
+    expect(types).toEqual(['identity.user.created']);
   });
 });

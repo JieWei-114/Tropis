@@ -1,5 +1,5 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import type { UserEventData } from '@tropis/shared';
+import { canonicalEventType, type UserEventData } from '@tropis/shared';
 import {
   EventConsumer,
   type ConsumerHandle,
@@ -13,7 +13,8 @@ import { UserProjectionService } from '../services/user-projection.service';
 
 /**
  * The durable consumer of user events (outbox → broker → here), on a
- * key_shared subscription keyed by user id, once per envelope id. The side
+ * key_shared subscription keyed by user id, once per envelope id; a legacy
+ * type name is applied as its current name. The side
  * effects are UserProjectionService's; ephemeral realtime pushes stay
  * in-process (UserEventHandlers).
  */
@@ -36,7 +37,11 @@ export class UserProcessor implements OnModuleInit, OnModuleDestroy {
         const userId = data.userId ?? envelope.subject;
         if (typeof userId !== 'string') return;
         await this.consumer.once(USER_EVENT_SEEN.global(envelope.id), () =>
-          this.projection.apply(envelope.type, tenantId, userId),
+          this.projection.apply(
+            canonicalEventType(envelope.type),
+            tenantId,
+            userId,
+          ),
         );
       },
     });

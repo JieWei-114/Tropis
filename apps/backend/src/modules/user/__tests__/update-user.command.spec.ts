@@ -62,8 +62,11 @@ describe('UpdateUserHandler', () => {
   });
 
   const endedSessions = () =>
-    (repo.update.mock.calls[0][4] as { endSessions?: boolean } | undefined)
-      ?.endSessions === true;
+    (
+      (repo.update.mock.calls[0] as unknown[])[4] as
+        | { endSessions?: boolean }
+        | undefined
+    )?.endSessions === true;
 
   // Reproduces the gap: changing the password (or email, or status) left
   // every session issued before it working.
@@ -88,9 +91,12 @@ describe('UpdateUserHandler', () => {
     expect(endedSessions()).toBe(false);
   });
 
-  it('carries the roles and status in user.updated', async () => {
+  it('carries the roles and status in identity.user.updated', async () => {
     await handler.execute(new UpdateUserCommand(ID, { name: 'Ada L.' }));
-    expect(outbox.write.mock.calls[0][0].data).toMatchObject({
+    expect(
+      (outbox.write.mock.calls[0] as Parameters<OutboxService['write']>)[0]
+        .data,
+    ).toMatchObject({
       roles: [UserRole.MEMBER],
       status: UserStatus.ACTIVE,
     });

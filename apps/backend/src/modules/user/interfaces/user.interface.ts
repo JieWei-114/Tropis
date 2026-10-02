@@ -8,6 +8,9 @@ export interface IUserResponse {
   status: UserStatus;
   roles: UserRole[];
   loginCount: number;
+  /** ISO 8601 UTC. */
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // Used internally by AuthService only — never sent over the wire
@@ -16,4 +19,11 @@ export interface IUserWithPassword extends IUserResponse {
   tenantId: string;
   /** Bumped on a password, email, role or status change; older tokens stop working. */
   tokenVersion: number;
+}
+
+export interface UserRolesPage {
+  items: { userId: string; roles: string[] }[];
+  /** Empty on the last page. */
+  nextPageToken: string;
+  totalSize: number;
 }

@@ -76,10 +76,11 @@ export interface HealthReport {
 export function withoutMessages(report: HealthReport): HealthReport {
   const strip = (entries: Record<string, ProbeResult> = {}) =>
     Object.fromEntries(
-      Object.entries(entries).map(([key, { message: _message, ...rest }]) => [
-        key,
-        rest,
-      ]),
+      Object.entries(entries).map(([key, result]) => {
+        const rest = { ...result };
+        delete rest.message;
+        return [key, rest];
+      }),
     ) as Record<string, ProbeResult>;
   return {
     ...report,

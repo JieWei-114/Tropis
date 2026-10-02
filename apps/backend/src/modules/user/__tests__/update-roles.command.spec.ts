@@ -65,7 +65,7 @@ describe('UpdateRolesHandler', () => {
 
   // Reproduces the gap: a role change wrote no event, so search, graph and
   // every other projection kept the old roles, and nothing recorded it.
-  it('writes user.updated with the new roles to the outbox in the same transaction', async () => {
+  it('writes identity.user.updated with the new roles to the outbox in the same transaction', async () => {
     await handler.execute(new UpdateRolesCommand(ID, [UserRole.EDITOR]));
     expect(outbox.write).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -77,7 +77,7 @@ describe('UpdateRolesHandler', () => {
           userId: ID,
           roles: [UserRole.EDITOR],
           status: UserStatus.ACTIVE,
-        }),
+        }) as unknown,
       }),
       expect.anything(),
     );

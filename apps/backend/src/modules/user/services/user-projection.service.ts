@@ -27,7 +27,7 @@ interface Sink {
  * Version-safe: a nacked event can be redelivered after later ones of the
  * same user, so the event payload is never projected. The current user is
  * re-read and projected, and a user that is gone (soft-deleted) is purged:
- * an old user.updated arriving after user.deleted cannot bring it back.
+ * an old identity.user.updated arriving after identity.user.deleted cannot bring it back.
  */
 @Injectable()
 export class UserProjectionService {

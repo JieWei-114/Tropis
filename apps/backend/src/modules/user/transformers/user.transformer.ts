@@ -11,20 +11,31 @@ export class UserTransformer {
       status: user.status,
       roles: user.roles ?? [],
       loginCount: user.loginCount,
+      ...isoField('createdAt', user.createdAt),
+      ...isoField('updatedAt', user.updatedAt),
     };
   }
 
   static toResponseList(users: UserDocument[]): IUserResponse[] {
-    return users.map(UserTransformer.toResponse);
+    return users.map((user) => UserTransformer.toResponse(user));
   }
 
   // Used only by AuthService — includes passwordHash for verification
   static toWithPassword(user: UserDocument): IUserWithPassword {
     return {
       ...UserTransformer.toResponse(user),
-      passwordHash: (user as any).passwordHash as string,
+      passwordHash: user.passwordHash,
       tenantId: user.tenantId,
       tokenVersion: user.tokenVersion ?? 0,
     };
   }
+}
+
+function isoField<K extends string>(
+  key: K,
+  value: Date | undefined,
+): Partial<Record<K, string>> {
+  return value instanceof Date && !Number.isNaN(value.getTime())
+    ? ({ [key]: value.toISOString() } as Record<K, string>)
+    : {};
 }

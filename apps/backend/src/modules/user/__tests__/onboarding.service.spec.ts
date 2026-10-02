@@ -28,7 +28,7 @@ describe('OnboardingService', () => {
         {
           workflowId: 'onboarding-u1',
           status: 'RUNNING',
-          startTime: 1,
+          startTime: Date.UTC(2026, 8, 30, 8, 15),
           closeTime: null,
         },
       ]),
@@ -59,7 +59,7 @@ describe('OnboardingService', () => {
           workflowId: 'onboarding-u1',
           userId: 'u1',
           status: 'RUNNING',
-          startTime: 1,
+          startTime: '2026-09-30T08:15:00.000Z',
           closeTime: null,
         },
       ],

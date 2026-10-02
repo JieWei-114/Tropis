@@ -16,6 +16,12 @@ export const USER_EVENTS = {
 
 export const USER_TOPIC = USER_EVENTS_TOPIC;
 
+/** Realtime push names (the WebSocket contract), distinct from the event types. */
+export const USER_REALTIME_EVENTS = {
+  CREATED: 'user.created',
+  UPDATED: 'user.updated',
+} as const;
+
 /** Authorization resource of user records (infra/opa/authz.rego). */
 export const USER_RESOURCE = 'user';
 

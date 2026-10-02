@@ -5,7 +5,7 @@ import {
   REALTIME,
   type RealtimePort,
 } from '../../../infrastructure/realtime/realtime.port';
-import { USER_EVENTS } from '../constants/user.constants';
+import { USER_REALTIME_EVENTS } from '../constants/user.constants';
 import { UserRole } from '../constants/user.enums';
 
 /**
@@ -23,7 +23,7 @@ export class UserEventHandlers {
     await this.realtime.publishToRoles(
       event.tenantId,
       [UserRole.ADMIN],
-      USER_EVENTS.CREATED,
+      USER_REALTIME_EVENTS.CREATED,
       { userId: event.userId, name: event.name },
     );
   }
@@ -33,7 +33,7 @@ export class UserEventHandlers {
     await this.realtime.publishToUser(
       event.tenantId,
       event.userId,
-      USER_EVENTS.UPDATED,
+      USER_REALTIME_EVENTS.UPDATED,
       { userId: event.userId },
     );
   }

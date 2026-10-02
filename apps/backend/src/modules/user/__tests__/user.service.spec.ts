@@ -12,15 +12,18 @@ import { CACHE } from '../../../infrastructure/cache/cache.port';
 import { KV } from '../../../infrastructure/kv/kv.port';
 import { InMemoryKvAdapter } from '../../../infrastructure/kv/__tests__/in-memory-kv.adapter';
 import { SEARCH } from '../../../infrastructure/search/search.port';
-import {
-  ACCOUNT_SUSPENDED_KEY,
-  USER_PROFILE_CACHE,
-} from '../constants/user.constants';
+import { ACCOUNT_SUSPENDED_KEY } from '../constants/user.constants';
 import { UserSimilarityService } from '../services/user-similarity.service';
 import { UserRole, UserStatus } from '../schemas/user.schema';
 import { IUserResponse } from '../interfaces/user.interface';
 import { TenantContext } from '../../../common/tenant/tenant.context';
 import { SignupPolicyService } from '../services/signup-policy.service';
+
+type MethodMocks<T> = {
+  [K in keyof T]: T[K] extends (...args: infer A) => infer R
+    ? jest.Mock<R, A>
+    : T[K];
+};
 
 const USER_ID = '64b7f0c2a1b2c3d4e5f60718';
 
@@ -34,11 +37,14 @@ const mockUser = (overrides = {}): IUserResponse => ({
   ...overrides,
 });
 
+import { CREDENTIAL_ATTEMPTS } from '../../../common/auth/credential-attempts.port';
+
 describe('UserService', () => {
   let service: UserService;
-  let commandBus: jest.Mocked<CommandBus>;
-  let queryBus: jest.Mocked<QueryBus>;
-  let repo: jest.Mocked<UserRepository>;
+  let attempts: { assertAllowed: jest.Mock; recordFailure: jest.Mock };
+  let commandBus: MethodMocks<CommandBus>;
+  let queryBus: MethodMocks<QueryBus>;
+  let repo: MethodMocks<UserRepository>;
   let search: {
     ensureIndex: jest.Mock;
     index: jest.Mock;
@@ -54,8 +60,8 @@ describe('UserService', () => {
   const TENANT = toTenantId('acme');
 
   beforeEach(async () => {
-    commandBus = { execute: jest.fn() } as unknown as jest.Mocked<CommandBus>;
-    queryBus = { execute: jest.fn() } as unknown as jest.Mocked<QueryBus>;
+    commandBus = { execute: jest.fn() } as unknown as MethodMocks<CommandBus>;
+    queryBus = { execute: jest.fn() } as unknown as MethodMocks<QueryBus>;
 
     repo = {
       findAll: jest.fn(),
@@ -65,10 +71,12 @@ describe('UserService', () => {
       findByEmailWithPassword: jest.fn(),
       findByIdWithPassword: jest.fn(),
       findAccess: jest.fn(),
+      findRolesPage: jest.fn(),
+      findByIds: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
-    } as unknown as jest.Mocked<UserRepository>;
+    } as unknown as MethodMocks<UserRepository>;
 
     search = {
       ensureIndex: jest.fn().mockResolvedValue(undefined),
@@ -86,6 +94,10 @@ describe('UserService', () => {
       ),
     };
     signupPolicy = { assertAllowed: jest.fn().mockResolvedValue(undefined) };
+    attempts = {
+      assertAllowed: jest.fn().mockResolvedValue(undefined),
+      recordFailure: jest.fn().mockResolvedValue(undefined),
+    };
     eventEmitter = { emit: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -101,6 +113,7 @@ describe('UserService', () => {
         { provide: KV, useValue: kv },
         { provide: CACHE, useValue: cache },
         { provide: SignupPolicyService, useValue: signupPolicy },
+        { provide: CREDENTIAL_ATTEMPTS, useValue: attempts },
         // UserService reads the ambient tenant for every repository call.
         {
           provide: TenantContext,
@@ -339,6 +352,56 @@ describe('UserService', () => {
 
   // ── roles ──────────────────────────────────────────────────────────
 
+  describe('listRoles', () => {
+    const rows = (ids: string[]) =>
+      ids.map((id) => ({
+        _id: id,
+        roles: [UserRole.MEMBER],
+      })) as unknown as Awaited<
+        ReturnType<UserRepository['findRolesPage']>
+      >['data'];
+
+    it('returns one AIP page with a token for the next', async () => {
+      repo.findRolesPage.mockResolvedValue({
+        data: rows(['a', 'b']),
+        total: 5,
+      });
+
+      const page = await service.listRoles(2);
+
+      expect(repo.findRolesPage).toHaveBeenCalledWith(TENANT, 0, 2);
+      expect(page.items).toEqual([
+        { userId: 'a', roles: [UserRole.MEMBER] },
+        { userId: 'b', roles: [UserRole.MEMBER] },
+      ]);
+      expect(page.totalSize).toBe(5);
+      expect(page.nextPageToken).not.toBe('');
+
+      repo.findRolesPage.mockResolvedValue({
+        data: rows(['c', 'd']),
+        total: 5,
+      });
+      await service.listRoles(2, page.nextPageToken);
+      expect(repo.findRolesPage).toHaveBeenCalledWith(TENANT, 2, 2);
+    });
+
+    it('ends with an empty token and clamps the page size', async () => {
+      repo.findRolesPage.mockResolvedValue({ data: rows(['a']), total: 1 });
+
+      const page = await service.listRoles(1000);
+
+      expect(repo.findRolesPage).toHaveBeenCalledWith(TENANT, 0, 100);
+      expect(page.nextPageToken).toBe('');
+    });
+
+    it('rejects a token this server did not issue', async () => {
+      await expect(service.listRoles(10, 'garbage!')).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+      });
+      expect(repo.findRolesPage).not.toHaveBeenCalled();
+    });
+  });
+
   describe('updateRoles', () => {
     it('dispatches UpdateRolesCommand', async () => {
       commandBus.execute.mockResolvedValue([UserRole.ADMIN]);
@@ -383,6 +446,45 @@ describe('UserService', () => {
         expect(commandBus.execute).not.toHaveBeenCalled();
       },
     );
+
+    it('counts a wrong current password toward the login lockout', async () => {
+      repo.findByIdWithPassword.mockResolvedValue(
+        (await withHash('old-password-1')) as never,
+      );
+      await expect(
+        service.update(
+          USER_ID,
+          { password: 'new-password-1' },
+          {
+            userId: USER_ID,
+            currentPassword: 'wrong-password',
+            ip: '10.0.0.9',
+          },
+        ),
+      ).rejects.toMatchObject({ code: 'AUTH_CURRENT_PASSWORD_REQUIRED' });
+      expect(attempts.recordFailure).toHaveBeenCalledWith(
+        TENANT,
+        expect.any(String),
+        '10.0.0.9',
+      );
+    });
+
+    it('refuses the check while the account is locked out', async () => {
+      repo.findByIdWithPassword.mockResolvedValue(
+        (await withHash('old-password-1')) as never,
+      );
+      attempts.assertAllowed.mockRejectedValue(
+        new AppError('AUTH_LOGIN_LOCKED'),
+      );
+      await expect(
+        service.update(
+          USER_ID,
+          { password: 'new-password-1' },
+          { userId: USER_ID, currentPassword: 'old-password-1' },
+        ),
+      ).rejects.toMatchObject({ code: 'AUTH_LOGIN_LOCKED' });
+      expect(commandBus.execute).not.toHaveBeenCalled();
+    });
 
     it('accepts the change with the correct current password', async () => {
       repo.findByIdWithPassword.mockResolvedValue(
@@ -441,10 +543,10 @@ describe('UserService', () => {
         { userId: 'b', distance: 0.1 },
         { userId: 'a', distance: 0.2 },
       ]);
-      repo.findByIds = jest.fn().mockResolvedValue([
+      repo.findByIds.mockResolvedValue([
         { _id: 'a', name: 'A', email: 'a@x', status: 'active', roles: [] },
         { _id: 'b', name: 'B', email: 'b@x', status: 'active', roles: [] },
-      ]);
+      ] as unknown as Awaited<ReturnType<UserRepository['findByIds']>>);
 
       const users = await searchService.findSimilar(USER_ID, 2);
 

@@ -62,7 +62,7 @@ describe('UserController avatars', () => {
       expect.any(String),
       3600,
       expect.objectContaining({
-        contentDisposition: expect.stringMatching(/^attachment/),
+        contentDisposition: expect.stringMatching(/^attachment/) as unknown,
       }),
     );
   });
@@ -141,7 +141,7 @@ describe('UserController avatars', () => {
       `avatars/${OWN_ID}/x.png`,
       3600,
       expect.objectContaining({
-        contentDisposition: expect.stringMatching(/^attachment/),
+        contentDisposition: expect.stringMatching(/^attachment/) as unknown,
       }),
     );
   });

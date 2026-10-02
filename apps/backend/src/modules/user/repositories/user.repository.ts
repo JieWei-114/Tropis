@@ -158,7 +158,7 @@ export class UserRepository
 
   /**
    * Permanently removes the document. Writes no outbox event, so search and
-   * vector copies survive; a GDPR erasure path must emit user.deleted too.
+   * vector copies survive; a GDPR erasure path must emit identity.user.deleted too.
    */
   hardDelete(tenantId: TenantId, id: string): Promise<UserDocument | null> {
     return this.findOneAndDelete(tenantId, { _id: id }).exec();
@@ -193,6 +193,24 @@ export class UserRepository
       this.countDocuments(tenantId, LIVE).exec(),
     ]);
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  /** Roles only, by _id ascending, so offset pages stay disjoint. */
+  async findRolesPage(
+    tenantId: TenantId,
+    offset: number,
+    limit: number,
+  ): Promise<{ data: Pick<UserDocument, '_id' | 'roles'>[]; total: number }> {
+    const [data, total] = await Promise.all([
+      this.find(tenantId, LIVE)
+        .select({ roles: 1 })
+        .sort({ _id: 1 })
+        .skip(offset)
+        .limit(limit)
+        .exec(),
+      this.countDocuments(tenantId, LIVE).exec(),
+    ]);
+    return { data, total };
   }
 
   /** Keyset page by _id: stable under inserts and deletes, no count query. */
