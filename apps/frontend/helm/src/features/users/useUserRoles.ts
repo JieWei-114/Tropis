@@ -1,14 +1,31 @@
 /**
  * USERS FEATURE — role management.
  *
- * Roles live on REST (`/api/users/roles`, `PATCH /api/users/:id/roles`) rather
- * than RPC because the proto's UserResponse has no roles field; the SDK
- * wraps both endpoints. Changing roles
+ * Roles live on REST (`/api/users/roles`, paged, and `PATCH
+ * /api/users/:id/roles`) rather than RPC because the proto's UserResponse has
+ * no roles field; the SDK wraps both endpoints. The hook reads every page
+ * into one map keyed by user id. Changing roles
  * requires the `manage_roles` permission, which OPA grants to `admin` only.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getToken, getUserRoles, setUserRoles } from '../../lib/api';
 import { parseApiError } from '../../lib/error';
+
+const ROLES_PAGE_SIZE = 100;
+
+/** Every page of the roles listing, merged into one map keyed by user id. */
+async function readAllRoles(): Promise<Record<string, string[]>> {
+  const byUser: Record<string, string[]> = {};
+  const seen = new Set<string>();
+  let pageToken = '';
+  do {
+    seen.add(pageToken);
+    const page = await getUserRoles({ pageSize: ROLES_PAGE_SIZE, pageToken });
+    for (const { userId, roles } of page.items) byUser[userId] = roles;
+    pageToken = page.nextPageToken;
+  } while (pageToken && !seen.has(pageToken));
+  return byUser;
+}
 
 export const ROLES = ['admin', 'editor', 'viewer', 'member'] as const;
 export type Role = (typeof ROLES)[number];
@@ -32,7 +49,7 @@ export function useUserRoles() {
 
   const query = useQuery({
     queryKey: ['users', 'roles'],
-    queryFn: (): Promise<Record<string, string[]>> => getUserRoles(),
+    queryFn: readAllRoles,
     staleTime: 15_000,
     // The endpoint is admin-only: a 403 is a permanent answer for this user,
     // so retrying it 3x (react-query's default) is pure noise.

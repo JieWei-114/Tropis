@@ -5,9 +5,10 @@
   "description": "Tauri v2 desktop shell wrapping the built frontend (apps/frontend/helm/dist). `build` deliberately passes --no-bundle so the repo-wide `pnpm -r build` does not depend on per-OS installer tooling (the macOS DMG bundler fails on many dev machines); run `bundle` to produce installers.",
   "scripts": {
     "tauri": "tauri",
-    "build": "tauri build --no-bundle",
-    "bundle": "tauri build",
-    "build:debug": "tauri build --debug --no-bundle",
+    "csp": "node scripts/csp-config.mjs",
+    "build": "node scripts/csp-config.mjs && tauri build --no-bundle --config src-tauri/gen/csp.conf.json",
+    "bundle": "node scripts/csp-config.mjs && tauri build --config src-tauri/gen/csp.conf.json",
+    "build:debug": "node scripts/csp-config.mjs && tauri build --debug --no-bundle --config src-tauri/gen/csp.conf.json",
     "check": "cd src-tauri && cargo check"
   },
   "devDependencies": {

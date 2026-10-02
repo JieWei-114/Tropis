@@ -27,6 +27,7 @@ import {
 } from '../features/auth';
 import { PageTracker } from './PageTracker';
 import { useNativeBackButton } from './useNativeBackButton';
+import { useNativeOAuthCallback } from './useNativeOAuthCallback';
 import { useKeyboardAwareInputs } from './useKeyboardAwareInputs';
 import { ThemeProvider, useTheme, type Theme } from './ThemeProvider';
 import { tracker } from '../lib/tracking';
@@ -149,6 +150,8 @@ function stringField(
 function AppInner() {
   // Android back gesture -> SPA history. No-op on web and desktop.
   useNativeBackButton();
+  // Native OAuth return (custom-scheme deep link) -> /auth/callback.
+  useNativeOAuthCallback();
   // Keep a focused field above the soft keyboard. No-op without one.
   useKeyboardAwareInputs();
   const { t } = useTranslation();

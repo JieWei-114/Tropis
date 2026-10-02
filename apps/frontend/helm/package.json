@@ -16,7 +16,9 @@
     "cap:android": "cap open android"
   },
   "dependencies": {
+    "@aparajita/capacitor-secure-storage": "7.1.6",
     "@capacitor/app": "^7.1.2",
+    "@capacitor/browser": "7.0.5",
     "@capacitor/core": "^7.6.8",
     "@hookform/resolvers": "^5.7.1",
     "@radix-ui/react-dialog": "^1.1.23",
@@ -25,6 +27,7 @@
     "@radix-ui/react-select": "^2.3.7",
     "@radix-ui/react-slot": "^1.3.3",
     "@tanstack/react-query": "^5.100.10",
+    "@tauri-apps/api": "2.12.1",
     "@tropis/sdk": "workspace:*",
     "@tropis/shared": "workspace:*",
     "class-variance-authority": "^0.7.1",

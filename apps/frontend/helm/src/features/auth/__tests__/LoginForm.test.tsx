@@ -7,6 +7,7 @@ vi.mock('../../../lib/api', () => ({
   createUser: vi.fn(),
   getToken: vi.fn(() => 'token-abc'),
   startOAuthSignIn: vi.fn(),
+  openOAuthStart: vi.fn(),
 }));
 
 import { LoginForm } from '../components/LoginForm';
@@ -157,5 +158,21 @@ describe('LoginForm', () => {
     expect(await screen.findByTestId('login-error')).toHaveTextContent(
       /secure context/i,
     );
+  });
+
+  it('hands the provider URL to the platform and stays usable in a native shell', async () => {
+    const start = grpcWeb.startOAuthSignIn as Mock;
+    const open = grpcWeb.openOAuthStart as Mock;
+    start.mockResolvedValue('https://api.test/api/auth/google?challenge=x');
+    open.mockResolvedValue(false);
+    const user = userEvent.setup();
+    render(<LoginForm onLogin={vi.fn()} />);
+
+    await user.click(screen.getByTestId('oauth-google'));
+
+    expect(open).toHaveBeenCalledWith(
+      'https://api.test/api/auth/google?challenge=x',
+    );
+    expect(screen.getByTestId('oauth-google')).toBeEnabled();
   });
 });

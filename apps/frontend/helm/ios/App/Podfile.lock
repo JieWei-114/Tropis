@@ -1,22 +1,47 @@
 PODS:
+  - AparajitaCapacitorSecureStorage (7.1.6):
+    - Capacitor
+    - KeychainSwift (~> 21.0)
   - Capacitor (7.6.8):
     - CapacitorCordova
+  - CapacitorApp (7.1.2):
+    - Capacitor
+  - CapacitorBrowser (7.0.5):
+    - Capacitor
   - CapacitorCordova (7.6.8)
+  - KeychainSwift (21.0.0)
 
 DEPENDENCIES:
+  - "AparajitaCapacitorSecureStorage (from `../../../../../node_modules/.pnpm/@aparajita+capacitor-secure-storage@7.1.6/node_modules/@aparajita/capacitor-secure-storage`)"
   - "Capacitor (from `../../../../../node_modules/.pnpm/@capacitor+ios@7.6.8_@capacitor+core@7.6.8/node_modules/@capacitor/ios`)"
+  - "CapacitorApp (from `../../../../../node_modules/.pnpm/@capacitor+app@7.1.2_@capacitor+core@7.6.8/node_modules/@capacitor/app`)"
+  - "CapacitorBrowser (from `../../../../../node_modules/.pnpm/@capacitor+browser@7.0.5_@capacitor+core@7.6.8/node_modules/@capacitor/browser`)"
   - "CapacitorCordova (from `../../../../../node_modules/.pnpm/@capacitor+ios@7.6.8_@capacitor+core@7.6.8/node_modules/@capacitor/ios`)"
 
+SPEC REPOS:
+  trunk:
+    - KeychainSwift
+
 EXTERNAL SOURCES:
+  AparajitaCapacitorSecureStorage:
+    :path: "../../../../../node_modules/.pnpm/@aparajita+capacitor-secure-storage@7.1.6/node_modules/@aparajita/capacitor-secure-storage"
   Capacitor:
     :path: "../../../../../node_modules/.pnpm/@capacitor+ios@7.6.8_@capacitor+core@7.6.8/node_modules/@capacitor/ios"
+  CapacitorApp:
+    :path: "../../../../../node_modules/.pnpm/@capacitor+app@7.1.2_@capacitor+core@7.6.8/node_modules/@capacitor/app"
+  CapacitorBrowser:
+    :path: "../../../../../node_modules/.pnpm/@capacitor+browser@7.0.5_@capacitor+core@7.6.8/node_modules/@capacitor/browser"
   CapacitorCordova:
     :path: "../../../../../node_modules/.pnpm/@capacitor+ios@7.6.8_@capacitor+core@7.6.8/node_modules/@capacitor/ios"
 
 SPEC CHECKSUMS:
+  AparajitaCapacitorSecureStorage: 502bff73187cf9d0164459458ccf47ec65d5895a
   Capacitor: ff6bf01336ac353098378828aff465095a89e459
+  CapacitorApp: f01a913211780e0718dae9750442c3e23f96e106
+  CapacitorBrowser: 6d09f59655e89aede71654ef08b98de55cf032b6
   CapacitorCordova: e61ee8c40101b8cd011d0224261606a290c082cf
+  KeychainSwift: 4a71a45c802fd9e73906457c2dcbdbdc06c9419d
 
-PODFILE CHECKSUM: 8e8317ae55afa596c282d2e4e097c43bc5eeb739
+PODFILE CHECKSUM: c3c59ae40ae861012eb92429397d3fabcbd0a895
 
 COCOAPODS: 1.17.0

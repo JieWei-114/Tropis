@@ -6,6 +6,7 @@ import {
   login,
   createUser,
   getToken,
+  openOAuthStart,
   startOAuthSignIn,
   type OAuthProvider,
 } from '../../../lib/api';
@@ -65,12 +66,14 @@ export function LoginForm({ onLogin }: Props) {
   const [redirecting, setRedirecting] = useState(false);
 
   // The SDK keeps a PKCE verifier for this tab and returns the provider
-  // URL carrying its challenge; the callback trades the code with it.
+  // URL carrying its challenge; the callback trades the code with it. A
+  // native shell opens it in the system browser and stays on this screen.
   const signInWith = async (provider: OAuthProvider) => {
     setError('');
     setRedirecting(true);
     try {
-      window.location.assign(await startOAuthSignIn(provider));
+      const leaving = await openOAuthStart(await startOAuthSignIn(provider));
+      if (!leaving) setRedirecting(false);
     } catch (err) {
       setRedirecting(false);
       setError(parseApiError(err).message);

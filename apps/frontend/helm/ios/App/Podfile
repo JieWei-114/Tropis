@@ -11,7 +11,9 @@ install! 'cocoapods', :disable_input_output_paths => true
 def capacitor_pods
   pod 'Capacitor', :path => '../../../../../node_modules/.pnpm/@capacitor+ios@7.6.8_@capacitor+core@7.6.8/node_modules/@capacitor/ios'
   pod 'CapacitorCordova', :path => '../../../../../node_modules/.pnpm/@capacitor+ios@7.6.8_@capacitor+core@7.6.8/node_modules/@capacitor/ios'
-
+  pod 'AparajitaCapacitorSecureStorage', :path => '../../../../../node_modules/.pnpm/@aparajita+capacitor-secure-storage@7.1.6/node_modules/@aparajita/capacitor-secure-storage'
+  pod 'CapacitorApp', :path => '../../../../../node_modules/.pnpm/@capacitor+app@7.1.2_@capacitor+core@7.6.8/node_modules/@capacitor/app'
+  pod 'CapacitorBrowser', :path => '../../../../../node_modules/.pnpm/@capacitor+browser@7.0.5_@capacitor+core@7.6.8/node_modules/@capacitor/browser'
 end
 
 target 'App' do

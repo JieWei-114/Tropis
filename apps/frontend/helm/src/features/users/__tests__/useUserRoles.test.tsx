@@ -21,16 +21,54 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 describe('useUserRoles', () => {
-  it('reads the roles map through the SDK', async () => {
-    (api.getUserRoles as Mock).mockResolvedValue({ u1: ['admin'] });
+  it('reads every page of the roles listing into one map', async () => {
+    (api.getUserRoles as Mock)
+      .mockResolvedValueOnce({
+        items: [{ userId: 'u1', roles: ['admin'] }],
+        nextPageToken: 'next',
+        totalSize: 2,
+      })
+      .mockResolvedValueOnce({
+        items: [{ userId: 'u2', roles: ['viewer'] }],
+        nextPageToken: '',
+        totalSize: 2,
+      });
+    const { result } = renderHook(() => useUserRoles(), { wrapper });
+    await waitFor(() =>
+      expect(result.current.rolesByUser).toEqual({
+        u1: ['admin'],
+        u2: ['viewer'],
+      }),
+    );
+    expect(api.getUserRoles).toHaveBeenNthCalledWith(1, {
+      pageSize: 100,
+      pageToken: '',
+    });
+    expect(api.getUserRoles).toHaveBeenNthCalledWith(2, {
+      pageSize: 100,
+      pageToken: 'next',
+    });
+  });
+
+  it('stops when the server repeats a page token', async () => {
+    (api.getUserRoles as Mock).mockReset().mockResolvedValue({
+      items: [{ userId: 'u1', roles: ['admin'] }],
+      nextPageToken: 'same',
+      totalSize: 9,
+    });
     const { result } = renderHook(() => useUserRoles(), { wrapper });
     await waitFor(() =>
       expect(result.current.rolesByUser).toEqual({ u1: ['admin'] }),
     );
+    expect(api.getUserRoles).toHaveBeenCalledTimes(2);
   });
 
   it('surfaces the problem title of a rejected role change', async () => {
-    (api.getUserRoles as Mock).mockResolvedValue({});
+    (api.getUserRoles as Mock).mockResolvedValue({
+      items: [],
+      nextPageToken: '',
+      totalSize: 0,
+    });
     (api.setUserRoles as Mock).mockRejectedValue(
       new ApiRequestError(409, {
         type: 'https://errors.tropis.dev/user-last-admin',

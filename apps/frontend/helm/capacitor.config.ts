@@ -18,6 +18,11 @@ import type { CapacitorConfig } from '@capacitor/cli';
  * - for http LAN endpoints during development, run `cap sync` with
  *   CAP_DEV_HTTP=1, which allows mixed content and cleartext traffic. Never
  *   ship a build synced that way.
+ *
+ * Sessions: the refresh token lives in the Keychain / Android Keystore
+ * (@aparajita/capacitor-secure-storage), and OAuth returns through the
+ * `tropis://auth/callback` deep link registered in AndroidManifest.xml and
+ * Info.plist (CFBundleURLTypes). See docs/deployment.md#native-sessions.
  */
 const devHttp = process.env.CAP_DEV_HTTP === '1';
 

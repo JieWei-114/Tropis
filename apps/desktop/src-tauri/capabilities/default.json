@@ -3,5 +3,12 @@
   "identifier": "default",
   "description": "Default capability for the main window",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "allow-session-token-get",
+    "allow-session-token-set",
+    "allow-session-token-clear",
+    "allow-open-oauth-url",
+    "allow-take-oauth-callback"
+  ]
 }

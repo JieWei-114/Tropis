@@ -11,19 +11,22 @@ Channel overview and store submission: [docs/deployment.md](../../docs/deploymen
 ```
 apps/desktop/
 ├── package.json            # @tropis/desktop — only the Tauri CLI, no runtime JS
+├── scripts/csp-config.mjs  # writes src-tauri/gen/csp.conf.json: the CSP connect-src for this build
 └── src-tauri/               # the Rust shell crate
     ├── tauri.conf.json      # ⭐ the config: window size/title, productName,
     │                        #   identifier (dev.tropis.app — replace before release),
     │                        #   frontendDist → ../../../apps/frontend/helm/dist,
     │                        #   beforeBuildCommand builds the frontend first
     ├── capabilities/        # ⭐ permission grants per window (deny-by-default).
-    │   └── default.json     #   Grants only core:default. Every new permission is a
-    │                        #   security decision — add the narrowest one that works.
+    │   └── default.json     #   Grants core:default and the shell's five commands. Every
+    │                        #   new permission is a security decision — add the narrowest one.
     ├── src/
     │   ├── main.rs          # entry point — DO NOT add logic here
-    │   └── lib.rs           # builder wiring; native commands go here (see rules)
+    │   ├── lib.rs           # builder wiring (plugins, state, invoke handler)
+    │   ├── secure_store.rs  # refresh token in the OS keyring (session_token_get/set/clear)
+    │   └── oauth.rs         # open_oauth_url, tropis://auth/callback deep link, take_oauth_callback
     ├── icons/               # generated set — regenerate via `pnpm tauri icon <1024px.png>`
-    ├── build.rs             # tauri build glue (generated, don't edit)
+    ├── build.rs             # tauri build glue + app manifest listing the commands (deny-by-default)
     └── Cargo.toml           # standalone crate (detached [workspace] on purpose —
                              #   it's an app shell, not a member of the root workspace)
 ```
@@ -38,7 +41,9 @@ apps/desktop/
    auto-update. Pattern: `#[tauri::command]` fn in `lib.rs` (extract to
    `src/commands/` when there are more than ~2), registered via
    `.invoke_handler(...)`, called from the frontend with `@tauri-apps/api`'s
-   `invoke()`. Each command needs a matching capability entry.
+   `invoke()`. Each command is listed in `build.rs` and needs a matching
+   capability entry. Native sessions (keyring, OAuth deep link):
+   docs/deployment.md#native-sessions.
 3. **Capabilities are deny-by-default** — treat `capabilities/*.json` like the
    backend's OPA policies: the narrowest permission, reviewed in PR.
 4. **API endpoints are baked at web build time** (`VITE_*`): a desktop build
