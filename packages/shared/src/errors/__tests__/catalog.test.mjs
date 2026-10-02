@@ -123,10 +123,7 @@ test('problem type URIs round-trip for every code', () => {
 
 test('retryable follows the transport semantics', () => {
   for (const e of entries) {
-    if (
-      ['Unavailable', 'DeadlineExceeded', 'Aborted'].includes(e.rpcCode) &&
-      e.code !== 'CAPABILITY_DISABLED'
-    ) {
+    if (['Unavailable', 'DeadlineExceeded', 'Aborted'].includes(e.rpcCode)) {
       assert.equal(e.retryable, true, e.code);
     }
     if (
@@ -140,6 +137,13 @@ test('retryable follows the transport semantics', () => {
       assert.equal(e.retryable, false, e.code);
     }
   }
+});
+
+test('a disabled capability is not implemented here, not an outage', () => {
+  const e = ERROR_CATALOG.CAPABILITY_DISABLED;
+  assert.equal(e.httpStatus, 501);
+  assert.equal(e.rpcCode, 'Unimplemented');
+  assert.equal(e.retryable, false);
 });
 
 test('auth session and account-linking codes', () => {

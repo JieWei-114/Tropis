@@ -221,8 +221,8 @@ export const ERROR_CATALOG = defineCatalog({
     domain: 'health',
   },
   CAPABILITY_DISABLED: {
-    httpStatus: 503,
-    rpcCode: 'Unavailable',
+    httpStatus: 501,
+    rpcCode: 'Unimplemented',
     retryable: false,
     publicMessage: 'This feature is disabled on this server.',
     domain: 'capability',

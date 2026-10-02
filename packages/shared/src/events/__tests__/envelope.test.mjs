@@ -94,31 +94,41 @@ test('event type naming rule', () => {
   assert.ok(!isConformingEventType('User.Account.Created'));
 });
 
-test('the user event names are the known non-conforming ones', () => {
-  for (const type of [
-    EVENT_TYPES.USER_CREATED,
-    EVENT_TYPES.USER_UPDATED,
-    EVENT_TYPES.USER_DELETED,
-  ]) {
-    assert.equal(isConformingEventType(type), false, type);
-  }
-  assert.ok(isConformingEventType(EVENT_TYPES.ANALYTICS_EVENT_RECORDED));
-  assert.ok(isConformingEventType(EVENT_TYPES.TRACKING_BATCH_RECEIVED));
-  assert.ok(isConformingEventType(EVENT_TYPES.MESSAGE_PUBLISHED));
+test('the user events are named identity.user.<past-tense>', () => {
+  assert.equal(EVENT_TYPES.USER_CREATED, 'identity.user.created');
+  assert.equal(EVENT_TYPES.USER_UPDATED, 'identity.user.updated');
+  assert.equal(EVENT_TYPES.USER_DELETED, 'identity.user.deleted');
 });
 
-test('every event type conforms, except the listed legacy names', () => {
-  const { LEGACY_EVENT_TYPES } = require('../../../dist/index.js');
+test('every event type conforms to the naming rule', () => {
   for (const type of Object.values(EVENT_TYPES)) {
-    assert.equal(
-      isConformingEventType(type),
-      !LEGACY_EVENT_TYPES.includes(type),
-      type,
-    );
+    assert.ok(isConformingEventType(type), type);
   }
-  for (const type of LEGACY_EVENT_TYPES) {
-    assert.ok(Object.values(EVENT_TYPES).includes(type), type);
+});
+
+test('legacy names resolve to a current event type', () => {
+  const {
+    LEGACY_EVENT_TYPES,
+    canonicalEventType,
+  } = require('../../../dist/index.js');
+  assert.deepEqual(Object.keys(LEGACY_EVENT_TYPES).sort(), [
+    'user.created',
+    'user.deleted',
+    'user.updated',
+  ]);
+  for (const [legacy, current] of Object.entries(LEGACY_EVENT_TYPES)) {
+    assert.ok(Object.values(EVENT_TYPES).includes(current), legacy);
+    assert.equal(canonicalEventType(legacy), current);
   }
+  assert.equal(
+    canonicalEventType(EVENT_TYPES.USER_UPDATED),
+    EVENT_TYPES.USER_UPDATED,
+  );
+  assert.equal(canonicalEventType('toString'), 'toString');
+  assert.equal(
+    canonicalEventType('billing.invoice.paid'),
+    'billing.invoice.paid',
+  );
 });
 
 test('dataschema and datacontenttype round-trip in binary mode', () => {

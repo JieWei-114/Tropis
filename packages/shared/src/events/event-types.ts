@@ -1,12 +1,11 @@
 /**
  * Event type names (the envelope `type`) of every event the backend
- * publishes. The user events keep their two-segment names; every other type
- * follows `<domain>.<entity>.<past-tense>` (envelope.ts).
+ * publishes. Every type follows `<domain>.<entity>.<past-tense>` (envelope.ts).
  */
 export const EVENT_TYPES = {
-  USER_CREATED: 'user.created',
-  USER_UPDATED: 'user.updated',
-  USER_DELETED: 'user.deleted',
+  USER_CREATED: 'identity.user.created',
+  USER_UPDATED: 'identity.user.updated',
+  USER_DELETED: 'identity.user.deleted',
   ANALYTICS_EVENT_RECORDED: 'analytics.event.recorded',
   TRACKING_BATCH_RECEIVED: 'tracking.batch.received',
   /** A message whose publisher named no type. */
@@ -15,15 +14,19 @@ export const EVENT_TYPES = {
 
 export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];
 
-/**
- * Types that predate the `<domain>.<entity>.<past-tense>` rule. Every other
- * entry of EVENT_TYPES must conform (checked by the envelope tests).
- */
-export const LEGACY_EVENT_TYPES: readonly EventType[] = [
-  EVENT_TYPES.USER_CREATED,
-  EVENT_TYPES.USER_UPDATED,
-  EVENT_TYPES.USER_DELETED,
-];
+export const LEGACY_EVENT_TYPES: Readonly<Record<string, EventType>> =
+  Object.freeze({
+    'user.created': EVENT_TYPES.USER_CREATED,
+    'user.updated': EVENT_TYPES.USER_UPDATED,
+    'user.deleted': EVENT_TYPES.USER_DELETED,
+  });
+
+/** The current name of an event type, resolving a legacy name to its successor. */
+export function canonicalEventType(type: string): string {
+  return Object.prototype.hasOwnProperty.call(LEGACY_EVENT_TYPES, type)
+    ? LEGACY_EVENT_TYPES[type]
+    : type;
+}
 
 /** Analytics event types (`data.eventType` of analytics.event.recorded). */
 export const ANALYTICS_EVENT_TYPES = {
