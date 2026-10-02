@@ -1,14 +1,14 @@
-import { toTenantId } from '../../src/common/keyspace';
-import { Neo4jGraphEngine } from '../../src/infrastructure/graph/adapters/neo4j/neo4j-graph.engine';
-import { GraphClient } from '../../src/infrastructure/graph/graph.client';
-import { MembershipGraphService } from '../../src/features/membership-graph/services/membership-graph.service';
-import { describeWithDocker } from './docker';
+import { toTenantId } from '../../../../src/common/keyspace';
+import { Neo4jGraphEngine } from '../../../../src/infrastructure/graph/adapters/neo4j/neo4j-graph.engine';
+import { GraphClient } from '../../../../src/infrastructure/graph/graph.client';
+import { MembershipGraphService } from '../../../../src/features/membership-graph/services/membership-graph.service';
+import { describeWithDocker } from '../../docker';
 import {
   readyOrStop,
   startContainer,
   waitUntil,
   type StartedContainer,
-} from './containers';
+} from '../../containers';
 
 jest.setTimeout(240_000);
 

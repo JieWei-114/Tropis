@@ -20,6 +20,8 @@ export interface ContainerSpec {
   /** Container port → fixed host port (for brokers that advertise their address). */
   fixedPorts?: Record<number, number>;
   env?: Record<string, string>;
+  /** Host path → container path, mounted read-only. */
+  volumes?: Record<string, string>;
   command?: string[];
 }
 
@@ -59,6 +61,9 @@ export function startContainer(spec: ContainerSpec): StartedContainer {
   }
   for (const [key, value] of Object.entries(spec.env ?? {})) {
     args.push('-e', `${key}=${value}`);
+  }
+  for (const [hostPath, containerPath] of Object.entries(spec.volumes ?? {})) {
+    args.push('-v', `${hostPath}:${containerPath}:ro`);
   }
   args.push(spec.image, ...(spec.command ?? []));
 

@@ -13,7 +13,25 @@ import {
 
 jest.setTimeout(240_000);
 
-const POLICY = resolve(__dirname, '../../../../infra/opa/authz.rego');
+const POLICIES = resolve(__dirname, '../../../../infra/opa');
+const POLICY = resolve(POLICIES, 'authz.rego');
+// The OPA version the shipped image uses: the FROM line of infra/opa/Dockerfile.
+const IMAGE = readFileSync(resolve(POLICIES, 'Dockerfile'), 'utf8').match(
+  /^FROM\s+(\S+)/m,
+)![1];
+const TOKEN = 'conformance-opa-token';
+
+async function waitForHealth(
+  container: StartedContainer,
+  url: string,
+): Promise<void> {
+  await waitUntil(
+    'opa',
+    async () => (await fetch(`${url}/health`)).ok,
+    60_000,
+    container,
+  );
+}
 
 describeWithDocker('Policy conformance (opa)')(
   'Policy conformance (opa)',
@@ -23,19 +41,14 @@ describeWithDocker('Policy conformance (opa)')(
 
     beforeAll(async () => {
       container = startContainer({
-        image: 'openpolicyagent/opa:1.20.1',
+        image: IMAGE,
         label: 'opa',
         ports: [8181],
         command: ['run', '--server', '--addr', '0.0.0.0:8181'],
       });
       url = `http://${container.host}:${container.port(8181)}`;
       await readyOrStop(container, async () => {
-        await waitUntil(
-          'opa',
-          async () => (await fetch(`${url}/health`)).ok,
-          60_000,
-          container,
-        );
+        await waitForHealth(container, url);
         const res = await fetch(`${url}/v1/policies/authz`, {
           method: 'PUT',
           headers: { 'Content-Type': 'text/plain' },
@@ -55,6 +68,56 @@ describeWithDocker('Policy conformance (opa)')(
       unreachable: {
         make: async () =>
           new OpaPolicyAdapter(`http://127.0.0.1:${await freePort()}`),
+      },
+    });
+  },
+);
+
+describeWithDocker('Policy conformance (opa, token auth)')(
+  'Policy conformance (opa, token auth)',
+  () => {
+    let container: StartedContainer;
+    let url: string;
+
+    beforeAll(async () => {
+      container = startContainer({
+        image: IMAGE,
+        label: 'opa-token',
+        ports: [8181],
+        env: { OPA_TOKEN: TOKEN },
+        volumes: { [POLICIES]: '/policies' },
+        command: [
+          'run',
+          '--server',
+          '--addr',
+          '0.0.0.0:8181',
+          '--authentication=token',
+          '--authorization=basic',
+          '/policies',
+        ],
+      });
+      url = `http://${container.host}:${container.port(8181)}`;
+      await readyOrStop(container, () => waitForHealth(container, url));
+    });
+
+    afterAll(async () => {
+      await container?.stop();
+    });
+
+    it('rejects an API call without the token', async () => {
+      const res = await fetch(`${url}/v1/policies`);
+      expect(res.status).toBe(401);
+    });
+
+    describePolicyPort('opa with token auth', {
+      live: { make: () => new OpaPolicyAdapter(url, TOKEN) },
+      unreachable: {
+        make: async () =>
+          new OpaPolicyAdapter(`http://127.0.0.1:${await freePort()}`, TOKEN),
+      },
+      credentials: {
+        wrong: { make: () => new OpaPolicyAdapter(url, 'not-the-token') },
+        missing: { make: () => new OpaPolicyAdapter(url) },
       },
     });
   },

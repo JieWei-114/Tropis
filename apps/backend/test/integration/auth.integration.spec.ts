@@ -114,12 +114,13 @@ describeWithDocker('AuthService (integration)')(
           {
             provide: TENANT_DIRECTORY,
             useValue: {
-              find: async (id: string) => ({
-                id,
-                name: id,
-                status: 'active',
-                selfSignup: true,
-              }),
+              find: (id: string) =>
+                Promise.resolve({
+                  id,
+                  name: id,
+                  status: 'active',
+                  selfSignup: true,
+                }),
             },
           },
           { provide: KV, useFactory: () => new RedisKvAdapter(redis) },

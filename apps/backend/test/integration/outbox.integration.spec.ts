@@ -3,8 +3,9 @@
  * required for multi-document transactions).
  *
  * Verifies:
- *   1. AnalyticsService.create writes the EventLog + outbox row (with its
- *      event attributes) atomically, and a failure rolls both back.
+ *   1. A domain write and its outbox row (with its event attributes) commit
+ *      in one transaction, and a failure rolls both back. The aggregate is
+ *      test-local, so the foundation suite depends on no product feature.
  *   2. Two relay instances running at once publish every row exactly once and
  *      each aggregate's rows in order (per-aggregate leases, no global lock).
  *   3. A failed publish holds back only its own aggregate until the backoff
@@ -17,9 +18,13 @@ import {
   getConnectionToken,
   getModelToken,
 } from '@nestjs/mongoose';
-import type { Connection, Model } from 'mongoose';
-import { ANALYTICS_EVENT_TYPES as AnalyticsEventType } from '@tropis/shared';
-import { DOCUMENTS } from '../../src/infrastructure/documents/documents.port';
+import { randomUUID } from 'crypto';
+import { Schema, type Connection, type Model } from 'mongoose';
+import {
+  DOCUMENTS,
+  type DocumentsPort,
+} from '../../src/infrastructure/documents/documents.port';
+import { sessionOf } from '../../src/infrastructure/documents/transaction';
 import { MongooseDocumentsAdapter } from '../../src/infrastructure/documents/adapters/mongoose/mongoose-documents.adapter';
 import type { Gauge } from 'prom-client';
 import type {
@@ -41,20 +46,6 @@ import {
   OutboxSchema,
   OutboxStatus,
 } from '../../src/infrastructure/outbox/outbox.schema';
-import { AnalyticsService } from '../../src/features/analytics/services/analytics.service';
-import { EventLogRepository } from '../../src/features/analytics/repositories/event-log.repository';
-import { AnalyticsRepository } from '../../src/features/analytics/repositories/analytics.repository';
-import {
-  EventLog,
-  EventLogSchema,
-} from '../../src/features/analytics/schemas/event-log.schema';
-import {
-  ANALYTICS_EVENT_RECORDED,
-  ANALYTICS_TOPIC,
-} from '../../src/features/analytics/constants/analytics.constants';
-import { toTenantId } from '../../src/common/keyspace';
-import { runGlobal } from '../../src/common/tenant/tenant.context';
-import { CACHE } from '../../src/infrastructure/cache/cache.port';
 import type { LockPort } from '../../src/infrastructure/lock/lock.port';
 import { InMemoryLockAdapter } from '../../src/infrastructure/lock/__tests__/in-memory-lock.adapter';
 import { describeWithDocker } from './docker';
@@ -62,6 +53,24 @@ import { describeWithDocker } from './docker';
 jest.setTimeout(240_000);
 
 const TOPIC = 'user-events';
+
+const PROBE_TOPIC = 'probe-events';
+const PROBE_RECORDED = 'probe.record.recorded';
+
+interface ProbeRecord {
+  recordId: string;
+  tenantId: string;
+  label: string;
+}
+
+const ProbeRecordSchema = new Schema<ProbeRecord>(
+  {
+    recordId: { type: String, required: true },
+    tenantId: { type: String, required: true },
+    label: { type: String, required: true },
+  },
+  { collection: 'outbox_probe_records', versionKey: false },
+);
 
 interface Sent {
   aggregateId: string;
@@ -73,13 +82,11 @@ interface Sent {
 describeWithDocker('Outbox (integration)')('Outbox (integration)', () => {
   let mongo: StartedMongoDBContainer;
   let moduleRef: TestingModule;
-  let analyticsService: AnalyticsService;
+  let documents: DocumentsPort;
   let outboxService: OutboxService;
   let outboxModel: Model<OutboxDocument>;
   let headModel: Model<OutboxHeadDocument>;
-  let eventLogModel: Model<EventLog>;
-
-  const cacheStub = { del: jest.fn().mockResolvedValue(undefined) };
+  let probeModel: Model<ProbeRecord>;
 
   beforeAll(async () => {
     mongo = await new MongoDBContainer('mongo:7').start();
@@ -92,19 +99,11 @@ describeWithDocker('Outbox (integration)')('Outbox (integration)', () => {
         MongooseModule.forFeature([
           { name: Outbox.name, schema: OutboxSchema },
           { name: OutboxHead.name, schema: OutboxHeadSchema },
-          { name: EventLog.name, schema: EventLogSchema },
+          { name: 'ProbeRecord', schema: ProbeRecordSchema },
         ]),
       ],
       providers: [
         OutboxService,
-        EventLogRepository,
-        AnalyticsService,
-        // ClickHouse-backed repo — not under test here
-        {
-          provide: AnalyticsRepository,
-          useValue: { getStatsByType: jest.fn(), getMinutelyStats: jest.fn() },
-        },
-        { provide: CACHE, useValue: cacheStub },
         {
           provide: DOCUMENTS,
           inject: [getConnectionToken()],
@@ -116,12 +115,12 @@ describeWithDocker('Outbox (integration)')('Outbox (integration)', () => {
 
     await moduleRef.init();
 
-    analyticsService = moduleRef.get(AnalyticsService);
+    documents = moduleRef.get(DOCUMENTS);
     outboxService = moduleRef.get(OutboxService);
     outboxModel = moduleRef.get(getModelToken(Outbox.name));
     headModel = moduleRef.get(getModelToken(OutboxHead.name));
     await headModel.syncIndexes();
-    eventLogModel = moduleRef.get(getModelToken(EventLog.name));
+    probeModel = moduleRef.get(getModelToken('ProbeRecord'));
     await outboxModel.syncIndexes();
   });
 
@@ -131,56 +130,63 @@ describeWithDocker('Outbox (integration)')('Outbox (integration)', () => {
   });
 
   beforeEach(async () => {
-    await runGlobal(() =>
-      Promise.all([
-        outboxModel.deleteMany({}),
-        headModel.deleteMany({}),
-        eventLogModel.deleteMany({}),
-      ]),
-    );
+    await Promise.all([
+      outboxModel.deleteMany({}),
+      headModel.deleteMany({}),
+      probeModel.deleteMany({}),
+    ]);
     jest.restoreAllMocks();
   });
 
-  const tenant = toTenantId('acme');
-  const dto = {
-    eventType: AnalyticsEventType.PAGE_VIEW,
-    userId: 'user-1',
-    metadata: { page: '/home' },
+  const record = (label: string) => {
+    const recordId = randomUUID();
+    return documents.withTransaction(async (tx) => {
+      await probeModel.create([{ recordId, tenantId: 'acme', label }], {
+        session: sessionOf(tx),
+      });
+      await outboxService.write(
+        {
+          topic: PROBE_TOPIC,
+          aggregateId: recordId,
+          id: recordId,
+          type: PROBE_RECORDED,
+          tenantId: 'acme',
+          data: { recordId, label, tenantId: 'acme' },
+        },
+        tx,
+      );
+      return recordId;
+    });
   };
 
-  it('writes the event log and outbox row atomically in one transaction', async () => {
-    await analyticsService.create(tenant, dto as never);
+  it('writes the domain record and outbox row atomically in one transaction', async () => {
+    const recordId = await record('home');
 
-    const logs = await eventLogModel.find({ tenantId: 'acme' }).exec();
+    const records = await probeModel.find({ tenantId: 'acme' }).exec();
     const rows = await outboxModel.find().exec();
 
-    expect(logs).toHaveLength(1);
+    expect(records).toHaveLength(1);
     expect(rows).toHaveLength(1);
-    expect(rows[0].aggregateId).toBe(logs[0].eventId);
-    expect(rows[0].topic).toBe(ANALYTICS_TOPIC);
+    expect(rows[0].aggregateId).toBe(recordId);
+    expect(rows[0].topic).toBe(PROBE_TOPIC);
     expect(rows[0].status).toBe(OutboxStatus.PENDING);
     expect(rows[0].event).toMatchObject({
-      id: logs[0].eventId,
-      type: ANALYTICS_EVENT_RECORDED,
+      id: recordId,
+      type: PROBE_RECORDED,
       tenantId: 'acme',
       schemaVersion: '1',
     });
-    expect(rows[0].payload.eventType).toBe(AnalyticsEventType.PAGE_VIEW);
-    expect(cacheStub.del).toHaveBeenCalled();
+    expect(rows[0].payload.label).toBe('home');
   });
 
-  it('rolls back the event log when the outbox write fails (atomicity)', async () => {
+  it('rolls back the domain record when the outbox write fails (atomicity)', async () => {
     jest
       .spyOn(outboxService, 'write')
       .mockRejectedValueOnce(new Error('outbox write boom'));
 
-    await expect(analyticsService.create(tenant, dto as never)).rejects.toThrow(
-      'outbox write boom',
-    );
+    await expect(record('home')).rejects.toThrow('outbox write boom');
 
-    expect(await runGlobal(() => eventLogModel.countDocuments().exec())).toBe(
-      0,
-    );
+    expect(await probeModel.countDocuments().exec()).toBe(0);
     expect(await outboxModel.countDocuments().exec()).toBe(0);
   });
 
@@ -221,7 +227,7 @@ describeWithDocker('Outbox (integration)')('Outbox (integration)', () => {
       outboxService.write({
         topic: TOPIC,
         aggregateId,
-        type: 'user.updated',
+        type: 'identity.user.updated',
         tenantId: 'acme',
         data: { seq },
       });
@@ -327,7 +333,7 @@ describeWithDocker('Outbox (integration)')('Outbox (integration)', () => {
         aggregateId: 'legacy',
         event: {
           id: 'evt-legacy',
-          type: 'user.updated',
+          type: 'identity.user.updated',
           tenantId: 'acme',
           time: new Date(),
           schemaVersion: '1',
